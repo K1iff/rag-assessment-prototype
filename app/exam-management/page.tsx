@@ -7,14 +7,12 @@ export default function TeacherDashboard() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('upload');
 
-  // Module: Document Library Portal State
   const [documents, setDocuments] = useState([
     { id: 1, name: 'Theories_of_Personality_Reviewer.pdf', size: '4.2 MB', uploadedBy: 'Carl Abel', date: '2026-07-10' },
     { id: 2, name: 'Abnormal_Psychology_DSM5_Notes.pdf', size: '8.7 MB', uploadedBy: 'Carl Abel', date: '2026-07-09' },
     { id: 3, name: 'Industrial_Organization_Principles.docx', size: '1.5 MB', uploadedBy: 'System Admin', date: '2026-07-05' },
   ]);
 
-  // Module: Exam Parameter Configuration Panel State
   const [config, setConfig] = useState({
     subject: 'Theories of Personality',
     questionCount: '50',
@@ -22,7 +20,6 @@ export default function TeacherDashboard() {
     timeLimit: '60',
   });
 
-  // Module: AI Question Review, Validation, & Editing Interface State
   const [aiQuestions, setAiQuestions] = useState([
     {
       id: 1,
@@ -40,6 +37,12 @@ export default function TeacherDashboard() {
     },
   ]);
 
+  const [cohorts, setCohorts] = useState([
+    { id: 'CO-A1', name: 'Cohort Alpha', course: 'Abnormal Psychology', students: 45, status: 'Active' },
+    { id: 'CO-B2', name: 'Cohort Beta', course: 'Theories of Personality', students: 38, status: 'Active' },
+    { id: 'CO-C3', name: 'Cohort Gamma', course: 'Industrial Psychology', students: 50, status: 'Pending Setup' },
+  ]);
+
   const handleStatusChange = (id: number, newStatus: string) => {
     setAiQuestions(aiQuestions.map(q => q.id === id ? { ...q, status: newStatus } : q));
   };
@@ -47,7 +50,6 @@ export default function TeacherDashboard() {
   return (
     <div className="min-h-screen bg-slate-50 flex">
       
-      {/* Sidebar Navigation */}
       <aside className="w-64 bg-slate-900 text-white flex flex-col hidden md:flex">
         <div className="p-6 border-b border-slate-800">
           <h2 className="font-bold text-lg tracking-tight text-emerald-400">RPLE Faculty Portal</h2>
@@ -72,6 +74,12 @@ export default function TeacherDashboard() {
           >
             AI Question Review
           </button>
+          <button 
+            onClick={() => setActiveTab('cohorts')}
+            className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'cohorts' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+          >
+            Cohort Management
+          </button>
         </nav>
         <div className="p-4 border-t border-slate-800">
           <button 
@@ -83,27 +91,25 @@ export default function TeacherDashboard() {
         </div>
       </aside>
 
-      {/* Main Workspace */}
       <main className="flex-1 p-6 md:p-10">
         
-        {/* Dynamic Section Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-slate-800">
             {activeTab === 'upload' && 'Reference Material Upload & Document Library'}
             {activeTab === 'configure' && 'Exam Parameter Configuration Panel'}
             {activeTab === 'review' && 'AI Question Review, Validation, & Editing Interface'}
+            {activeTab === 'cohorts' && 'Student Cohort & Section Management'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
             {activeTab === 'upload' && 'Upload core psychometrician learning materials to expand the RAG architectural knowledge base.'}
             {activeTab === 'configure' && 'Set targeted parameters for the AI engine to generate specific board exam simulation sets.'}
             {activeTab === 'review' && 'Verify, adjust, and approve AI generated assessment materials prior to student delivery.'}
+            {activeTab === 'cohorts' && 'Organize enrolled students into specific review groups and assign them to targeted exam modules.'}
           </p>
         </div>
 
-        {/* Tab Content 1: Reference Material Upload & Document Library */}
         {activeTab === 'upload' && (
           <div className="space-y-6">
-            {/* Upload Area */}
             <div className="bg-white p-8 rounded-xl shadow-sm border-2 border-dashed border-slate-200 text-center hover:border-emerald-500 transition-colors cursor-pointer">
               <p className="text-sm font-medium text-slate-700">Drag and drop your board exam reviewers here</p>
               <p className="text-xs text-slate-400 mt-1">Supports PDF, DOCX, and TXT format up to 50MB</p>
@@ -112,7 +118,6 @@ export default function TeacherDashboard() {
               </button>
             </div>
 
-            {/* Document Library Portal Table */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
               <div className="p-4 border-b border-slate-100 bg-slate-50/50">
                 <h3 className="font-bold text-sm text-slate-700">Knowledge Base Library Portal</h3>
@@ -141,7 +146,6 @@ export default function TeacherDashboard() {
           </div>
         )}
 
-        {/* Tab Content 2: Exam Parameter Configuration Panel */}
         {activeTab === 'configure' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 max-w-2xl">
             <form onSubmit={(e) => { e.preventDefault(); setActiveTab('review'); }} className="space-y-5">
@@ -200,7 +204,6 @@ export default function TeacherDashboard() {
           </div>
         )}
 
-        {/* Tab Content 3: AI Question Review, Validation, & Editing Interface */}
         {activeTab === 'review' && (
           <div className="space-y-6">
             {aiQuestions.map((q) => (
@@ -244,6 +247,46 @@ export default function TeacherDashboard() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {activeTab === 'cohorts' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+              <h3 className="font-bold text-sm text-slate-700">Active Review Sections</h3>
+              <button className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm">
+                + Create New Cohort
+              </button>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100 text-xs font-bold uppercase text-slate-500 tracking-wider">
+                    <th className="p-4">Cohort ID</th>
+                    <th className="p-4">Group Name</th>
+                    <th className="p-4">Assigned Subject</th>
+                    <th className="p-4">Total Students</th>
+                    <th className="p-4">System Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
+                  {cohorts.map((cohort) => (
+                    <tr key={cohort.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="p-4 font-mono text-xs text-slate-400">{cohort.id}</td>
+                      <td className="p-4 font-bold text-slate-800">{cohort.name}</td>
+                      <td className="p-4 text-slate-600">{cohort.course}</td>
+                      <td className="p-4 text-slate-500">{cohort.students} Enrolled</td>
+                      <td className="p-4">
+                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${cohort.status === 'Active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                          {cohort.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
