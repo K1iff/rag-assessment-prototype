@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 
 export default function LearnerDashboard() {
   const router = useRouter();
-  const [activeView, setActiveView] = useState('courses');
+  const [activeView, setActiveView] = useState('calendar');
   const [selectedCourse, setSelectedCourse] = useState<null | number>(null);
 
   const performanceStats = {
@@ -63,28 +63,28 @@ export default function LearnerDashboard() {
         </div>
         <nav className="flex-1 p-4 space-y-2">
           <button 
-            onClick={() => { setActiveView('courses'); setSelectedCourse(null); }}
-            className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeView === 'courses' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
-          >
-            My Courses
-          </button>
-          <button 
             onClick={() => setActiveView('calendar')}
             className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeView === 'calendar' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
           >
             Weekly Calendar
           </button>
           <button 
-            onClick={() => setActiveView('performance')}
-            className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeView === 'performance' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+            onClick={() => { setActiveView('courses'); setSelectedCourse(null); }}
+            className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeView === 'courses' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
           >
-            Historical Performance
+            My Courses
           </button>
           <button 
             onClick={() => setActiveView('summary')}
             className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeView === 'summary' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
           >
             Latest Exam Summary
+          </button>
+          <button 
+            onClick={() => setActiveView('performance')}
+            className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeView === 'performance' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+          >
+            Historical Performance
           </button>
           <button 
             onClick={() => setActiveView('roadmap')}
@@ -242,32 +242,51 @@ export default function LearnerDashboard() {
             <h1 className="text-2xl font-bold text-slate-800">Student Weekly Schedule & Tasks</h1>
             <p className="text-sm text-slate-500 mt-1 mb-6">View your upcoming reviews, scheduled quizzes, and mandatory simulations.</p>
             
-            <div className="space-y-4 max-w-4xl">
-              {weeklySchedule.map((schedule, idx) => (
-                <div key={idx} className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                  <div>
-                    <h3 className="font-bold text-lg text-slate-800">{schedule.task}</h3>
-                    <p className="text-sm text-slate-500 mt-1">Scheduled for {schedule.day}, {schedule.date} at {schedule.time}</p>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 space-y-4">
+                {weeklySchedule.map((schedule, idx) => (
+                  <div key={idx} className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                      <h3 className="font-bold text-lg text-slate-800">{schedule.task}</h3>
+                      <p className="text-sm text-slate-500 mt-1">Scheduled for {schedule.day}, {schedule.date} at {schedule.time}</p>
+                    </div>
+                    <div>
+                      <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${
+                        schedule.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' : 
+                        schedule.status === 'Pending' ? 'bg-blue-100 text-blue-800' : 
+                        'bg-slate-100 text-slate-600'
+                      }`}>
+                        {schedule.status}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${
-                      schedule.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' : 
-                      schedule.status === 'Pending' ? 'bg-blue-100 text-blue-800 animate-pulse' : 
-                      'bg-slate-100 text-slate-600'
-                    }`}>
-                      {schedule.status}
-                    </span>
-                    {schedule.status === 'Pending' && (
-                      <button 
-                        onClick={() => setActiveView('exam')}
-                        className="ml-4 px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                      >
-                        Start Now
-                      </button>
-                    )}
-                  </div>
+                ))}
+              </div>
+
+              <div className="lg:col-span-1 space-y-6">
+                <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
+                  <h3 className="font-bold text-slate-800 mb-4">Weekly Goals Tracker</h3>
+                  <ul className="space-y-3 text-sm text-slate-600">
+                    <li className="flex items-start gap-3">
+                      <span className="text-emerald-500 mt-0.5">✓</span>
+                      <span>Finish reading Chapters 4 and 5 of Theories of Personality.</span>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <span className="text-blue-500 mt-0.5">○</span>
+                      <span>Score above 80% on the upcoming Abnormal Psychology Quiz.</span>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <span className="text-slate-300 mt-0.5">○</span>
+                      <span>Review last week mock exam errors.</span>
+                    </li>
+                  </ul>
                 </div>
-              ))}
+
+                <div className="bg-blue-50 p-6 rounded-xl border border-blue-100">
+                  <h3 className="font-bold text-blue-800 mb-2">Study Tip</h3>
+                  <p className="text-sm text-blue-900">Consistency is important. Make sure to log in every day to keep your review habits intact and monitor new course announcements.</p>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -369,73 +388,108 @@ export default function LearnerDashboard() {
         )}
 
         {activeView === 'summary' && (
-          <div className="space-y-6 max-w-4xl">
+          <div className="space-y-6">
             <h1 className="text-2xl font-bold text-slate-800">Learner Post Exam Summary View</h1>
             <p className="text-sm text-slate-500 mt-1 mb-6">Examine structural analytics and AI-driven architectural remediation feedback from your last test.</p>
 
-            <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-              <div>
-                <h3 className="font-bold text-lg text-slate-800">{postExamSummary.examName}</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Attempt evaluated on {postExamSummary.completionDate}</p>
-              </div>
-              <div className="text-right">
-                <span className="text-2xl font-black text-emerald-600">{postExamSummary.scoreBreakdown.correct}% Final Mark</span>
-                <p className="text-xs text-slate-500 mt-0.5">{postExamSummary.scoreBreakdown.correct} correct out of {postExamSummary.scoreBreakdown.total} items</p>
-              </div>
-            </div>
-
-            <div className="bg-blue-50 border border-blue-100 p-6 rounded-xl">
-              <h4 className="text-sm font-bold text-blue-800 flex items-center gap-2">
-                🤖 Automated RAG Remediation Insights
-              </h4>
-              <p className="text-sm text-blue-950 mt-2 leading-relaxed">
-                {postExamSummary.aiRagFeedback}
-              </p>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-6">
-              <h4 className="font-bold text-sm text-slate-700 mb-4">Competency Area Performance Profiles</h4>
-              <div className="space-y-4">
-                {postExamSummary.categoryAnalysis.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center border-b border-slate-50 pb-3 last:border-0 last:pb-0">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">{item.category}</p>
-                      <span className="text-xs text-slate-400">Current Accuracy Metric: <b className="text-slate-600">{item.proficiency}</b></span>
-                    </div>
-                    <span className={`px-2.5 py-1 rounded text-xs font-semibold ${item.status === 'Strong Mastery' ? 'bg-emerald-50 text-emerald-700' : item.status === 'Proficient' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
-                      {item.status}
-                    </span>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 space-y-6">
+                <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div>
+                    <h3 className="font-bold text-lg text-slate-800">{postExamSummary.examName}</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Attempt evaluated on {postExamSummary.completionDate}</p>
                   </div>
-                ))}
+                  <div className="text-right">
+                    <span className="text-2xl font-black text-emerald-600">{postExamSummary.scoreBreakdown.correct}% Final Mark</span>
+                    <p className="text-xs text-slate-500 mt-0.5">{postExamSummary.scoreBreakdown.correct} correct out of {postExamSummary.scoreBreakdown.total} items</p>
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-100 p-6 rounded-xl">
+                  <h4 className="text-sm font-bold text-blue-800 flex items-center gap-2">
+                    🤖 Automated RAG Remediation Insights
+                  </h4>
+                  <p className="text-sm text-blue-950 mt-2 leading-relaxed">
+                    {postExamSummary.aiRagFeedback}
+                  </p>
+                </div>
+              </div>
+
+              <div className="lg:col-span-1 space-y-6">
+                <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-6">
+                  <h4 className="font-bold text-sm text-slate-700 mb-4">Competency Area Performance</h4>
+                  <div className="space-y-4">
+                    {postExamSummary.categoryAnalysis.map((item, idx) => (
+                      <div key={idx} className="flex flex-col border-b border-slate-50 pb-3 last:border-0 last:pb-0">
+                        <p className="text-sm font-semibold text-slate-800">{item.category}</p>
+                        <div className="flex justify-between items-center mt-1">
+                          <span className="text-xs text-slate-500">Accuracy: {item.proficiency}</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${item.status === 'Strong Mastery' ? 'bg-emerald-50 text-emerald-700' : item.status === 'Proficient' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
+                            {item.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-amber-50 border border-amber-100 p-6 rounded-xl">
+                  <h4 className="text-sm font-bold text-amber-800">Action Plan</h4>
+                  <p className="text-sm text-amber-900 mt-2">Based on your summary, prioritize Industrial Psychology and read the supplementary resources attached to your course before taking another simulation.</p>
+                </div>
               </div>
             </div>
           </div>
         )}
 
         {activeView === 'roadmap' && (
-          <div className="space-y-6 max-w-3xl">
+          <div className="space-y-6">
             <h1 className="text-2xl font-bold text-slate-800">Interactive PRC Progress Roadmap Visualization</h1>
             <p className="text-sm text-slate-500 mt-1 mb-6">Monitor your macro milestone progression mapped directly against the official board exam syllabus.</p>
 
-            <div className="bg-white p-6 md:p-10 rounded-xl border border-slate-100 shadow-sm">
-              <div className="relative border-l-2 border-slate-200 ml-4 space-y-8 pb-4">
-                {roadmapSteps.map((step) => (
-                  <div key={step.step} className="relative pl-8">
-                    <div className={`absolute -left-[11px] top-0.5 h-5 w-5 rounded-full border-4 flex items-center justify-center transition-all ${
-                      step.completed ? 'bg-emerald-500 border-emerald-200' : 
-                      step.current ? 'bg-blue-600 border-blue-200 animate-pulse' : 
-                      'bg-slate-200 border-slate-100'
-                    }`} />
-                    
-                    <div>
-                      <span className={`text-xs font-bold uppercase tracking-wider ${step.completed ? 'text-emerald-600' : step.current ? 'text-blue-600' : 'text-slate-400'}`}>
-                        Milestone Phase {step.step} {step.current && '(Active Target)'}
-                      </span>
-                      <h3 className="text-base font-bold text-slate-800 mt-0.5">{step.title}</h3>
-                      <p className="text-sm text-slate-500 mt-1 max-w-md">{step.description}</p>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 bg-white p-6 md:p-10 rounded-xl border border-slate-100 shadow-sm">
+                <div className="relative border-l-2 border-slate-200 ml-4 space-y-8 pb-4">
+                  {roadmapSteps.map((step) => (
+                    <div key={step.step} className="relative pl-8">
+                      <div className={`absolute -left-[11px] top-0.5 h-5 w-5 rounded-full border-4 flex items-center justify-center transition-all ${
+                        step.completed ? 'bg-emerald-500 border-emerald-200' : 
+                        step.current ? 'bg-blue-600 border-blue-200 animate-pulse' : 
+                        'bg-slate-200 border-slate-100'
+                      }`} />
+                      
+                      <div>
+                        <span className={`text-xs font-bold uppercase tracking-wider ${step.completed ? 'text-emerald-600' : step.current ? 'text-blue-600' : 'text-slate-400'}`}>
+                          Milestone Phase {step.step} {step.current && '(Active Target)'}
+                        </span>
+                        <h3 className="text-base font-bold text-slate-800 mt-0.5">{step.title}</h3>
+                        <p className="text-sm text-slate-500 mt-1 max-w-md">{step.description}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+              </div>
+
+              <div className="lg:col-span-1 space-y-6">
+                <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
+                  <h3 className="font-bold text-slate-800">Active Target Requirements</h3>
+                  <p className="text-sm text-slate-500 mt-2">To clear Phase 3 you must achieve the following specific goals.</p>
+                  <ul className="mt-4 space-y-3 text-sm text-slate-600">
+                    <li className="flex items-start gap-2">
+                      <span className="text-blue-500 mt-0.5">•</span> 
+                      Complete a minimum of 3 RAG dynamic exams.
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-blue-500 mt-0.5">•</span> 
+                      Secure a score of 75% or higher on each assessment.
+                    </li>
+                  </ul>
+                </div>
+                
+                <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-xl">
+                  <h3 className="font-bold text-emerald-800 mb-2">Progress Update</h3>
+                  <p className="text-sm text-emerald-900">You are currently on track with the recommended review schedule. Keep maintaining your momentum to hit Phase 4 early.</p>
+                </div>
               </div>
             </div>
           </div>
