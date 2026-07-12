@@ -6,16 +6,16 @@ import { useRouter } from 'next/navigation';
 export default function LearnerDashboard() {
   const router = useRouter();
   const [activeView, setActiveView] = useState('calendar');
-  const [selectedCourse, setSelectedCourse] = useState<null | number>(null);
+  const [selectedExam, setSelectedExam] = useState<null | number>(null);
 
   const performanceStats = {
     examsCompleted: 8,
     averageScore: '76.5%',
     globalRank: 'Top 12%',
     recentExams: [
-      { id: 'EX-902', name: 'Comprehensive Mock Exam Area A', score: '82%', date: '2026-07-08', status: 'Passed' },
-      { id: 'EX-884', name: 'Abnormal Psychology Specialized Drill', score: '71%', date: '2026-07-02', status: 'Passed' },
-      { id: 'EX-851', name: 'Theories of Personality Diagnostic', score: '64%', date: '2026-06-25', status: 'Needs Review' },
+      { id: 'EX902', name: 'Comprehensive Mock Exam Area A', score: '82%', date: 'July 8, 2026', status: 'Passed' },
+      { id: 'EX884', name: 'Abnormal Psychology Specialized Drill', score: '71%', date: 'July 2, 2026', status: 'Passed' },
+      { id: 'EX851', name: 'Theories of Personality Diagnostic', score: '64%', date: 'June 25, 2026', status: 'Needs Review' },
     ]
   };
 
@@ -29,29 +29,33 @@ export default function LearnerDashboard() {
       { category: 'Industrial Psychology', proficiency: '62%', status: 'Review Recommended' },
       { category: 'Psychological Assessment', proficiency: '80%', status: 'Strong Mastery' },
     ],
-    aiRagFeedback: 'Your performance indicates an excellent grasp of clinical diagnostic criteria under the DSM-5 framework. However, you consistently dropped marks on organizational behavior models within the Industrial Psychology segment. Focus your next AI generation session on workplace motivation theories.'
+    aiRagFeedback: 'Your performance indicates an excellent grasp of clinical diagnostic criteria under the DSM 5 framework. However, you consistently dropped marks on organizational behavior models within the Industrial Psychology segment. Focus your next AI generation session on workplace motivation theories.'
   };
 
   const roadmapSteps = [
     { step: 1, title: 'Diagnostic Baseline', description: 'Establish foundational knowledge metrics.', completed: true },
-    { step: 2, title: 'Core Subject Drills', description: 'Complete dedicated modules for all 4 major board topics.', completed: true },
-    { step: 3, title: 'AI-Generated Adaptive Simulation', description: 'Surpass a 75% threshold on RAG dynamic exams.', completed: false, current: true },
+    { step: 2, title: 'Core Subject Drills', description: 'Complete dedicated modules for all major board topics.', completed: true },
+    { step: 3, title: 'Adaptive Simulation', description: 'Surpass a passing threshold on dynamic exams.', completed: false, current: true },
     { step: 4, title: 'Full Length Board Simulation', description: 'Simulate the exact timing and constraints of the actual PRC exam.', completed: false },
     { step: 5, title: 'PRC Board Readiness Certified', description: 'Final clearance badge achieved.', completed: false },
   ];
 
   const weeklySchedule = [
-    { day: 'Monday', date: 'July 13', task: 'Review Theories of Personality', time: '10:00 AM', status: 'Completed' },
-    { day: 'Wednesday', date: 'July 15', task: 'Abnormal Psychology Quiz', time: '2:00 PM', status: 'Pending' },
+    { day: 'Monday', date: 'July 13', task: 'Theories of Personality Mock Exam', time: '10:00 AM', status: 'Completed' },
+    { day: 'Wednesday', date: 'July 15', task: 'Abnormal Psychology Diagnostic', time: '2:00 PM', status: 'Pending' },
     { day: 'Friday', date: 'July 17', task: 'Comprehensive Mock Exam Area A', time: '9:00 AM', status: 'Upcoming' },
   ];
 
-  const loadedCourses = [
-    { id: 1, code: 'PSY301', title: 'ABNORMAL PSYCHOLOGY', section: 'Section A1', instructor: 'Dr. Sarah Jenkins', status: 'Open', color: 'bg-rose-900' },
-    { id: 2, code: 'PSY302', title: 'THEORIES OF PERSONALITY', section: 'Section A1', instructor: 'Prof. Mark Davis', status: 'Open', color: 'bg-blue-900' },
-    { id: 3, code: 'PSY303', title: 'INDUSTRIAL PSYCHOLOGY', section: 'Section B2', instructor: 'Dr. Emily Chen', status: 'Open', color: 'bg-emerald-900' },
-    { id: 4, code: 'PSY304', title: 'PSYCHOLOGICAL ASSESSMENT', section: 'Section B2', instructor: 'Multiple Instructors', status: 'Open', color: 'bg-purple-900' },
+  const scheduledExamsList = [
+    { id: 1, title: 'Abnormal Psychology Diagnostic', scope: 'Entire Subject Abnormal Psychology', rules: 'Specific Time July 15, 2026 at 2:00 PM', duration: '60 minutes', status: 'Upcoming', color: 'bg-rose-900' },
+    { id: 2, title: 'Theories of Personality Drill', scope: 'Specific Topics Psychoanalytic and Neopsychoanalytic Theories', rules: 'Take Anytime', duration: '45 minutes', status: 'Available', color: 'bg-blue-900' },
+    { id: 3, title: 'Comprehensive Mock Exam Area A', scope: 'Combined Subjects Area A', rules: 'Specific Time July 17, 2026 at 9:00 AM', duration: '120 minutes', status: 'Upcoming', color: 'bg-emerald-900' },
+    { id: 4, title: 'Industrial Psychology Baseline', scope: 'Entire Subject Industrial Psychology', rules: 'Take Anytime', duration: '60 minutes', status: 'Available', color: 'bg-purple-900' },
   ];
+
+  const handleStartExam = () => {
+    setActiveView('exam');
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
@@ -59,7 +63,7 @@ export default function LearnerDashboard() {
       <aside className="w-full md:w-64 bg-slate-900 text-white flex flex-col">
         <div className="p-6 border-b border-slate-800">
           <h2 className="font-bold text-lg tracking-tight text-blue-400">RPLE Learner Portal</h2>
-          <p className="text-xs text-slate-400 mt-1">Reviewer Workspace</p>
+          <p className="text-xs text-slate-400 mt-1">Mock Exam Workspace</p>
         </div>
         <nav className="flex-1 p-4 space-y-2">
           <button 
@@ -69,10 +73,10 @@ export default function LearnerDashboard() {
             Weekly Calendar
           </button>
           <button 
-            onClick={() => { setActiveView('courses'); setSelectedCourse(null); }}
-            className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeView === 'courses' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+            onClick={() => { setActiveView('exams'); setSelectedExam(null); }}
+            className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeView === 'exams' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
           >
-            My Courses
+            Scheduled Mock Exams
           </button>
           <button 
             onClick={() => setActiveView('summary')}
@@ -105,142 +109,10 @@ export default function LearnerDashboard() {
 
       <main className="flex-1 p-6 md:p-10">
         
-        {activeView === 'courses' && selectedCourse === null && (
-          <div className="space-y-6">
-            <h1 className="text-2xl font-bold text-slate-800">Courses</h1>
-            
-            <div className="flex flex-col md:flex-row gap-4 mb-6">
-              <input 
-                type="text" 
-                placeholder="Search your courses" 
-                className="flex-1 px-4 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500"
-              />
-              <select className="px-4 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500">
-                <option>All Terms</option>
-                <option>1st Term AY2026-2027</option>
-              </select>
-              <select className="px-4 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500">
-                <option>All courses</option>
-                <option>Open courses</option>
-              </select>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {loadedCourses.map((course) => (
-                <div 
-                  key={course.id} 
-                  onClick={() => setSelectedCourse(course.id)}
-                  className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer flex flex-col"
-                >
-                  <div className={`h-32 ${course.color} relative`}>
-                    <div className="absolute inset-0 bg-black bg-opacity-20 flex items-center justify-center">
-                      <span className="text-white font-bold text-xl opacity-50">{course.code}</span>
-                    </div>
-                  </div>
-                  <div className="p-4 flex-1 flex flex-col justify-between">
-                    <div>
-                      <h3 className="font-bold text-sm text-slate-800 leading-tight">{course.code} {course.title}</h3>
-                      <p className="text-xs text-slate-500 mt-1">{course.section}</p>
-                      <p className="text-xs font-semibold text-emerald-600 mt-2">{course.status}</p>
-                    </div>
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center">
-                      <span className="text-xs text-blue-600">{course.instructor}</span>
-                      <button className="text-slate-400 hover:text-slate-600">☆</button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeView === 'courses' && selectedCourse !== null && (
-          <div className="space-y-6">
-            <div className="flex items-center gap-2 text-sm mb-4">
-              <button onClick={() => setSelectedCourse(null)} className="text-blue-600 hover:underline font-medium">Courses</button>
-              <span className="text-slate-400">/</span>
-              <span className="text-slate-600 font-semibold">{loadedCourses.find(c => c.id === selectedCourse)?.title}</span>
-            </div>
-
-            <div className="bg-slate-900 text-white rounded-t-lg flex gap-6 px-6 pt-4 border-b border-slate-700">
-              <button className="pb-3 border-b-2 border-blue-400 font-medium text-sm">Content</button>
-              <button className="pb-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 text-sm">Calendar</button>
-              <button className="pb-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 text-sm">Announcements</button>
-              <button className="pb-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 text-sm">Discussions</button>
-              <button className="pb-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 text-sm">Gradebook</button>
-            </div>
-
-            <div className="bg-white border border-slate-200 rounded-b-lg p-6 shadow-sm">
-              <div className="flex items-start gap-4 mb-8">
-                <div className="h-16 w-16 rounded-full bg-blue-100 border-2 border-blue-200 flex items-center justify-center flex-shrink-0 text-blue-700 font-bold text-xs text-center p-2">
-                  Module 3
-                </div>
-                <div className="flex-1">
-                  <h2 className="text-lg font-bold text-slate-800">Module 3: Core Concepts</h2>
-                  <p className="text-sm text-slate-600 mt-1">In this module, we delve deeper into the fundamental theories and their direct application to psychological assessment and diagnosis.</p>
-                  
-                  <div className="mt-4 flex items-center justify-end gap-3">
-                    <span className="text-xs text-slate-500">5 of 15 completed</span>
-                    <div className="w-48 h-2 bg-slate-200 rounded-full overflow-hidden flex">
-                      <div className="w-1/3 bg-emerald-500 h-full"></div>
-                      <div className="w-2/3 bg-transparent h-full"></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-3 p-3 hover:bg-slate-50 rounded-md cursor-pointer text-sm text-slate-700">
-                  <span className="text-slate-400">📄</span>
-                  <span>Lesson 13: Fundamentals of Assessment</span>
-                </div>
-                <div className="flex items-center gap-3 p-3 hover:bg-slate-50 rounded-md cursor-pointer text-sm text-slate-700">
-                  <span className="text-slate-400">📄</span>
-                  <span>Lesson 14: Analysis of Clinical Data</span>
-                </div>
-                <div className="flex items-center gap-3 p-3 hover:bg-slate-50 rounded-md cursor-pointer text-sm text-slate-700">
-                  <span className="text-slate-400">📄</span>
-                  <span>Lesson 15: Interpretation of Results</span>
-                </div>
-                
-                <div className="mt-6 pt-4 border-t border-slate-100">
-                  <div className="flex items-center gap-2 mb-3 text-sm font-bold text-slate-800">
-                    <span>📁</span> Module 3: Assessments
-                  </div>
-                  
-                  <div className="ml-6 space-y-4">
-                    <div className="flex items-start gap-3 p-3 border border-slate-200 rounded-md bg-slate-50">
-                      <span className="mt-0.5 text-slate-400">💬</span>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-slate-800">Exercise 13 (Coverage: Fundamentals)</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-3 p-3 border border-blue-200 rounded-md bg-blue-50">
-                      <span className="mt-0.5 text-emerald-500">📝</span>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-slate-800">Quiz 13 (Coverage: Clinical Data Analysis)</p>
-                        <p className="text-xs text-slate-500 mt-1">Due date: 7/15/26, 11:59 PM (UTC+8) | Time limit: 45 minutes</p>
-                        <p className="text-xs text-slate-500 mt-0.5">Multiple Choice & True or False</p>
-                        <button 
-                          onClick={() => setActiveView('exam')}
-                          className="mt-3 px-4 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 transition-colors"
-                        >
-                          Start Attempt
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {activeView === 'calendar' && (
           <div className="space-y-6">
-            <h1 className="text-2xl font-bold text-slate-800">Student Weekly Schedule & Tasks</h1>
-            <p className="text-sm text-slate-500 mt-1 mb-6">View your upcoming reviews, scheduled quizzes, and mandatory simulations.</p>
+            <h1 className="text-2xl font-bold text-slate-800">Student Weekly Schedule and Tasks</h1>
+            <p className="text-sm text-slate-500 mt-1 mb-6">View your upcoming mock exams and mandatory simulations.</p>
             
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 space-y-4">
@@ -269,22 +141,115 @@ export default function LearnerDashboard() {
                   <ul className="space-y-3 text-sm text-slate-600">
                     <li className="flex items-start gap-3">
                       <span className="text-emerald-500 mt-0.5">✓</span>
-                      <span>Finish reading Chapters 4 and 5 of Theories of Personality.</span>
+                      <span>Complete the Theories of Personality Mock Exam.</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="text-blue-500 mt-0.5">○</span>
-                      <span>Score above 80% on the upcoming Abnormal Psychology Quiz.</span>
+                      <span>Score above 80 percent on the upcoming Abnormal Psychology Diagnostic.</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="text-slate-300 mt-0.5">○</span>
-                      <span>Review last week mock exam errors.</span>
+                      <span>Review last week exam errors.</span>
                     </li>
                   </ul>
                 </div>
 
                 <div className="bg-blue-50 p-6 rounded-xl border border-blue-100">
                   <h3 className="font-bold text-blue-800 mb-2">Study Tip</h3>
-                  <p className="text-sm text-blue-900">Consistency is important. Make sure to log in every day to keep your review habits intact and monitor new course announcements.</p>
+                  <p className="text-sm text-blue-900">Consistency is important. Make sure to log in every day to keep your review habits intact and monitor new mock exam schedules.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeView === 'exams' && selectedExam === null && (
+          <div className="space-y-6">
+            <h1 className="text-2xl font-bold text-slate-800">Scheduled Mock Exams</h1>
+            <p className="text-sm text-slate-500 mt-1 mb-6">Select a mock exam to view details and start your session.</p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {scheduledExamsList.map((exam) => (
+                <div 
+                  key={exam.id} 
+                  onClick={() => setSelectedExam(exam.id)}
+                  className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer flex flex-col"
+                >
+                  <div className={`h-24 ${exam.color} relative`}>
+                    <div className="absolute inset-0 bg-black bg-opacity-20 flex items-center justify-center">
+                      <span className="text-white font-bold text-lg opacity-80 px-4 text-center">{exam.title}</span>
+                    </div>
+                  </div>
+                  <div className="p-5 flex-1 flex flex-col justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Scope</p>
+                      <p className="text-sm text-slate-800 font-medium mb-4">{exam.scope}</p>
+                      
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Schedule</p>
+                      <p className="text-sm text-slate-800 font-medium">{exam.rules}</p>
+                    </div>
+                    <div className="mt-5 pt-4 border-t border-slate-100 flex justify-between items-center">
+                      <span className={`text-xs font-bold px-2 py-1 rounded ${exam.status === 'Available' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}`}>
+                        {exam.status}
+                      </span>
+                      <span className="text-xs font-bold text-blue-600 hover:underline">View Details</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeView === 'exams' && selectedExam !== null && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-2 text-sm mb-4">
+              <button onClick={() => setSelectedExam(null)} className="text-blue-600 hover:underline font-medium">Scheduled Mock Exams</button>
+              <span className="text-slate-400">/</span>
+              <span className="text-slate-600 font-semibold">Exam Details</span>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden max-w-3xl">
+              <div className="bg-slate-900 p-8 text-white">
+                <h2 className="text-2xl font-bold">{scheduledExamsList.find(e => e.id === selectedExam)?.title}</h2>
+                <p className="text-slate-400 mt-2 text-sm">Review the details below before starting your attempt.</p>
+              </div>
+              
+              <div className="p-8 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Exam Scope</h4>
+                    <p className="text-slate-800 font-medium">{scheduledExamsList.find(e => e.id === selectedExam)?.scope}</p>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Duration</h4>
+                    <p className="text-slate-800 font-medium">{scheduledExamsList.find(e => e.id === selectedExam)?.duration}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Scheduling Rules</h4>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-blue-600 text-lg">🕒</span>
+                      <p className="text-slate-800 font-medium">{scheduledExamsList.find(e => e.id === selectedExam)?.rules}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg mt-6">
+                  <h4 className="text-sm font-bold text-blue-800 mb-1">Important Instructions</h4>
+                  <ul className="text-sm text-blue-900 space-y-1 list-disc pl-4">
+                    <li>Ensure you have a stable internet connection.</li>
+                    <li>The timer cannot be paused once the exam starts.</li>
+                    <li>Do not refresh the page during the exam.</li>
+                  </ul>
+                </div>
+
+                <div className="pt-6 border-t border-slate-100 flex justify-end">
+                  <button 
+                    onClick={handleStartExam}
+                    className="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                  >
+                    Start Mock Exam
+                  </button>
                 </div>
               </div>
             </div>
@@ -299,7 +264,7 @@ export default function LearnerDashboard() {
             <div className="bg-white p-8 rounded-xl border border-slate-100 shadow-sm max-w-4xl mx-auto">
               <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-6">
                 <h2 className="text-lg font-bold text-slate-800">Abnormal Psychology Quiz</h2>
-                <div className="text-red-500 font-mono font-bold bg-red-50 px-3 py-1 rounded-md">Time Remaining: 44:12</div>
+                <div className="text-red-500 font-mono font-bold bg-red-50 px-3 py-1 rounded-md">Time Remaining 44:12</div>
               </div>
               
               <div className="mb-6">
@@ -390,7 +355,7 @@ export default function LearnerDashboard() {
         {activeView === 'summary' && (
           <div className="space-y-6">
             <h1 className="text-2xl font-bold text-slate-800">Learner Post Exam Summary View</h1>
-            <p className="text-sm text-slate-500 mt-1 mb-6">Examine structural analytics and AI-driven architectural remediation feedback from your last test.</p>
+            <p className="text-sm text-slate-500 mt-1 mb-6">Examine structural analytics and AI driven architectural remediation feedback from your last test.</p>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 space-y-6">
@@ -407,7 +372,7 @@ export default function LearnerDashboard() {
 
                 <div className="bg-blue-50 border border-blue-100 p-6 rounded-xl">
                   <h4 className="text-sm font-bold text-blue-800 flex items-center gap-2">
-                    🤖 Automated RAG Remediation Insights
+                    🤖 Automated AI Remediation Insights
                   </h4>
                   <p className="text-sm text-blue-950 mt-2 leading-relaxed">
                     {postExamSummary.aiRagFeedback}
@@ -423,7 +388,7 @@ export default function LearnerDashboard() {
                       <div key={idx} className="flex flex-col border-b border-slate-50 pb-3 last:border-0 last:pb-0">
                         <p className="text-sm font-semibold text-slate-800">{item.category}</p>
                         <div className="flex justify-between items-center mt-1">
-                          <span className="text-xs text-slate-500">Accuracy: {item.proficiency}</span>
+                          <span className="text-xs text-slate-500">Accuracy {item.proficiency}</span>
                           <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${item.status === 'Strong Mastery' ? 'bg-emerald-50 text-emerald-700' : item.status === 'Proficient' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
                             {item.status}
                           </span>
@@ -435,7 +400,7 @@ export default function LearnerDashboard() {
 
                 <div className="bg-amber-50 border border-amber-100 p-6 rounded-xl">
                   <h4 className="text-sm font-bold text-amber-800">Action Plan</h4>
-                  <p className="text-sm text-amber-900 mt-2">Based on your summary, prioritize Industrial Psychology and read the supplementary resources attached to your course before taking another simulation.</p>
+                  <p className="text-sm text-amber-900 mt-2">Based on your summary, prioritize Industrial Psychology resources before taking another simulation.</p>
                 </div>
               </div>
             </div>
@@ -476,19 +441,19 @@ export default function LearnerDashboard() {
                   <p className="text-sm text-slate-500 mt-2">To clear Phase 3 you must achieve the following specific goals.</p>
                   <ul className="mt-4 space-y-3 text-sm text-slate-600">
                     <li className="flex items-start gap-2">
-                      <span className="text-blue-500 mt-0.5">•</span> 
-                      Complete a minimum of 3 RAG dynamic exams.
+                      <span className="text-blue-500 mt-0.5">●</span> 
+                      Complete a minimum of 3 dynamic exams.
                     </li>
                     <li className="flex items-start gap-2">
-                      <span className="text-blue-500 mt-0.5">•</span> 
-                      Secure a score of 75% or higher on each assessment.
+                      <span className="text-blue-500 mt-0.5">●</span> 
+                      Secure a score of 75 percent or higher on each assessment.
                     </li>
                   </ul>
                 </div>
                 
                 <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-xl">
                   <h3 className="font-bold text-emerald-800 mb-2">Progress Update</h3>
-                  <p className="text-sm text-emerald-900">You are currently on track with the recommended review schedule. Keep maintaining your momentum to hit Phase 4 early.</p>
+                  <p className="text-sm text-emerald-900">You are currently on track with the recommended schedule. Keep maintaining your momentum to hit Phase 4 early.</p>
                 </div>
               </div>
             </div>
