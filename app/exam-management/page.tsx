@@ -3,34 +3,30 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function FacultyDashboard() {
+export default function ExamManagementDashboard() {
   const router = useRouter();
   const [activeView, setActiveView] = useState('dashboard');
-  const [selectedCourse, setSelectedCourse] = useState<null | number>(null);
-  const [courseTab, setCourseTab] = useState('materials');
-
-  const facultyCourses = [
-    { id: 1, code: 'PSY301', title: 'ABNORMAL PSYCHOLOGY', section: 'Section A1', students: 45, avgScore: '82%', color: 'bg-rose-900' },
-    { id: 2, code: 'PSY302', title: 'THEORIES OF PERSONALITY', section: 'Section A1', students: 45, avgScore: '78%', color: 'bg-blue-900' },
-    { id: 3, code: 'PSY303', title: 'INDUSTRIAL PSYCHOLOGY', section: 'Section B2', students: 38, avgScore: '71%', color: 'bg-emerald-900' },
-  ];
+  const [selectedExam, setSelectedExam] = useState<null | number>(null);
+  const [examTab, setExamTab] = useState('settings');
 
   const dashboardStats = {
-    totalStudents: 128,
-    activeCourses: 3,
+    totalExams: 24,
+    activeExams: 5,
     pendingReviews: 12,
-    overallPassRate: '88%'
+    overallCompletion: '92%'
   };
 
-  const [schedules, setSchedules] = useState([
-    { id: 1, course: 'PSY301', date: '2026-07-15', time: '10:00 AM', title: 'Synchronous Lecture: DSM-5 Updates', type: 'Lecture' },
-    { id: 2, course: 'PSY302', date: '2026-07-16', time: '02:00 PM', title: 'Mock Exam 1 Availability', type: 'Exam' },
-  ]);
+  const exams = [
+    { id: 1, title: 'Midterm Coverage Quiz', target: 'PSY301', items: 30, status: 'Active', dueDate: '2026-07-20', color: 'bg-emerald-600' },
+    { id: 2, title: 'Personality Theories Final', target: 'PSY302', items: 50, status: 'Pending', dueDate: '2026-08-10', color: 'bg-amber-500' },
+    { id: 3, title: 'Introductory Concepts Quiz', target: 'PSY301', items: 15, status: 'Inactive/Finished', dueDate: '2026-06-15', color: 'bg-slate-600' },
+    { id: 4, title: 'Organizational Behavior Check', target: 'PSY303', items: 25, status: 'Active', dueDate: '2026-07-18', color: 'bg-emerald-600' },
+  ];
 
   const materials = [
-    { id: 1, title: 'Chapter 1: Introduction to Abnormal Behavior', type: 'PDF', size: '2.4 MB' },
-    { id: 2, title: 'Week 2 Presentation Slides', type: 'PPTX', size: '5.1 MB' },
-    { id: 3, title: 'Case Study Requirements', type: 'DOCX', size: '1.2 MB' },
+    { id: 1, title: 'Chapter 1: Introduction to Abnormal Behavior', type: 'PDF', size: '2.4 MB', uploadDate: '2026-07-01' },
+    { id: 2, title: 'Week 2 Presentation Slides', type: 'PPTX', size: '5.1 MB', uploadDate: '2026-07-05' },
+    { id: 3, title: 'Case Study Requirements', type: 'DOCX', size: '1.2 MB', uploadDate: '2026-07-08' },
   ];
 
   const aiQuestions = [
@@ -42,13 +38,19 @@ export default function FacultyDashboard() {
     <button 
       onClick={() => {
         setActiveView(viewName);
-        if (viewName !== 'courses') setSelectedCourse(null);
+        if (viewName !== 'exams') setSelectedExam(null);
       }}
-      className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeView === viewName && selectedCourse === null ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+      className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeView === viewName && selectedExam === null ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
     >
       {label}
     </button>
   );
+
+  const getStatusBadge = (status: string) => {
+    if (status === 'Active') return <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded text-xs font-bold uppercase tracking-wider">{status}</span>;
+    if (status === 'Pending') return <span className="px-2 py-1 bg-amber-100 text-amber-800 rounded text-xs font-bold uppercase tracking-wider">{status}</span>;
+    return <span className="px-2 py-1 bg-slate-200 text-slate-700 rounded text-xs font-bold uppercase tracking-wider">{status}</span>;
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
@@ -56,12 +58,12 @@ export default function FacultyDashboard() {
       <aside className="w-full md:w-64 bg-slate-900 text-white flex flex-col">
         <div className="p-6 border-b border-slate-800">
           <h2 className="font-bold text-lg tracking-tight text-blue-400">RPLE Faculty Portal</h2>
-          <p className="text-xs text-slate-400 mt-1">Instructor Workspace</p>
+          <p className="text-xs text-slate-400 mt-1">Exam Management</p>
         </div>
         <nav className="flex-1 p-4 space-y-2">
           {renderSidebarButton('dashboard', 'Dashboard Overview')}
-          {renderSidebarButton('courses', 'My Courses')}
-          {renderSidebarButton('calendar', 'Schedule & Calendar')}
+          {renderSidebarButton('exams', 'Exam Management')}
+          {renderSidebarButton('materials', 'Reference Materials')}
         </nav>
         <div className="p-4 border-t border-slate-800">
           <button 
@@ -75,59 +77,59 @@ export default function FacultyDashboard() {
 
       <main className="flex-1 p-6 md:p-10 overflow-y-auto">
         
-        {activeView === 'dashboard' && selectedCourse === null && (
+        {activeView === 'dashboard' && selectedExam === null && (
           <div className="space-y-6">
             <h1 className="text-2xl font-bold text-slate-800">Welcome Back, Instructor</h1>
-            <p className="text-sm text-slate-500 mt-1 mb-6">Here is a summary of your classes and pending tasks for this week.</p>
+            <p className="text-sm text-slate-500 mt-1 mb-6">Here is a summary of your upcoming exams and pending validations for this week.</p>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
               <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Students</span>
-                <p className="text-3xl font-bold text-slate-800 mt-1">{dashboardStats.totalStudents}</p>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Exams</span>
+                <p className="text-3xl font-bold text-slate-800 mt-1">{dashboardStats.totalExams}</p>
               </div>
               <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Active Courses</span>
-                <p className="text-3xl font-bold text-blue-600 mt-1">{dashboardStats.activeCourses}</p>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Active Exams</span>
+                <p className="text-3xl font-bold text-emerald-600 mt-1">{dashboardStats.activeExams}</p>
               </div>
               <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Pending Item Reviews</span>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Pending Validations</span>
                 <p className="text-3xl font-bold text-amber-600 mt-1">{dashboardStats.pendingReviews}</p>
               </div>
               <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Overall Pass Rate</span>
-                <p className="text-3xl font-bold text-emerald-600 mt-1">{dashboardStats.overallPassRate}</p>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Overall Completion</span>
+                <p className="text-3xl font-bold text-blue-600 mt-1">{dashboardStats.overallCompletion}</p>
               </div>
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden mt-8">
               <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-                <h3 className="font-bold text-sm text-slate-700">Course Performance Summary</h3>
+                <h3 className="font-bold text-sm text-slate-700">Exam Overview</h3>
               </div>
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100 text-xs font-bold uppercase text-slate-500 tracking-wider">
-                    <th className="p-4">Course Code</th>
-                    <th className="p-4">Title</th>
-                    <th className="p-4">Section</th>
-                    <th className="p-4">Enrolled Students</th>
-                    <th className="p-4">Average Score</th>
+                    <th className="p-4">Exam Title</th>
+                    <th className="p-4">Target Audience</th>
+                    <th className="p-4">Items</th>
+                    <th className="p-4">Status</th>
+                    <th className="p-4">Due Date</th>
                     <th className="p-4">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                  {facultyCourses.map((course) => (
-                    <tr key={course.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="p-4 font-bold text-blue-600">{course.code}</td>
-                      <td className="p-4 font-medium text-slate-800">{course.title}</td>
-                      <td className="p-4 text-slate-500">{course.section}</td>
-                      <td className="p-4 text-slate-700">{course.students}</td>
-                      <td className="p-4 font-semibold text-emerald-600">{course.avgScore}</td>
+                  {exams.map((exam) => (
+                    <tr key={exam.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="p-4 font-bold text-slate-800">{exam.title}</td>
+                      <td className="p-4 text-slate-500">{exam.target}</td>
+                      <td className="p-4 text-slate-700">{exam.items}</td>
+                      <td className="p-4">{getStatusBadge(exam.status)}</td>
+                      <td className="p-4 text-slate-600">{exam.dueDate}</td>
                       <td className="p-4">
                         <button 
-                          onClick={() => { setActiveView('courses'); setSelectedCourse(course.id); setCourseTab('materials'); }}
+                          onClick={() => { setActiveView('exams'); setSelectedExam(exam.id); setExamTab('settings'); }}
                           className="text-xs font-bold text-blue-600 hover:underline"
                         >
-                          Manage Course
+                          Manage
                         </button>
                       </td>
                     </tr>
@@ -138,30 +140,35 @@ export default function FacultyDashboard() {
           </div>
         )}
 
-        {activeView === 'courses' && selectedCourse === null && (
+        {activeView === 'exams' && selectedExam === null && (
           <div className="space-y-6">
-            <h1 className="text-2xl font-bold text-slate-800">My Courses</h1>
+            <div className="flex justify-between items-center">
+              <h1 className="text-2xl font-bold text-slate-800">Exam Management</h1>
+              <button className="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded hover:bg-blue-700 transition-colors">
+                Create New Exam
+              </button>
+            </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {facultyCourses.map((course) => (
+              {exams.map((exam) => (
                 <div 
-                  key={course.id} 
-                  onClick={() => { setSelectedCourse(course.id); setCourseTab('materials'); }}
+                  key={exam.id} 
+                  onClick={() => { setSelectedExam(exam.id); setExamTab('settings'); }}
                   className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer flex flex-col"
                 >
-                  <div className={`h-32 ${course.color} relative`}>
-                    <div className="absolute inset-0 bg-black bg-opacity-20 flex items-center justify-center">
-                      <span className="text-white font-bold text-xl opacity-50">{course.code}</span>
-                    </div>
-                  </div>
-                  <div className="p-4 flex-1 flex flex-col justify-between">
+                  <div className={`h-4 ${exam.color}`}></div>
+                  <div className="p-5 flex-1 flex flex-col justify-between">
                     <div>
-                      <h3 className="font-bold text-sm text-slate-800 leading-tight">{course.code} {course.title}</h3>
-                      <p className="text-xs text-slate-500 mt-1">{course.section}</p>
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-xs font-bold text-slate-500">{exam.target}</span>
+                        {getStatusBadge(exam.status)}
+                      </div>
+                      <h3 className="font-bold text-lg text-slate-800 leading-tight">{exam.title}</h3>
+                      <p className="text-sm text-slate-500 mt-2">Due: {exam.dueDate}</p>
                     </div>
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center">
-                      <span className="text-xs font-medium text-slate-600">{course.students} Students</span>
-                      <span className="text-xs font-bold text-blue-600">Manage Course</span>
+                    <div className="mt-5 pt-4 border-t border-slate-100 flex justify-between items-center">
+                      <span className="text-sm font-medium text-slate-600">{exam.items} Questions</span>
+                      <span className="text-sm font-bold text-blue-600">Edit Details</span>
                     </div>
                   </div>
                 </div>
@@ -170,91 +177,63 @@ export default function FacultyDashboard() {
           </div>
         )}
 
-        {activeView === 'courses' && selectedCourse !== null && (
+        {activeView === 'exams' && selectedExam !== null && (
           <div className="space-y-6">
             <div className="flex items-center gap-2 text-sm mb-4">
-              <button onClick={() => setSelectedCourse(null)} className="text-blue-600 hover:underline font-medium">Courses</button>
+              <button onClick={() => setSelectedExam(null)} className="text-blue-600 hover:underline font-medium">Exams</button>
               <span className="text-slate-400">/</span>
-              <span className="text-slate-600 font-semibold">{facultyCourses.find(c => c.id === selectedCourse)?.title}</span>
+              <span className="text-slate-600 font-semibold">{exams.find(e => e.id === selectedExam)?.title}</span>
             </div>
 
             <div className="bg-slate-900 text-white rounded-t-lg flex gap-6 px-6 pt-4 border-b border-slate-700">
-              <button onClick={() => setCourseTab('materials')} className={`pb-3 border-b-2 text-sm font-medium ${courseTab === 'materials' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>Material & Library</button>
-              <button onClick={() => setCourseTab('exam-gen')} className={`pb-3 border-b-2 text-sm font-medium ${courseTab === 'exam-gen' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>Exam Generator</button>
-              <button onClick={() => setCourseTab('ai-review')} className={`pb-3 border-b-2 text-sm font-medium ${courseTab === 'ai-review' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>AI Question Review</button>
+              <button onClick={() => setExamTab('settings')} className={`pb-3 border-b-2 text-sm font-medium ${examTab === 'settings' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>Exam Settings</button>
+              <button onClick={() => setExamTab('questions')} className={`pb-3 border-b-2 text-sm font-medium ${examTab === 'questions' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>Question Validation</button>
             </div>
 
             <div className="bg-white border border-slate-200 rounded-b-lg p-6 shadow-sm min-h-[500px]">
               
-              {courseTab === 'materials' && (
-                <div>
-                  <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-lg font-bold text-slate-800">Course Materials</h2>
-                    <button className="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded hover:bg-blue-700 transition-colors">Upload New File</button>
-                  </div>
-                  <div className="space-y-3">
-                    {materials.map((file) => (
-                      <div key={file.id} className="flex justify-between items-center p-4 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 bg-blue-100 text-blue-700 rounded flex items-center justify-center font-bold text-xs">{file.type}</div>
-                          <div>
-                            <p className="text-sm font-semibold text-slate-800">{file.title}</p>
-                            <p className="text-xs text-slate-500 mt-0.5">{file.size}</p>
-                          </div>
-                        </div>
-                        <button className="text-slate-400 hover:text-red-500 transition-colors text-sm font-medium">Delete</button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {courseTab === 'exam-gen' && (
+              {examTab === 'settings' && (
                 <div className="max-w-2xl">
-                  <h2 className="text-lg font-bold text-slate-800 mb-2">AI Exam Generator</h2>
-                  <p className="text-sm text-slate-500 mb-6">Create customized assessments based on your uploaded syllabus and library materials.</p>
+                  <h2 className="text-lg font-bold text-slate-800 mb-2">Edit Exam Details</h2>
+                  <p className="text-sm text-slate-500 mb-6">Manage availability, due dates, and general settings for this assessment.</p>
                   
                   <div className="space-y-5">
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-1">Assessment Title</label>
-                      <input type="text" placeholder="e.g. Midterm Coverage Quiz" className="w-full px-4 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500" />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">Select Topics / Source Materials</label>
-                      <select className="w-full px-4 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500">
-                        <option>Chapter 1: Introduction to Abnormal Behavior</option>
-                        <option>Week 2 Presentation Slides</option>
-                        <option>Entire Course Repository</option>
-                      </select>
+                      <input type="text" defaultValue={exams.find(e => e.id === selectedExam)?.title} className="w-full px-4 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500" />
                     </div>
 
                     <div className="flex gap-4">
                       <div className="flex-1">
-                        <label className="block text-sm font-semibold text-slate-700 mb-1">Number of Items</label>
-                        <input type="number" defaultValue={20} className="w-full px-4 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500" />
+                        <label className="block text-sm font-semibold text-slate-700 mb-1">Target Audience</label>
+                        <input type="text" defaultValue={exams.find(e => e.id === selectedExam)?.target} className="w-full px-4 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500" />
                       </div>
                       <div className="flex-1">
-                        <label className="block text-sm font-semibold text-slate-700 mb-1">Difficulty Level</label>
-                        <select className="w-full px-4 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500">
-                          <option>Easy (Recall)</option>
-                          <option>Moderate (Analysis)</option>
-                          <option>Hard (Application)</option>
-                        </select>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1">Due Date</label>
+                        <input type="date" defaultValue={exams.find(e => e.id === selectedExam)?.dueDate} className="w-full px-4 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500" />
                       </div>
                     </div>
+                    
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1">Exam Status</label>
+                      <select defaultValue={exams.find(e => e.id === selectedExam)?.status} className="w-full px-4 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500">
+                        <option value="Active">Active (Available for learners to take)</option>
+                        <option value="Pending">Pending (Questions need checking and validation)</option>
+                        <option value="Inactive/Finished">Inactive / Finished (Deadline passed or already answered)</option>
+                      </select>
+                    </div>
 
-                    <button className="mt-4 px-6 py-2.5 bg-emerald-600 text-white text-sm font-bold rounded-lg hover:bg-emerald-700 transition-colors w-full">
-                      Generate Exam Draft
+                    <button className="mt-4 px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors w-full">
+                      Save Changes
                     </button>
                   </div>
                 </div>
               )}
 
-              {courseTab === 'ai-review' && (
+              {examTab === 'questions' && (
                 <div>
                   <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-lg font-bold text-slate-800">Pending AI Question Reviews</h2>
+                    <h2 className="text-lg font-bold text-slate-800">Pending Question Validations</h2>
                     <span className="px-3 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded-full">{aiQuestions.length} Items Pending</span>
                   </div>
                   
@@ -276,8 +255,8 @@ export default function FacultyDashboard() {
                         
                         <div className="flex gap-3 pt-4 border-t border-slate-200">
                           <button className="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded hover:bg-emerald-700 transition-colors">Approve Question</button>
-                          <button className="px-4 py-2 bg-slate-200 text-slate-700 text-xs font-bold rounded hover:bg-slate-300 transition-colors">Edit</button>
-                          <button className="px-4 py-2 bg-red-100 text-red-700 text-xs font-bold rounded hover:bg-red-200 transition-colors">Reject</button>
+                          <button className="px-4 py-2 bg-slate-200 text-slate-700 text-xs font-bold rounded hover:bg-slate-300 transition-colors">Edit Question</button>
+                          <button className="px-4 py-2 bg-red-100 text-red-700 text-xs font-bold rounded hover:bg-red-200 transition-colors">Reject Question</button>
                         </div>
                       </div>
                     ))}
@@ -289,65 +268,46 @@ export default function FacultyDashboard() {
           </div>
         )}
 
-        {activeView === 'calendar' && (
+        {activeView === 'materials' && (
           <div className="space-y-6">
-            <h1 className="text-2xl font-bold text-slate-800">Schedule & Calendar</h1>
-            <p className="text-sm text-slate-500 mt-1 mb-6">Manage synchronous lectures, deadlines, and exam schedules for your cohorts.</p>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 space-y-4">
-                <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-                  <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-                    <h3 className="font-bold text-sm text-slate-700">Upcoming Events</h3>
-                  </div>
-                  <div className="divide-y divide-slate-100">
-                    {schedules.map((schedule) => (
-                      <div key={schedule.id} className="p-4 hover:bg-slate-50 transition-colors flex justify-between items-center">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-bold text-blue-600">{schedule.course}</span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${schedule.type === 'Exam' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{schedule.type}</span>
-                          </div>
-                          <p className="text-sm font-semibold text-slate-800">{schedule.title}</p>
-                          <p className="text-xs text-slate-500 mt-1">{schedule.date} at {schedule.time}</p>
-                        </div>
-                        <button className="text-slate-400 hover:text-blue-600 text-sm font-medium">Edit</button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-800">Reference Materials</h1>
+                <p className="text-sm text-slate-500 mt-1">Upload syllabus, reading materials, and rubrics for AI exam generation.</p>
               </div>
+              <button className="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded hover:bg-blue-700 transition-colors">
+                Upload New File
+              </button>
+            </div>
 
-              <div className="lg:col-span-1">
-                <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
-                  <h3 className="font-bold text-slate-800 mb-4">Add New Schedule</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">Target Course</label>
-                      <select className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500">
-                        {facultyCourses.map(c => <option key={c.id}>{c.code}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">Event Title</label>
-                      <input type="text" placeholder="Event Name" className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500" />
-                    </div>
-                    <div className="flex gap-3">
-                      <div className="flex-1">
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">Date</label>
-                        <input type="date" className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500" />
-                      </div>
-                      <div className="flex-1">
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">Time</label>
-                        <input type="time" className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:border-blue-500" />
-                      </div>
-                    </div>
-                    <button className="w-full mt-2 px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors">
-                      Save Schedule
-                    </button>
-                  </div>
-                </div>
-              </div>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100 text-xs font-bold uppercase text-slate-500 tracking-wider">
+                    <th className="p-4">File Name</th>
+                    <th className="p-4">Type</th>
+                    <th className="p-4">Size</th>
+                    <th className="p-4">Date Uploaded</th>
+                    <th className="p-4">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
+                  {materials.map((file) => (
+                    <tr key={file.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="p-4 font-semibold text-slate-800">{file.title}</td>
+                      <td className="p-4">
+                        <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs font-bold">{file.type}</span>
+                      </td>
+                      <td className="p-4 text-slate-500">{file.size}</td>
+                      <td className="p-4 text-slate-500">{file.uploadDate}</td>
+                      <td className="p-4 flex gap-3">
+                        <button className="text-blue-600 hover:underline font-medium text-xs">Download</button>
+                        <button className="text-red-500 hover:underline font-medium text-xs">Delete</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
