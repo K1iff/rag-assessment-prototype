@@ -7,6 +7,13 @@ export default function LearnerDashboard() {
   const router = useRouter();
   const [activeView, setActiveView] = useState('calendar');
   const [selectedExam, setSelectedExam] = useState<null | number>(null);
+  
+  // Examination State
+  const [currentQuestion, setCurrentQuestion] = useState(1);
+  const [flaggedQuestions, setFlaggedQuestions] = useState<number[]>([]);
+
+  // Roadmap State
+  const [expandedPhase, setExpandedPhase] = useState<number>(3);
 
   const performanceStats = {
     examsCompleted: 8,
@@ -33,11 +40,11 @@ export default function LearnerDashboard() {
   };
 
   const roadmapSteps = [
-    { step: 1, title: 'Diagnostic Baseline', description: 'Establish foundational knowledge metrics.', completed: true },
-    { step: 2, title: 'Core Subject Drills', description: 'Complete dedicated modules for all major board topics.', completed: true },
-    { step: 3, title: 'Adaptive Simulation', description: 'Surpass a passing threshold on dynamic exams.', completed: false, current: true },
-    { step: 4, title: 'Full Length Board Simulation', description: 'Simulate the exact timing and constraints of the actual PRC exam.', completed: false },
-    { step: 5, title: 'PRC Board Readiness Certified', description: 'Final clearance badge achieved.', completed: false },
+    { step: 1, title: 'Diagnostic Baseline', description: 'Establish foundational knowledge metrics.', completed: true, content: 'You scored an average of 72 percent on your baseline diagnostic. Your strongest area was Psychological Assessment.' },
+    { step: 2, title: 'Core Subject Drills', description: 'Complete dedicated modules for all major board topics.', completed: true, content: 'All four core subject drills are completed. You are well prepared for the dynamic simulations.' },
+    { step: 3, title: 'Adaptive Simulation', description: 'Surpass a passing threshold on dynamic exams.', completed: false, current: true, content: 'Active Goal requires you to score 75 percent or higher on three dynamic exams. Current progress is one out of three completed.' },
+    { step: 4, title: 'Full Length Board Simulation', description: 'Simulate the exact timing and constraints of the actual PRC exam.', completed: false, content: 'This section is locked. Please clear Phase 3 to access the eight hour mock board simulation.' },
+    { step: 5, title: 'PRC Board Readiness Certified', description: 'Final clearance badge achieved.', completed: false, content: 'This section is locked. Achieve a passing mark on the Full Length Simulation to get certified.' },
   ];
 
   const weeklySchedule = [
@@ -47,14 +54,24 @@ export default function LearnerDashboard() {
   ];
 
   const scheduledExamsList = [
-    { id: 1, title: 'Abnormal Psychology Diagnostic', scope: 'Entire Subject Abnormal Psychology', rules: 'Specific Time July 15, 2026 at 2:00 PM', duration: '60 minutes', status: 'Upcoming', color: 'bg-rose-900' },
-    { id: 2, title: 'Theories of Personality Drill', scope: 'Specific Topics Psychoanalytic and Neopsychoanalytic Theories', rules: 'Take Anytime', duration: '45 minutes', status: 'Available', color: 'bg-blue-900' },
-    { id: 3, title: 'Comprehensive Mock Exam Area A', scope: 'Combined Subjects Area A', rules: 'Specific Time July 17, 2026 at 9:00 AM', duration: '120 minutes', status: 'Upcoming', color: 'bg-emerald-900' },
-    { id: 4, title: 'Industrial Psychology Baseline', scope: 'Entire Subject Industrial Psychology', rules: 'Take Anytime', duration: '60 minutes', status: 'Available', color: 'bg-purple-900' },
+    { id: 1, title: 'Abnormal Psychology Diagnostic', scope: 'Entire Subject Abnormal Psychology', rules: 'Specific Time July 15, 2026 at 2:00 PM', duration: '60 minutes', status: 'Upcoming', accent: 'bg-rose-500' },
+    { id: 2, title: 'Theories of Personality Drill', scope: 'Specific Topics Psychoanalytic and Neopsychoanalytic Theories', rules: 'Take Anytime', duration: '45 minutes', status: 'Available', accent: 'bg-blue-500' },
+    { id: 3, title: 'Comprehensive Mock Exam Area A', scope: 'Combined Subjects Area A', rules: 'Specific Time July 17, 2026 at 9:00 AM', duration: '120 minutes', status: 'Upcoming', accent: 'bg-emerald-500' },
+    { id: 4, title: 'Industrial Psychology Baseline', scope: 'Entire Subject Industrial Psychology', rules: 'Take Anytime', duration: '60 minutes', status: 'Available', accent: 'bg-purple-500' },
   ];
 
   const handleStartExam = () => {
     setActiveView('exam');
+    setCurrentQuestion(1);
+    setFlaggedQuestions([]);
+  };
+
+  const toggleFlag = () => {
+    if (flaggedQuestions.includes(currentQuestion)) {
+      setFlaggedQuestions(flaggedQuestions.filter(q => q !== currentQuestion));
+    } else {
+      setFlaggedQuestions([...flaggedQuestions, currentQuestion]);
+    }
   };
 
   return (
@@ -62,7 +79,6 @@ export default function LearnerDashboard() {
       
       <aside className="w-full md:w-72 bg-slate-900 text-white flex flex-col shrink-0 transition-all duration-300">
         
-        {/* User Details Profile Section */}
         <div className="p-6 border-b border-slate-800 flex flex-col items-center text-center">
           <div className="w-20 h-20 rounded-full bg-slate-800 flex items-center justify-center overflow-hidden mb-4 border-2 border-blue-500 shadow-lg">
             <svg className="w-12 h-12 text-slate-400 mt-2" fill="currentColor" viewBox="0 0 24 24">
@@ -77,7 +93,6 @@ export default function LearnerDashboard() {
         </div>
 
         {activeView === 'exam' ? (
-          /* Locked State During Exams */
           <div className="flex-1 p-6 flex flex-col items-center justify-center text-center">
             <div className="text-5xl mb-4">🔒</div>
             <h3 className="font-bold text-rose-400 text-lg mb-2">Workspace Locked</h3>
@@ -86,7 +101,6 @@ export default function LearnerDashboard() {
             </p>
           </div>
         ) : (
-          /* Normal Navigation State */
           <>
             <nav className="flex-1 p-4 space-y-2">
               <button 
@@ -148,7 +162,7 @@ export default function LearnerDashboard() {
                         <h3 className="font-bold text-lg text-slate-800">{schedule.task}</h3>
                         <p className="text-sm text-slate-500 mt-1">Scheduled for {schedule.day}, {schedule.date} at {schedule.time}</p>
                       </div>
-                      <div>
+                      <div className="flex flex-row items-center gap-3 mt-2 md:mt-0 w-full md:w-auto">
                         <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${
                           schedule.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' : 
                           schedule.status === 'Pending' ? 'bg-blue-100 text-blue-800' : 
@@ -156,6 +170,22 @@ export default function LearnerDashboard() {
                         }`}>
                           {schedule.status}
                         </span>
+                        
+                        {schedule.status === 'Completed' && (
+                          <button onClick={() => setActiveView('summary')} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors flex-1 md:flex-none text-center">
+                            View Results
+                          </button>
+                        )}
+                        {schedule.status === 'Pending' && (
+                          <button onClick={() => { setActiveView('exams'); setSelectedExam(null); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm flex-1 md:flex-none text-center">
+                            Start Exam
+                          </button>
+                        )}
+                        {schedule.status === 'Upcoming' && (
+                          <button disabled className="px-4 py-2 bg-slate-50 text-slate-400 border border-slate-100 text-xs font-bold rounded-lg cursor-not-allowed flex-1 md:flex-none text-center">
+                            Scheduled
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -194,31 +224,41 @@ export default function LearnerDashboard() {
               <h1 className="text-2xl font-bold text-slate-800">Scheduled Mock Exams</h1>
               <p className="text-sm text-slate-500 mt-1 mb-6">Select a mock exam to view details and start your session.</p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 w-full">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 w-full">
                 {scheduledExamsList.map((exam) => (
                   <div 
                     key={exam.id} 
                     onClick={() => setSelectedExam(exam.id)}
-                    className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer flex flex-col"
+                    className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer flex flex-col relative"
                   >
-                    <div className={`h-28 ${exam.color} relative`}>
-                      <div className="absolute inset-0 bg-black bg-opacity-20 flex items-center justify-center p-4">
-                        <span className="text-white font-bold text-lg opacity-90 text-center leading-snug">{exam.title}</span>
-                      </div>
-                    </div>
-                    <div className="p-5 flex-1 flex flex-col justify-between">
+                    <div className={`h-1.5 w-full ${exam.accent}`}></div>
+                    
+                    <div className="p-6 flex-1 flex flex-col justify-between">
                       <div>
-                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Scope</p>
-                        <p className="text-sm text-slate-800 font-medium mb-4">{exam.scope}</p>
+                        <div className="flex justify-between items-start mb-4">
+                          <h3 className="font-bold text-lg text-slate-800 leading-snug pr-3">{exam.title}</h3>
+                          <span className={`shrink-0 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider ${exam.status === 'Available' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                            {exam.status}
+                          </span>
+                        </div>
                         
-                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Schedule</p>
-                        <p className="text-sm text-slate-800 font-medium">{exam.rules}</p>
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Scope</p>
+                        <p className="text-sm text-slate-700 font-medium mb-4">{exam.scope}</p>
+                        
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Schedule</p>
+                        <p className="text-sm text-slate-700 font-medium">{exam.rules}</p>
                       </div>
-                      <div className="mt-6 pt-4 border-t border-slate-100 flex justify-between items-center">
-                        <span className={`text-xs font-bold px-2 py-1 rounded ${exam.status === 'Available' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}`}>
-                          {exam.status}
-                        </span>
-                        <span className="text-xs font-bold text-blue-600 hover:underline">View Details</span>
+                      
+                      <div className="mt-6 pt-5 border-t border-slate-100 flex items-center">
+                        {exam.status === 'Available' ? (
+                          <button className="w-full py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
+                            Take Exam
+                          </button>
+                        ) : (
+                          <button className="w-full py-2.5 bg-slate-50 text-slate-600 border border-slate-200 text-sm font-bold rounded-lg hover:bg-slate-100 transition-colors">
+                            View Details
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -235,10 +275,10 @@ export default function LearnerDashboard() {
                 <span className="text-slate-600 font-semibold">Exam Details</span>
               </div>
 
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full">
-                <div className="bg-slate-900 p-8 md:p-10 text-white">
-                  <h2 className="text-3xl font-bold">{scheduledExamsList.find(e => e.id === selectedExam)?.title}</h2>
-                  <p className="text-slate-400 mt-3 text-sm">Review the details below before starting your attempt.</p>
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full max-w-4xl">
+                <div className="bg-slate-50 border-b border-slate-200 p-8 md:p-10">
+                  <h2 className="text-3xl font-bold text-slate-800">{scheduledExamsList.find(e => e.id === selectedExam)?.title}</h2>
+                  <p className="text-slate-500 mt-3 text-sm font-medium">Review the details below before starting your attempt.</p>
                 </div>
                 
                 <div className="p-8 md:p-10 space-y-8">
@@ -283,47 +323,107 @@ export default function LearnerDashboard() {
           )}
 
           {activeView === 'exam' && (
-            <div className="space-y-6 flex flex-col items-center w-full">
-              <div className="w-full text-center">
-                <h1 className="text-2xl font-bold text-slate-800">Active Examination Environment</h1>
-                <p className="text-sm text-slate-500 mt-1 mb-6">Take your assigned assessments powered by the AI generation engine.</p>
+            <div className="space-y-6 flex flex-col w-full">
+              <div className="w-full flex justify-between items-end border-b border-slate-200 pb-4 mb-2">
+                <div>
+                  <h1 className="text-2xl font-bold text-slate-800">Active Examination Environment</h1>
+                  <p className="text-sm text-slate-500 mt-1">Abnormal Psychology Quiz</p>
+                </div>
+                <div className="text-rose-600 font-mono font-bold bg-rose-50 border border-rose-100 px-4 py-2 rounded-lg text-lg shadow-sm">
+                  Time Remaining 44:12
+                </div>
               </div>
               
-              <div className="bg-white p-8 md:p-12 rounded-xl border border-slate-100 shadow-sm w-full max-w-5xl">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-100 pb-6 mb-8 gap-4">
-                  <h2 className="text-xl font-bold text-slate-800">Abnormal Psychology Quiz</h2>
-                  <div className="text-rose-600 font-mono font-bold bg-rose-50 border border-rose-100 px-4 py-2 rounded-lg text-lg">
-                    Time Remaining 44:12
+              <div className="flex flex-col lg:flex-row gap-6 w-full">
+                
+                <div className="flex-1 bg-white p-8 md:p-10 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+                  
+                  <div className="mb-10">
+                    <p className="text-sm font-semibold text-blue-600 uppercase tracking-wider mb-4">Question {currentQuestion} of 50</p>
+                    <h3 className="text-2xl font-medium text-slate-900 leading-relaxed">
+                      Which of the following personality disorders is characterized by a pervasive and unjustified distrust and suspicion of others?
+                    </h3>
+                  </div>
+
+                  <div className="space-y-4 mb-10">
+                    {['Schizoid Personality Disorder', 'Borderline Personality Disorder', 'Paranoid Personality Disorder', 'Antisocial Personality Disorder'].map((option, idx) => (
+                      <label key={idx} className="flex items-center p-5 rounded-lg border-2 border-slate-100 hover:border-blue-400 hover:bg-blue-50 cursor-pointer transition-colors w-full">
+                        <input type="radio" name="answer" className="h-6 w-6 text-blue-600 border-slate-300 focus:ring-blue-500" />
+                        <span className="ml-4 text-base font-medium text-slate-700">{option}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  <div className="flex justify-between items-center border-t border-slate-100 pt-8 mt-auto">
+                    <button 
+                      onClick={() => setCurrentQuestion(Math.max(1, currentQuestion - 1))}
+                      disabled={currentQuestion === 1}
+                      className="px-6 py-3 bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Previous
+                    </button>
+                    
+                    <div className="flex items-center gap-4">
+                      <button 
+                        onClick={toggleFlag}
+                        className={`px-6 py-3 font-bold rounded-lg transition-colors flex items-center gap-2 ${
+                          flaggedQuestions.includes(currentQuestion) 
+                            ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
+                            : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill={flaggedQuestions.includes(currentQuestion) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+                          <line x1="4" y1="22" x2="4" y2="15"></line>
+                        </svg>
+                        {flaggedQuestions.includes(currentQuestion) ? 'Flagged' : 'Flag for Review'}
+                      </button>
+                      
+                      <button 
+                        onClick={() => {
+                          if (currentQuestion < 50) setCurrentQuestion(currentQuestion + 1);
+                          else setActiveView('summary');
+                        }}
+                        className="px-8 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                      >
+                        {currentQuestion === 50 ? 'Submit Exam' : 'Next Item'}
+                      </button>
+                    </div>
                   </div>
                 </div>
-                
-                <div className="mb-10">
-                  <p className="text-sm font-semibold text-blue-600 uppercase tracking-wider mb-4">Question 1 of 50</p>
-                  <h3 className="text-2xl font-medium text-slate-900 leading-relaxed">
-                    Which of the following personality disorders is characterized by a pervasive and unjustified distrust and suspicion of others?
-                  </h3>
+
+                <div className="w-full lg:w-80 bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
+                  <h3 className="font-bold text-slate-800 mb-4">Question Navigation</h3>
+                  
+                  <div className="flex flex-wrap gap-4 mb-6 text-xs text-slate-600 font-medium">
+                    <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-blue-600 rounded-sm"></div> Current</span>
+                    <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-amber-100 border border-amber-300 rounded-sm"></div> Flagged</span>
+                    <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-slate-50 border border-slate-200 rounded-sm"></div> Unanswered</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-5 gap-2">
+                    {Array.from({ length: 50 }, (_, i) => i + 1).map(qNum => {
+                      let btnStyle = "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100";
+                      
+                      if (currentQuestion === qNum) {
+                        btnStyle = "bg-blue-600 border-blue-600 text-white shadow-sm";
+                      } else if (flaggedQuestions.includes(qNum)) {
+                        btnStyle = "bg-amber-100 border-amber-300 text-amber-800";
+                      }
+                      
+                      return (
+                        <button 
+                          key={qNum}
+                          onClick={() => setCurrentQuestion(qNum)}
+                          className={`h-10 w-full rounded border text-xs font-bold flex items-center justify-center transition-colors ${btnStyle}`}
+                        >
+                          {qNum}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div className="space-y-4 mb-10">
-                  {['Schizoid Personality Disorder', 'Borderline Personality Disorder', 'Paranoid Personality Disorder', 'Antisocial Personality Disorder'].map((option, idx) => (
-                    <label key={idx} className="flex items-center p-5 rounded-lg border-2 border-slate-100 hover:border-blue-400 hover:bg-blue-50 cursor-pointer transition-colors w-full">
-                      <input type="radio" name="answer" className="h-6 w-6 text-blue-600 border-slate-300 focus:ring-blue-500" />
-                      <span className="ml-4 text-base font-medium text-slate-700">{option}</span>
-                    </label>
-                  ))}
-                </div>
-
-                <div className="flex justify-between border-t border-slate-100 pt-8">
-                  <button className="px-8 py-3 bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200 transition-colors">
-                    Previous Item
-                  </button>
-                  <button 
-                    onClick={() => setActiveView('summary')}
-                    className="px-8 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                  >
-                    Submit and Next
-                  </button>
-                </div>
               </div>
             </div>
           )}
@@ -432,7 +532,13 @@ export default function LearnerDashboard() {
 
                   <div className="bg-amber-50 border border-amber-100 p-8 rounded-xl">
                     <h4 className="text-base font-bold text-amber-800 mb-2">Action Plan</h4>
-                    <p className="text-sm text-amber-900 leading-relaxed">Based on your summary, prioritize Industrial Psychology resources before taking another simulation.</p>
+                    <p className="text-sm text-amber-900 leading-relaxed mb-6">Based on your summary, prioritize Industrial Psychology resources before taking another simulation.</p>
+                    <button 
+                      onClick={() => { setActiveView('exams'); setSelectedExam(4); }}
+                      className="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm"
+                    >
+                      Practice Industrial Psychology Drills Now
+                    </button>
                   </div>
                 </div>
               </div>
@@ -446,21 +552,41 @@ export default function LearnerDashboard() {
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
                 <div className="lg:col-span-2 bg-white p-8 md:p-12 rounded-xl border border-slate-100 shadow-sm">
-                  <div className="relative border-l-2 border-slate-200 ml-4 space-y-10 pb-4">
-                    {roadmapSteps.map((step) => (
-                      <div key={step.step} className="relative pl-10">
-                        <div className={`absolute -left-[13px] top-1 h-6 w-6 rounded-full border-4 flex items-center justify-center transition-all ${
+                  <div className="relative ml-2">
+                    {roadmapSteps.map((step, index) => (
+                      <div 
+                        key={step.step} 
+                        className="relative pl-12 pb-10 last:pb-0 cursor-pointer group"
+                        onClick={() => setExpandedPhase(expandedPhase === step.step ? 0 : step.step)}
+                      >
+                        {index !== roadmapSteps.length - 1 && (
+                          <div className={`absolute left-[11px] top-8 bottom-0 w-0.5 ${step.completed ? 'bg-emerald-200' : 'bg-slate-200'}`}></div>
+                        )}
+                        
+                        <div className={`absolute left-0 top-1 h-6 w-6 rounded-full border-4 flex items-center justify-center transition-all ${
                           step.completed ? 'bg-emerald-500 border-emerald-200' : 
                           step.current ? 'bg-blue-600 border-blue-200 animate-pulse' : 
-                          'bg-slate-200 border-slate-100'
+                          'bg-slate-200 border-slate-100 group-hover:border-slate-300'
                         }`} />
                         
-                        <div>
-                          <span className={`text-xs font-bold uppercase tracking-wider ${step.completed ? 'text-emerald-600' : step.current ? 'text-blue-600' : 'text-slate-400'}`}>
-                            Milestone Phase {step.step} {step.current && '(Active Target)'}
-                          </span>
-                          <h3 className="text-lg font-bold text-slate-800 mt-1">{step.title}</h3>
-                          <p className="text-sm text-slate-500 mt-2 max-w-lg leading-relaxed">{step.description}</p>
+                        <div className="transition-all">
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-bold uppercase tracking-wider ${step.completed ? 'text-emerald-600' : step.current ? 'text-blue-600' : 'text-slate-400'}`}>
+                              Milestone Phase {step.step} {step.current && '(Active Target)'}
+                            </span>
+                            <svg className={`w-4 h-4 transition-transform ${expandedPhase === step.step ? 'rotate-180 text-blue-500' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </div>
+                          
+                          <h3 className="text-lg font-bold text-slate-800 mt-1 group-hover:text-blue-600 transition-colors">{step.title}</h3>
+                          <p className="text-sm text-slate-500 mt-1 max-w-lg leading-relaxed">{step.description}</p>
+                          
+                          {expandedPhase === step.step && (
+                            <div className="mt-4 p-5 bg-slate-50 rounded-lg border border-slate-100 text-sm text-slate-700 font-medium leading-relaxed shadow-inner">
+                              {step.content}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
