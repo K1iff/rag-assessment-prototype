@@ -44,7 +44,7 @@ export default function LoginPage() {
     if (email === 'admin@university.edu') {
       router.push('/admin');
     } else if (email === 'teacher@university.edu') {
-      router.push('/exam-management');
+      router.push('/faculty');
     } else {
       router.push('/learner');
     }
