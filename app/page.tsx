@@ -2,12 +2,14 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { app } from '../firebase-config';
 
 export default function RootPage() {
   const router = useRouter();
 
   useEffect(() => {
     // Automatically forward the user straight to the login portal route
+    console.log("Firebase app initialized:", app);
     router.push('/login');
   }, [router]);
 
