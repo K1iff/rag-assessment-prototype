@@ -16,7 +16,6 @@ export default function AdminOverviewPage() {
       <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Global System Overview</h1>
-          <p className="text-sm text-slate-500 mt-1 max-w-2xl">High level metrics, system health, and API usage statistics across the entire RPLE platform.</p>
         </div>
       </div>
 
@@ -34,8 +33,9 @@ export default function AdminOverviewPage() {
             <div>
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">System Health Status</span>
               <p className="text-2xl font-bold text-slate-800 mt-1">{systemStats.systemHealth}</p>
+              <p className="text-xs text-slate-500 mt-1">If degraded, impacted operations include Document Indexing and AI Exam Generation delays.</p>
             </div>
-            <div className="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center border-4 border-emerald-50">
+            <div className="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center border-4 border-emerald-50 shrink-0">
               <div className="h-6 w-6 rounded-full bg-emerald-500 animate-pulse"></div>
             </div>
           </div>

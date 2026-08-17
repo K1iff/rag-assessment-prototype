@@ -42,7 +42,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             href="/admin/rag"
             className={`block w-full text-left px-4 py-3 rounded-lg text-sm font-bold transition-colors ${pathname.startsWith('/admin/rag') ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800'}`}
           >
-            RAG / AI Engine
+            Knowledge Base
           </Link>
           <div className="pt-4 pb-2">
             <p className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Access & Structure</p>
@@ -74,7 +74,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             onClick={() => router.push('/login')}
             className="w-full text-center bg-slate-800 hover:bg-slate-700 text-xs py-3 rounded-md font-bold transition-colors text-slate-300"
           >
-            Sign Out Securely
+            Sign Out
           </button>
         </div>
       </aside>

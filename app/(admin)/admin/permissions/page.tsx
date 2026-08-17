@@ -31,7 +31,6 @@ export default function AdminPermissionsPage() {
       <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Role & Permissions Configuration Panel</h1>
-          <p className="text-sm text-slate-500 mt-1 max-w-2xl">Modify security access levels and system privileges across user categories.</p>
         </div>
       </div>
 

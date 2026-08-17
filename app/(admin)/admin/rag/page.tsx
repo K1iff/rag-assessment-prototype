@@ -13,8 +13,7 @@ export default function AdminRagPage() {
     <>
       <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">AI Generation & RAG Engine</h1>
-          <p className="text-sm text-slate-500 mt-1 max-w-2xl">Configure AI parameters, manage uploaded knowledge base documents, and monitor vector embeddings.</p>
+          <h1 className="text-2xl font-bold text-slate-800">Knowledge Base</h1>
         </div>
         <button className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap">
           Upload New Document
@@ -23,22 +22,27 @@ export default function AdminRagPage() {
 
       <div className="space-y-6">
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 mb-6">
-          <h3 className="font-bold text-lg text-slate-800 mb-6">AI Generation Parameters</h3>
+          <div className="flex justify-between items-start mb-6">
+            <h3 className="font-bold text-lg text-slate-800">AI Generation Parameters</h3>
+            <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded font-bold">
+              Pending Confirmation: Validate UI exposure and DB persistence for these attributes.
+            </span>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">Creativity (Temperature): 0.3</label>
               <input type="range" min="0" max="1" step="0.1" defaultValue="0.3" className="w-full accent-purple-600" />
-              <p className="text-xs text-slate-500 mt-2 font-bold">Lower values ensure factual, strict reliance on RAG data.</p>
+              <p className="text-xs text-slate-500 mt-2 font-bold">Lower values strictly ensure factual adherence to RAG materials.</p>
             </div>
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">Context Chunk Size: 1024</label>
               <input type="range" min="256" max="2048" step="128" defaultValue="1024" className="w-full accent-purple-600" />
-              <p className="text-xs text-slate-500 mt-2 font-bold">Size of text chunks retrieved per query.</p>
+              <p className="text-xs text-slate-500 mt-2 font-bold">Defines the size of text chunks retrieved per generation query.</p>
             </div>
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">Retrieval Count (Top-K): 5</label>
               <input type="range" min="1" max="10" step="1" defaultValue="5" className="w-full accent-purple-600" />
-              <p className="text-xs text-slate-500 mt-2 font-bold">Number of relevant chunks fed to the LLM.</p>
+              <p className="text-xs text-slate-500 mt-2 font-bold">Specifies the number of relevant chunks injected into the AI context.</p>
             </div>
           </div>
           <div className="mt-8 pt-6 border-t border-slate-100 flex justify-end">

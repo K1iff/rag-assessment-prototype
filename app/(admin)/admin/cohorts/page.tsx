@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 export default function AdminCohortsPage() {
   const [selectedCohort, setSelectedCohort] = useState<number | null>(null);
   const [studentSearch, setStudentSearch] = useState('');
+  const [cohortTab, setCohortTab] = useState('active');
 
   const [cohorts, setCohorts] = useState([
     { 
@@ -45,7 +46,7 @@ export default function AdminCohortsPage() {
       name: 'New Assigned Cohort',
       description: 'Pending details and schedule setup.',
       color: 'bg-blue-600',
-      status: 'Pending',
+      status: 'Active',
       dateRange: 'TBD',
       teachers: [],
       students: []
@@ -59,6 +60,10 @@ export default function AdminCohortsPage() {
     student.name.toLowerCase().includes(studentSearch.toLowerCase()) || 
     student.email.toLowerCase().includes(studentSearch.toLowerCase())
   ) || [];
+
+  const displayedCohorts = cohorts.filter(c => 
+    cohortTab === 'active' ? c.status === 'Active' : c.status === 'Archived'
+  );
 
   if (selectedCohort !== null && currentCohort) {
     return (
@@ -100,7 +105,6 @@ export default function AdminCohortsPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-fit">
             <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
               <h3 className="font-bold text-slate-700">Assigned Teachers / Examiners</h3>
@@ -189,7 +193,6 @@ export default function AdminCohortsPage() {
               </div>
             </div>
           </div>
-
         </div>
       </div>
     );
@@ -197,10 +200,10 @@ export default function AdminCohortsPage() {
 
   return (
     <>
-      <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+      <div className="mb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Cohort Workspace Management</h1>
-          <p className="text-sm text-slate-500 mt-1 max-w-2xl">Organize learning groups and assign dedicated faculty members to specific student batches.</p>
+          <p className="text-sm text-slate-500 mt-1 font-bold">Needs Clarification: Validate cohort data model (Annual Batch vs. Semester-based) prior to finalizing filters.</p>
         </div>
         <button 
           onClick={handleCreateCohort}
@@ -210,8 +213,25 @@ export default function AdminCohortsPage() {
         </button>
       </div>
 
+      <div className="mb-6 border-b border-slate-200">
+        <div className="flex gap-6">
+          <button 
+            onClick={() => setCohortTab('active')} 
+            className={`pb-3 border-b-2 text-sm font-bold ${cohortTab === 'active' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          >
+            Active Cohorts
+          </button>
+          <button 
+            onClick={() => setCohortTab('archived')} 
+            className={`pb-3 border-b-2 text-sm font-bold ${cohortTab === 'archived' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          >
+            Archived
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {cohorts.map((cohort) => (
+        {displayedCohorts.map((cohort) => (
           <div 
             key={cohort.id} 
             onClick={() => setSelectedCohort(cohort.id)}
@@ -225,7 +245,7 @@ export default function AdminCohortsPage() {
                 {cohort.dateRange}
               </span>
               <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider ${
-                cohort.status === 'Active' ? 'bg-emerald-400 text-emerald-950' : 'bg-slate-300 text-slate-800'
+                cohort.status === 'Active' ? 'bg-emerald-400 text-emerald-950' : 'bg-slate-100 text-slate-600'
               }`}>
                 {cohort.status}
               </span>
