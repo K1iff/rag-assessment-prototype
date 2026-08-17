@@ -7,10 +7,10 @@ export default function CreateExamPage() {
   const router = useRouter();
   
   const [materials, setMaterials] = useState([
-    { id: 'mat1', title: 'Chapter 1: Introduction to Abnormal Behavior (PDF)', checked: true },
-    { id: 'mat2', title: 'Week 2 Presentation Slides (PPTX)', checked: true },
-    { id: 'mat3', title: 'Diagnostic Criteria Reference Guide (DOCX)', checked: false },
-    { id: 'mat4', title: 'Case Study Requirements (DOCX)', checked: false },
+    { id: 'mat1', title: 'Chapter 1: Introduction to Abnormal Behavior (PDF)', uploader: 'System Default', checked: true },
+    { id: 'mat2', title: 'Week 2 Presentation Slides (PPTX)', uploader: 'Dr. Marquez', checked: true },
+    { id: 'mat3', title: 'Diagnostic Criteria Reference Guide (DOCX)', uploader: 'System Default', checked: false },
+    { id: 'mat4', title: 'Case Study Requirements (DOCX)', uploader: 'Dr. Marquez', checked: false },
   ]);
 
   const toggleMaterial = (id: string) => {
@@ -121,7 +121,7 @@ export default function CreateExamPage() {
                   className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                 />
                 <span className={`ml-4 text-sm font-bold ${mat.checked ? 'text-blue-900' : 'text-slate-700'}`}>
-                  {mat.title}
+                  {mat.title} <span className="text-xs text-slate-400 font-bold ml-2">(Uploaded by {mat.uploader})</span>
                 </span>
               </label>
             ))}

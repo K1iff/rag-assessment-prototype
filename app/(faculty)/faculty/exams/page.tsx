@@ -19,14 +19,17 @@ export default function FacultyExamsPage() {
   const aiQuestions = [
     { id: 1, topic: 'Schizophrenia Spectrum', question: 'Which symptom is considered a negative symptom of schizophrenia?', options: ['Delusions', 'Hallucinations', 'Avolition', 'Disorganized speech'], answer: 'Avolition', confidence: 'High', citation: 'Derived from Abnormal_Psych_DSM5_Guidelines.pdf, Page 42' },
     { id: 2, topic: 'Bipolar Disorders', question: 'What is the primary difference between Bipolar I and Bipolar II?', options: ['Presence of major depressive episodes', 'Presence of a full manic episode', 'Age of onset', 'Response to lithium'], answer: 'Presence of a full manic episode', confidence: 'High', citation: 'Derived from Abnormal_Psych_DSM5_Guidelines.pdf, Page 58' },
-    { id: 3, topic: 'Depressive Disorders', question: 'Persistent Depressive Disorder requires symptoms to be present for at least how long in adults?', options: ['6 months', '1 year', '2 years', '5 years'], answer: '2 years', confidence: 'Medium', citation: 'Derived from Abnormal_Psych_DSM5_Guidelines.pdf, Page 61' },
+  ];
+
+  const questionAnalytics = [
+    { id: 1, question: 'Which of the following is a primary function of the amygdala?', options: [{ text: 'Memory consolidation', count: 12, percent: 15 }, { text: 'Emotional processing', count: 56, percent: 70, isCorrect: true }, { text: 'Motor control', count: 8, percent: 10 }, { text: 'Language comprehension', count: 4, percent: 5 }] },
+    { id: 2, question: 'What characterizes the preoperational stage of cognitive development?', options: [{ text: 'Abstract reasoning', count: 5, percent: 6 }, { text: 'Object permanence', count: 15, percent: 19 }, { text: 'Symbolic thinking', count: 50, percent: 62, isCorrect: true }, { text: 'Conservation', count: 10, percent: 13 }] },
   ];
 
   const studentAnalytics = [
     { id: 101, name: 'Juan Santos', status: 'Completed', takenAt: 'July 15, 2026 10:30 AM', grade: '28/30 (93%)' },
     { id: 102, name: 'Ana Reyes', status: 'Completed', takenAt: 'July 16, 2026 02:15 PM', grade: '22/30 (73%)' },
     { id: 103, name: 'Luis Cruz', status: 'Not Taken', takenAt: 'Pending', grade: 'Pending' },
-    { id: 104, name: 'Maria Clara', status: 'Completed', takenAt: 'July 15, 2026 11:45 AM', grade: '29/30 (96%)' },
   ];
 
   const getStatusBadge = (status: string) => {
@@ -72,21 +75,32 @@ export default function FacultyExamsPage() {
           >
             Exam Settings
           </button>
-          <button 
-            onClick={() => {
-              if (currentExam.status !== 'Active') setExamTab('questions');
-            }} 
-            className={`pb-4 border-b-2 text-sm font-bold flex items-center gap-2 whitespace-nowrap ${examTab === 'questions' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'} ${currentExam.status === 'Active' ? 'opacity-50 cursor-not-allowed' : ''}`}
-            title={currentExam.status === 'Active' ? 'Questions are locked while the exam is active.' : ''}
-          >
-            {currentExam.status === 'Active' && <span>🔒</span>}
-            Question Validation
-          </button>
+          
+          {currentExam.status === 'Inactive' ? (
+             <button 
+             onClick={() => setExamTab('question_analytics')} 
+             className={`pb-4 border-b-2 text-sm font-bold whitespace-nowrap ${examTab === 'question_analytics' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+           >
+             Question Analytics
+           </button>
+          ) : (
+            <button 
+              onClick={() => {
+                if (currentExam.status !== 'Active') setExamTab('questions');
+              }} 
+              className={`pb-4 border-b-2 text-sm font-bold flex items-center gap-2 whitespace-nowrap ${examTab === 'questions' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'} ${currentExam.status === 'Active' ? 'opacity-50 cursor-not-allowed' : ''}`}
+              title={currentExam.status === 'Active' ? 'Questions are locked while the exam is active.' : ''}
+            >
+              {currentExam.status === 'Active' && <span>🔒</span>}
+              Question Validation
+            </button>
+          )}
+
           <button 
             onClick={() => setExamTab('analytics')} 
             className={`pb-4 border-b-2 text-sm font-bold whitespace-nowrap ${examTab === 'analytics' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
           >
-            Analytics
+            Student Analytics
           </button>
         </div>
 
@@ -132,6 +146,39 @@ export default function FacultyExamsPage() {
             </div>
           )}
 
+          {examTab === 'question_analytics' && (
+            <div>
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-800">Question Analytics</h2>
+                  <p className="text-sm text-slate-500 font-bold mt-1">Review the answer selection breakdown for each question.</p>
+                </div>
+              </div>
+
+              <div className="space-y-8">
+                {questionAnalytics.map(qa => (
+                  <div key={qa.id} className="p-6 border border-slate-200 rounded-xl bg-white shadow-sm">
+                     <p className="text-lg font-bold text-slate-900 mb-6">{qa.question}</p>
+                     <div className="space-y-4">
+                        {qa.options.map((opt, idx) => (
+                          <div key={idx} className="relative w-full bg-slate-100 rounded-lg h-12 flex items-center px-4 overflow-hidden">
+                            <div 
+                              className={`absolute left-0 top-0 h-full ${opt.isCorrect ? 'bg-emerald-200' : 'bg-slate-300'} opacity-50`} 
+                              style={{ width: `${opt.percent}%` }}
+                            ></div>
+                            <div className="relative z-10 flex justify-between w-full text-sm font-bold text-slate-800">
+                              <span>{opt.text} {opt.isCorrect && <span className="text-emerald-700 ml-2">(Correct)</span>}</span>
+                              <span>{opt.count} students ({opt.percent}%)</span>
+                            </div>
+                          </div>
+                        ))}
+                     </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {examTab === 'questions' && (
             currentExam.status === 'Active' ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -150,7 +197,7 @@ export default function FacultyExamsPage() {
                   </div>
                   <div className="flex gap-3 w-full md:w-auto">
                     <button onClick={selectAllHighConfidence} className="flex-1 md:flex-none px-4 py-2 border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
-                      Select High-Confidence
+                      Select High Confidence
                     </button>
                     <button className="flex-1 md:flex-none px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50" disabled={selectedQuestions.length === 0}>
                       Batch Approve ({selectedQuestions.length})
@@ -199,7 +246,7 @@ export default function FacultyExamsPage() {
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
                           Regenerate Question
                         </button>
-                        <button className="px-5 py-2.5 bg-red-100 text-red-700 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors shadow-sm ml-auto">Reject</button>
+                        <button className="px-5 py-2.5 bg-red-100 text-red-700 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors shadow-sm ml-auto">Reject and Auto Replace</button>
                       </div>
                     </div>
                   ))}
@@ -243,9 +290,12 @@ export default function FacultyExamsPage() {
                         </td>
                         <td className="p-4 font-bold text-slate-500">{student.takenAt}</td>
                         <td className="p-4 font-bold text-slate-700">{student.grade}</td>
-                        <td className="p-4 text-right">
-                          <button disabled={student.status !== 'Completed'} className={`text-xs font-bold ${student.status === 'Completed' ? 'text-blue-600 hover:underline' : 'text-slate-400 cursor-not-allowed'}`}>
+                        <td className="p-4 text-right flex gap-3 justify-end">
+                           <button disabled={student.status !== 'Completed'} className={`text-xs font-bold ${student.status === 'Completed' ? 'text-blue-600 hover:underline' : 'text-slate-400 cursor-not-allowed'}`}>
                             View Answers
+                          </button>
+                          <button disabled={student.status !== 'Completed'} className={`text-xs font-bold ${student.status === 'Completed' ? 'text-red-600 hover:underline' : 'text-slate-400 cursor-not-allowed'}`}>
+                            Reset Attempt
                           </button>
                         </td>
                       </tr>

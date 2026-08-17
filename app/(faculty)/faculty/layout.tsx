@@ -57,7 +57,7 @@ export default function FacultyLayout({ children }: { children: React.ReactNode 
             onClick={() => router.push('/login')}
             className="w-full text-center bg-slate-800 hover:bg-slate-700 text-xs py-3 rounded-md font-bold transition-colors text-slate-300"
           >
-            Sign Out Securely
+            Sign Out
           </button>
         </div>
       </aside>

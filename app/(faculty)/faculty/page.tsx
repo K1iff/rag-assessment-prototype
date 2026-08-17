@@ -61,10 +61,11 @@ export default function FacultyDashboardPage() {
         </div>
         <div 
           onClick={() => router.push('/faculty/analytics')}
-          className="bg-white p-8 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-center cursor-pointer hover:shadow-md hover:border-blue-200 transition-all group"
+          className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-center cursor-pointer hover:shadow-md hover:border-blue-200 transition-all group"
         >
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider group-hover:text-blue-600 transition-colors">Overall Completion</span>
-          <p className="text-4xl font-bold text-blue-600 mt-2 group-hover:text-blue-700 transition-colors">{dashboardStats.overallCompletion}</p>
+          <span className="text-xs font-bold text-slate-700 uppercase tracking-wider group-hover:text-blue-800 transition-colors">Overall Completion</span>
+          <p className="text-4xl font-bold text-blue-700 mt-2 group-hover:text-blue-800 transition-colors">{dashboardStats.overallCompletion}</p>
+          <p className="text-[10px] text-slate-500 mt-2 font-bold leading-tight">Calculated as the percentage of enrolled students who have submitted all active exams. Adding new exams adjusts this metric dynamically.</p>
         </div>
       </div>
 
