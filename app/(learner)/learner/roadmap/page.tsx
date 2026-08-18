@@ -15,11 +15,11 @@ export default function RoadmapPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-800">Interactive PRC Progress Roadmap Visualization</h1>
+      <h1 className="text-2xl font-bold text-slate-800">Interactive PRC Progress Roadmap</h1>
       <p className="text-sm text-slate-500 mt-1 mb-6 font-bold">Monitor your macro milestone progression mapped directly against the official board exam syllabus.</p>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
-        <div className="lg:col-span-2 bg-white p-8 md:p-12 rounded-xl border border-slate-100 shadow-sm">
+        <div className="lg:col-span-2 bg-white p-8 md:p-12 rounded-xl border border-slate-200 shadow-sm">
           <div className="relative ml-2">
             {roadmapSteps.map((step, index) => (
               <div 
@@ -62,7 +62,15 @@ export default function RoadmapPage() {
         </div>
 
         <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white p-8 rounded-xl border border-slate-100 shadow-sm">
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+            <h3 className="font-bold text-base text-slate-800 border-b border-slate-100 pb-2 mb-3">Roadmap Plotting Logic</h3>
+            <p className="text-xs text-slate-500 leading-relaxed font-bold">
+              Milestones and structural progressions are dynamically mapped using system competency validation algorithms. 
+              Passing any simulation unlocks the subsequent validation phase, while failing items triggers automatic AI background material updates.
+            </p>
+          </div>
+
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
             <h3 className="font-bold text-base text-slate-800">Active Target Requirements</h3>
             <p className="text-sm text-slate-500 mt-2 font-bold">To clear Phase 3 you must achieve the following specific goals.</p>
             <ul className="mt-5 space-y-4 text-sm text-slate-600 font-bold">
@@ -75,11 +83,6 @@ export default function RoadmapPage() {
                 Secure a score of 75 percent or higher on each assessment.
               </li>
             </ul>
-          </div>
-          
-          <div className="bg-emerald-50 border border-emerald-100 p-8 rounded-xl">
-            <h3 className="font-bold text-base text-emerald-800 mb-3">Progress Update</h3>
-            <p className="text-sm text-emerald-900 leading-relaxed font-bold">You are currently on track with the recommended schedule. Keep maintaining your momentum to hit Phase 4 early.</p>
           </div>
         </div>
       </div>

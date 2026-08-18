@@ -42,7 +42,7 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
                 href="/learner"
                 className={`block w-full text-left px-4 py-3 rounded-lg text-sm font-bold transition-colors ${pathname === '/learner' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800'}`}
               >
-                Weekly Calendar
+                Weekly Activity
               </Link>
               <Link 
                 href="/learner/exams"
