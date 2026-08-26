@@ -1,5 +1,6 @@
 'use client';
 
+import { supabase } from '@/lib/supabaseClient';
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -20,7 +21,7 @@ export default function LoginPage() {
     setErrors({});
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: { email?: string; password?: string } = {};
 
@@ -41,11 +42,34 @@ export default function LoginPage() {
 
     setErrors({});
 
-    if (email === 'admin@university.edu') {
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: email,
+      password: password,
+    });
+
+    if (authError) {
+      setErrors({ email: 'Invalid login credentials. Please try again.' });
+      return;
+    }
+
+    //
+
+    const { data: profileData, error: profileError } = await supabase
+      .from('Users')
+      .select('role_id')
+      .eq('user_id', authData.user.id)
+      .single();
+
+    if (profileError || !profileData) {
+      setErrors({ email: 'Could not retrieve user profile.' });
+      return;
+    }
+
+    if (profileData.role_id === 3) {
       router.push('/admin');
-    } else if (email === 'teacher@university.edu') {
+    } else if (profileData.role_id === 2) {
       router.push('/faculty');
-    } else {
+    } else if (profileData.role_id === 1) {
       router.push('/learner');
     }
   };
