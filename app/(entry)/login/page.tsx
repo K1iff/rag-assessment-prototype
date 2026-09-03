@@ -13,14 +13,6 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
-  const fillDemoAccount = (role: 'learner' | 'teacher' | 'admin') => {
-    setPassword('DemoAccount123!');
-    if (role === 'learner') setEmail('learner@university.edu');
-    if (role === 'teacher') setEmail('teacher@university.edu');
-    if (role === 'admin') setEmail('admin@university.edu');
-    setErrors({});
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: { email?: string; password?: string } = {};
@@ -87,34 +79,6 @@ export default function LoginPage() {
         </div>
 
         <div className="p-6">
-          
-          <div className="mb-6">
-            <p className="text-xs font-bold text-slate-500 mb-2 text-center uppercase tracking-wider">Demo Accounts</p>
-            <div className="flex gap-2">
-              <button 
-                type="button" 
-                onClick={() => fillDemoAccount('learner')} 
-                className="flex-1 text-xs py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-bold transition-colors"
-              >
-                Learner
-              </button>
-              <button 
-                type="button" 
-                onClick={() => fillDemoAccount('teacher')} 
-                className="flex-1 text-xs py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-bold transition-colors"
-              >
-                Teacher
-              </button>
-              <button 
-                type="button" 
-                onClick={() => fillDemoAccount('admin')} 
-                className="flex-1 text-xs py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg font-bold transition-colors"
-              >
-                Admin
-              </button>
-            </div>
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-1">Email Address</label>
