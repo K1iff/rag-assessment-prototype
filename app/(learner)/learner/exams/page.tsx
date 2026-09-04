@@ -8,6 +8,7 @@ export default function ScheduledExamsPage() {
   const [selectedExam, setSelectedExam] = useState<null | number>(null);
   const [viewingDashboard, setViewingDashboard] = useState<null | number>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [activeAttempt, setActiveAttempt] = useState(1);
 
   const scheduledExamsList = [
     { id: 1, title: 'Abnormal Psychology Diagnostic', scope: 'Entire Subject Abnormal Psychology', rules: 'Specific Time July 15, 2026 at 2:00 PM', duration: '60 minutes', status: 'Finished', score: '74%', accent: 'bg-rose-500' },
@@ -16,10 +17,17 @@ export default function ScheduledExamsPage() {
     { id: 4, title: 'Industrial Psychology Baseline', scope: 'Entire Subject Industrial Psychology', rules: 'Take Anytime', duration: '60 minutes', status: 'Available', score: null, accent: 'bg-purple-500' },
   ];
 
-  const reviewItems = [
+  const reviewItemsAttempt1 = [
     { qNum: 1, text: 'Which symptom is considered a negative symptom of schizophrenia?', studentAnswer: 'Avolition', correctAnswer: 'Avolition', isCorrect: true, explanation: 'Avolition represents a restriction in the initiation and persistence of goal-directed behavior, a core negative dimension under DSM-5 parameters.' },
-    { qNum: 2, text: 'What is the primary feature of Panic Disorder?', options: [], studentAnswer: 'Generalized worry', correctAnswer: 'Recurrent unexpected panic attacks', isCorrect: false, explanation: 'Panic disorder specifically requires recurrent, unexpected panic attacks followed by at least 1 month of persistent concern about additional attacks.' }
+    { qNum: 2, text: 'What is the primary feature of Panic Disorder?', studentAnswer: 'Generalized worry', correctAnswer: 'Recurrent unexpected panic attacks', isCorrect: false, explanation: 'Panic disorder specifically requires recurrent, unexpected panic attacks followed by at least 1 month of persistent concern about additional attacks.' }
   ];
+
+  const reviewItemsAttempt2 = [
+    { qNum: 1, text: 'What characterizes Borderline Personality Disorder?', studentAnswer: 'Instability in relationships', correctAnswer: 'Instability in relationships', isCorrect: true, explanation: 'BPD is marked by a pervasive pattern of instability in interpersonal relationships, self image, and affects.' },
+    { qNum: 2, text: 'Which is a common compulsion in OCD?', studentAnswer: 'Worrying about health', correctAnswer: 'Repetitive hand washing', isCorrect: false, explanation: 'Compulsions are repetitive behaviors like hand washing or mental acts that a person feels driven to perform.' }
+  ];
+
+  const currentReviewItems = activeAttempt === 1 ? reviewItemsAttempt1 : reviewItemsAttempt2;
 
   if (viewingDashboard !== null) {
     const exam = scheduledExamsList.find(e => e.id === viewingDashboard);
@@ -43,8 +51,25 @@ export default function ScheduledExamsPage() {
         </div>
 
         <div className="space-y-4">
-          <h3 className="font-bold text-slate-700 text-lg">Blackboard Review Deck</h3>
-          {reviewItems.map((item) => (
+          <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+            <h3 className="font-bold text-slate-700 text-lg">Blackboard Review Deck</h3>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setActiveAttempt(1)} 
+                className={`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${activeAttempt === 1 ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                Attempt 1
+              </button>
+              <button 
+                onClick={() => setActiveAttempt(2)} 
+                className={`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${activeAttempt === 2 ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                Attempt 2
+              </button>
+            </div>
+          </div>
+          
+          {currentReviewItems.map((item) => (
             <div key={item.qNum} className={`p-6 border rounded-xl bg-white shadow-sm flex flex-col gap-3 border-l-4 ${item.isCorrect ? 'border-l-emerald-500' : 'border-l-rose-500'}`}>
               <div className="flex justify-between items-center text-xs font-bold text-slate-400">
                 <span>Item Attempt {item.qNum}</span>

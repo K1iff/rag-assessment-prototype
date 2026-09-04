@@ -18,10 +18,6 @@ export default function UnifiedPerformancePage() {
       { subject: 'Abnormal Psych', score: 74, fullMark: 100 },
       { subject: 'Industrial', score: 62, fullMark: 100 },
       { subject: 'Assessment', score: 80, fullMark: 100 },
-    ],
-    reviewItems: [
-      { qNum: 1, text: 'Which symptom is considered a negative symptom of schizophrenia?', studentAnswer: 'Avolition', correctAnswer: 'Avolition', isCorrect: true, explanation: 'Avolition represents a restriction in the initiation and persistence of goal directed behavior.' },
-      { qNum: 2, text: 'What is the primary feature of Panic Disorder?', studentAnswer: 'Generalized worry', correctAnswer: 'Recurrent unexpected panic attacks', isCorrect: false, explanation: 'Panic disorder specifically requires recurrent unexpected panic attacks.' }
     ]
   };
 
@@ -81,35 +77,6 @@ export default function UnifiedPerformancePage() {
                 <p className="text-sm text-blue-950 leading-relaxed font-bold">
                   {latestExam.aiRagFeedback}
                 </p>
-              </div>
-              
-              <div className="space-y-4">
-                <h3 className="font-bold text-slate-700 text-lg">Question Review</h3>
-                {latestExam.reviewItems.map((item) => (
-                  <div key={item.qNum} className={`p-6 border rounded-xl bg-white shadow-sm flex flex-col gap-3 border-l-4 ${item.isCorrect ? 'border-l-emerald-500' : 'border-l-rose-500'}`}>
-                    <div className="flex justify-between items-center text-xs font-bold text-slate-400">
-                      <span>Item Attempt {item.qNum}</span>
-                      <span className={item.isCorrect ? 'text-emerald-600' : 'text-rose-600'}>
-                        {item.isCorrect ? '✓ Correct' : '✗ Incorrect'}
-                      </span>
-                    </div>
-                    <p className="text-base font-bold text-slate-800">{item.text}</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-bold mt-2">
-                      <div className="p-3 bg-slate-50 border border-slate-200 rounded">
-                        <span className="text-slate-400 block mb-1">Your Submission:</span>
-                        <span className={item.isCorrect ? 'text-emerald-700' : 'text-rose-700'}>{item.studentAnswer}</span>
-                      </div>
-                      <div className="p-3 bg-slate-50 border border-slate-200 rounded">
-                        <span className="text-slate-400 block mb-1">Correct Answer:</span>
-                        <span className="text-emerald-700">{item.correctAnswer}</span>
-                      </div>
-                    </div>
-                    <div className="bg-slate-50 p-3 rounded text-xs font-bold text-slate-600 mt-2">
-                      <span className="text-blue-600 block mb-1">Explanation:</span>
-                      {item.explanation}
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
 

@@ -18,7 +18,7 @@ export default function ActiveExamPage() {
   };
 
   const handleSubmit = () => {
-    router.push('/learner/summary');
+    router.push('/learner/performance');
   };
 
   const progressPercentage = (currentQuestion / totalQuestions) * 100;
