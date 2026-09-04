@@ -6,6 +6,14 @@ export default function AdminCohortsPage() {
   const [selectedCohort, setSelectedCohort] = useState<number | null>(null);
   const [studentSearch, setStudentSearch] = useState('');
   const [cohortTab, setCohortTab] = useState('active');
+  const [currentPage, setCurrentPage] = useState(1);
+  const studentsPerPage = 5;
+
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newCohortName, setNewCohortName] = useState('');
+  const [newCohortDesc, setNewCohortDesc] = useState('');
+  const [newCohortStart, setNewCohortStart] = useState('');
+  const [newCohortEnd, setNewCohortEnd] = useState('');
 
   const [cohorts, setCohorts] = useState([
     { 
@@ -16,7 +24,14 @@ export default function AdminCohortsPage() {
       status: 'Active',
       dateRange: 'Aug 2026 to Dec 2026',
       teachers: [{ id: 101, name: 'Dr. Maria Marquez', email: 'prof.marquez@univ.edu' }],
-      students: [{ id: 201, name: 'Juan Santos', email: 'student.santos@stud.edu' }, { id: 202, name: 'Ana Reyes', email: 'ana.reyes@stud.edu' }]
+      students: [
+        { id: 201, name: 'Juan Santos', email: 'student.santos@stud.edu' }, 
+        { id: 202, name: 'Ana Reyes', email: 'ana.reyes@stud.edu' },
+        { id: 204, name: 'Miguel Torres', email: 'miguel.torres@stud.edu' },
+        { id: 205, name: 'Sofia Garcia', email: 'sofia.garcia@stud.edu' },
+        { id: 206, name: 'Diego Flores', email: 'diego.flores@stud.edu' },
+        { id: 207, name: 'Carmen Villanueva', email: 'carmen.v@stud.edu' }
+      ]
     },
     { 
       id: 2, 
@@ -40,18 +55,24 @@ export default function AdminCohortsPage() {
     },
   ]);
 
-  const handleCreateCohort = () => {
+  const handleCreateCohortSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
     const newCohort = {
       id: Date.now(),
-      name: 'New Assigned Cohort',
-      description: 'Pending details and schedule setup.',
+      name: newCohortName,
+      description: newCohortDesc,
       color: 'bg-blue-600',
       status: 'Active',
-      dateRange: 'TBD',
+      dateRange: `${newCohortStart} to ${newCohortEnd}`,
       teachers: [],
       students: []
     };
     setCohorts([...cohorts, newCohort]);
+    setShowCreateModal(false);
+    setNewCohortName('');
+    setNewCohortDesc('');
+    setNewCohortStart('');
+    setNewCohortEnd('');
   };
 
   const currentCohort = cohorts.find(c => c.id === selectedCohort);
@@ -60,6 +81,11 @@ export default function AdminCohortsPage() {
     student.name.toLowerCase().includes(studentSearch.toLowerCase()) || 
     student.email.toLowerCase().includes(studentSearch.toLowerCase())
   ) || [];
+
+  const indexOfLastStudent = currentPage * studentsPerPage;
+  const indexOfFirstStudent = indexOfLastStudent - studentsPerPage;
+  const currentStudents = filteredStudents.slice(indexOfFirstStudent, indexOfLastStudent);
+  const totalPages = Math.ceil(filteredStudents.length / studentsPerPage);
 
   const displayedCohorts = cohorts.filter(c => 
     cohortTab === 'active' ? c.status === 'Active' : c.status === 'Archived'
@@ -70,7 +96,7 @@ export default function AdminCohortsPage() {
       <div className="space-y-6">
         <div className="flex items-center gap-3 mb-2">
           <button 
-            onClick={() => setSelectedCohort(null)} 
+            onClick={() => { setSelectedCohort(null); setCurrentPage(1); setStudentSearch(''); }} 
             className="text-slate-500 hover:text-blue-600 font-bold text-sm flex items-center gap-1"
           >
             &larr; Back to Cohorts
@@ -99,7 +125,7 @@ export default function AdminCohortsPage() {
               </div>
             </div>
           </div>
-          <button className="px-4 py-2 border border-slate-300 text-slate-700 text-sm font-bold rounded-lg hover:bg-slate-50 transition-colors">
+          <button className="px-4 py-2 border border-slate-300 text-slate-700 text-sm font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
             Edit Cohort Details
           </button>
         </div>
@@ -118,10 +144,15 @@ export default function AdminCohortsPage() {
               ) : (
                 <ul className="divide-y divide-slate-100">
                   {currentCohort.teachers.map(teacher => (
-                    <li key={teacher.id} className="p-3 flex justify-between items-center hover:bg-slate-50 rounded-lg transition-colors">
-                      <div>
-                        <p className="text-sm font-bold text-slate-800">{teacher.name}</p>
-                        <p className="text-xs font-bold text-slate-500">{teacher.email}</p>
+                    <li key={teacher.id} className="p-3 flex justify-between items-center hover:bg-slate-50 rounded-lg transition-colors cursor-pointer group">
+                      <div className="flex items-center gap-3">
+                        <div className="text-slate-300 group-hover:text-slate-400 cursor-grab active:cursor-grabbing">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" /></svg>
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">{teacher.name}</p>
+                          <p className="text-xs font-bold text-slate-500">{teacher.email}</p>
+                        </div>
                       </div>
                       <button className="text-xs text-red-500 font-bold hover:underline">Remove</button>
                     </li>
@@ -153,7 +184,7 @@ export default function AdminCohortsPage() {
                     type="text" 
                     placeholder="Search enrolled students..." 
                     value={studentSearch}
-                    onChange={(e) => setStudentSearch(e.target.value)}
+                    onChange={(e) => { setStudentSearch(e.target.value); setCurrentPage(1); }}
                     className="w-full text-xs font-bold px-3 py-2 border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 outline-none" 
                   />
                 </div>
@@ -165,11 +196,11 @@ export default function AdminCohortsPage() {
             </div>
             
             <div className="flex-1 p-2">
-              {filteredStudents.length === 0 ? (
+              {currentStudents.length === 0 ? (
                 <div className="p-6 text-center text-sm font-bold text-slate-500">No students found matching your search.</div>
               ) : (
                 <ul className="flex flex-col">
-                  {filteredStudents.map(student => (
+                  {currentStudents.map(student => (
                     <li key={student.id} className="p-3 flex justify-between items-center hover:bg-slate-50 rounded-lg transition-colors border-b border-slate-50 last:border-0">
                       <div className="flex items-center gap-3">
                         <input type="checkbox" className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
@@ -186,10 +217,22 @@ export default function AdminCohortsPage() {
             </div>
 
             <div className="p-3 border-t border-slate-100 bg-slate-50 flex justify-between items-center text-xs font-bold text-slate-500">
-              <span>Showing 1 to {filteredStudents.length} of {currentCohort.students.length}</span>
+              <span>Showing {filteredStudents.length > 0 ? indexOfFirstStudent + 1 : 0} to {Math.min(indexOfLastStudent, filteredStudents.length)} of {filteredStudents.length} students</span>
               <div className="flex gap-1.5">
-                <button className="px-3 py-1.5 border border-slate-200 rounded bg-white text-slate-400 cursor-not-allowed font-bold shadow-sm">Prev</button>
-                <button className="px-3 py-1.5 border border-slate-200 rounded bg-white text-slate-400 cursor-not-allowed font-bold shadow-sm">Next</button>
+                <button 
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className={`px-3 py-1.5 border rounded font-bold shadow-sm ${currentPage === 1 ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
+                >
+                  Prev
+                </button>
+                <button 
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages || totalPages === 0}
+                  className={`px-3 py-1.5 border rounded font-bold shadow-sm ${currentPage === totalPages || totalPages === 0 ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
+                >
+                  Next
+                </button>
               </div>
             </div>
           </div>
@@ -199,14 +242,14 @@ export default function AdminCohortsPage() {
   }
 
   return (
-    <>
-      <div className="mb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="space-y-6 relative">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Cohort Workspace Management</h1>
-          <p className="text-sm text-slate-500 mt-1 font-bold">Needs Clarification: Validate cohort data model (Annual Batch vs. Semester-based) prior to finalizing filters.</p>
+          <p className="text-sm text-slate-500 mt-1 font-bold">Organize user groups and assign teachers for targeted mock exams.</p>
         </div>
         <button 
-          onClick={handleCreateCohort}
+          onClick={() => setShowCreateModal(true)}
           className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap"
         >
           + Create Cohort
@@ -235,7 +278,7 @@ export default function AdminCohortsPage() {
           <div 
             key={cohort.id} 
             onClick={() => setSelectedCohort(cohort.id)}
-            className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer flex flex-col h-48 relative"
+            className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer flex flex-col h-48 relative group"
           >
             <div className={`h-14 ${cohort.color} flex items-center justify-between px-4`}>
               <span className="text-white font-bold text-xs bg-black/20 px-2.5 py-1 rounded-md flex items-center gap-2">
@@ -252,7 +295,7 @@ export default function AdminCohortsPage() {
             </div>
             <div className="p-5 flex-1 flex flex-col justify-between">
               <div>
-                <h3 className="font-bold text-slate-800 truncate">{cohort.name}</h3>
+                <h3 className="font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{cohort.name}</h3>
                 <p className="text-xs text-slate-500 mt-1 line-clamp-2 font-bold">{cohort.description}</p>
               </div>
               <div className="flex gap-4 text-xs font-bold text-slate-600 border-t border-slate-100 pt-3">
@@ -263,6 +306,87 @@ export default function AdminCohortsPage() {
           </div>
         ))}
       </div>
-    </>
+
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200">
+            <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+              <h3 className="text-xl font-bold text-slate-800">Create New Cohort</h3>
+              <button 
+                onClick={() => setShowCreateModal(false)}
+                className="text-slate-400 hover:text-slate-700 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            
+            <form onSubmit={handleCreateCohortSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Cohort Name</label>
+                <input 
+                  type="text" 
+                  value={newCohortName}
+                  onChange={(e) => setNewCohortName(e.target.value)}
+                  placeholder="e.g. Intensive Program 2027" 
+                  required
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Description</label>
+                <textarea 
+                  value={newCohortDesc}
+                  onChange={(e) => setNewCohortDesc(e.target.value)}
+                  placeholder="Provide a brief summary of this group..." 
+                  required
+                  rows={3}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none" 
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Start Month</label>
+                  <input 
+                    type="month" 
+                    value={newCohortStart}
+                    onChange={(e) => setNewCohortStart(e.target.value)}
+                    required
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">End Month</label>
+                  <input 
+                    type="month" 
+                    value={newCohortEnd}
+                    onChange={(e) => setNewCohortEnd(e.target.value)}
+                    required
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                  />
+                </div>
+              </div>
+              
+              <div className="flex justify-end gap-3 pt-6 border-t border-slate-100 mt-2">
+                <button 
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm"
+                >
+                  Create Workspace
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
