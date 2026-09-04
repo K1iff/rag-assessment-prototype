@@ -121,7 +121,9 @@ export default function LoginPage() {
               </div>
 
               <div className="mt-2 flex justify-end">
-                <a href="#" className="text-xs font-bold text-blue-600 hover:underline">Forgot Password?</a>
+                <Link href="/forgot_password" className="text-xs font-bold text-blue-600 hover:underline">
+                  Forgot Password?
+                </Link>
               </div>
               
               {errors.password && <p className="text-xs text-red-600 mt-1 font-bold">{errors.password}</p>}
@@ -164,9 +166,9 @@ export default function LoginPage() {
           </div>
 
           <div className="mt-6 text-center">
-            <Link href="/signup" className="text-sm font-bold text-blue-600 hover:text-blue-800">
-              Don't have an account? Sign up
-            </Link>
+            <p className="text-xs font-bold text-slate-500">
+              Need an account? Please contact your university administrator.
+            </p>
           </div>
         </div>
       </div>
