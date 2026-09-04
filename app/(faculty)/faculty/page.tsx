@@ -34,8 +34,18 @@ export default function FacultyDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-800">Welcome Back, Instructor</h1>
-      <p className="text-sm text-slate-500 mt-1 mb-6 font-bold">Here is a summary of your upcoming exams and pending validations for this week.</p>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Welcome Back, Instructor</h1>
+          <p className="text-sm text-slate-500 mt-1 font-bold">Here is a summary of your upcoming exams and pending validations for this week.</p>
+        </div>
+        <button 
+          onClick={() => router.push('/faculty/exams/create')}
+          className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap"
+        >
+          + Create New Exam
+        </button>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div 
@@ -80,8 +90,18 @@ export default function FacultyDashboardPage() {
                 <th className="p-6">Exam Title</th>
                 <th className="p-6">Target Audience</th>
                 <th className="p-6">Items</th>
-                <th className="p-6">Status</th>
-                <th className="p-6">Due Date</th>
+                <th className="p-6 cursor-pointer hover:text-slate-700 transition-colors group">
+                  <div className="flex items-center gap-1">
+                    Status
+                    <svg className="w-3 h-3 text-slate-300 group-hover:text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>
+                  </div>
+                </th>
+                <th className="p-6 cursor-pointer hover:text-slate-700 transition-colors group">
+                  <div className="flex items-center gap-1">
+                    Due Date
+                    <svg className="w-3 h-3 text-slate-300 group-hover:text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>
+                  </div>
+                </th>
                 <th className="p-6">Action</th>
               </tr>
             </thead>

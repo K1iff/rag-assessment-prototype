@@ -6,14 +6,13 @@ import { useRouter } from 'next/navigation';
 export default function CreateExamPage() {
   const router = useRouter();
   
-  // General Configuration State
   const [subject, setSubject] = useState('Abnormal Psychology');
   const [generationMode, setGenerationMode] = useState<'strict' | 'custom'>('strict');
   
-  // Custom Mode State
   const [customItems, setCustomItems] = useState(30);
   const [customTopic, setCustomTopic] = useState('');
   const [selectedBlooms, setSelectedBlooms] = useState<string[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const [materials, setMaterials] = useState([
     { id: 'mat1', title: 'Barlow Abnormal Psychology Textbook (PDF)', uploader: 'System Default', checked: true },
@@ -23,7 +22,12 @@ export default function CreateExamPage() {
   ]);
 
   const bloomLevels = [
-    'Remembering', 'Understanding', 'Applying', 'Analyzing', 'Evaluating', 'Creating'
+    { level: 'Remembering', tip: 'Recall facts and basic concepts' }, 
+    { level: 'Understanding', tip: 'Explain ideas or concepts' }, 
+    { level: 'Applying', tip: 'Use information in new situations' }, 
+    { level: 'Analyzing', tip: 'Draw connections among ideas' }, 
+    { level: 'Evaluating', tip: 'Justify a stand or decision' }, 
+    { level: 'Creating', tip: 'Produce new or original work' }
   ];
 
   const isAllSelected = materials.every(mat => mat.checked);
@@ -49,18 +53,24 @@ export default function CreateExamPage() {
 
   const handleGenerate = (e: React.FormEvent) => {
     e.preventDefault();
-    router.push('/faculty/exams');
+    setIsGenerating(true);
+    
+    // Simulating API call before routing
+    setTimeout(() => {
+      router.push('/faculty/exams');
+    }, 2000);
   };
 
   const strictItemCount = subject === 'Psychological Assessment' ? 130 : 100;
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
+    <div className="space-y-6 max-w-4xl mx-auto relative pb-20">
       
       <div className="flex items-center gap-3 mb-2">
         <button 
           onClick={() => router.push('/faculty/exams')} 
-          className="text-slate-500 hover:text-blue-600 font-bold text-sm flex items-center gap-1"
+          disabled={isGenerating}
+          className="text-slate-500 hover:text-blue-600 font-bold text-sm flex items-center gap-1 disabled:opacity-50"
         >
           &larr; Back to Exam Management
         </button>
@@ -69,6 +79,23 @@ export default function CreateExamPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Create New Exam</h1>
         <p className="text-sm text-slate-500 mt-1 font-bold">Configure the AI parameters and select reference materials to generate a new mock exam.</p>
+      </div>
+
+      <div className="flex items-center justify-between bg-slate-100 p-4 rounded-xl border border-slate-200">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-sm">1</div>
+          <span className="text-sm font-bold text-slate-800 hidden sm:inline">Details</span>
+        </div>
+        <div className="flex-1 h-1 mx-4 bg-slate-300 rounded-full"></div>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-sm">2</div>
+          <span className="text-sm font-bold text-slate-800 hidden sm:inline">Parameters</span>
+        </div>
+        <div className="flex-1 h-1 mx-4 bg-slate-300 rounded-full"></div>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shadow-sm">3</div>
+          <span className="text-sm font-bold text-slate-800 hidden sm:inline">Sources</span>
+        </div>
       </div>
 
       <form onSubmit={handleGenerate} className="space-y-6">
@@ -82,7 +109,8 @@ export default function CreateExamPage() {
                 type="text" 
                 placeholder="e.g. Midterm Coverage Quiz" 
                 required
-                className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" 
+                disabled={isGenerating}
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50" 
               />
             </div>
             <div className="flex flex-col md:flex-row gap-6">
@@ -92,7 +120,8 @@ export default function CreateExamPage() {
                   type="text" 
                   placeholder="e.g. PSY301" 
                   required
-                  className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" 
+                  disabled={isGenerating}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50" 
                 />
               </div>
               <div className="flex-1">
@@ -100,7 +129,8 @@ export default function CreateExamPage() {
                 <input 
                   type="date" 
                   required
-                  className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-slate-700" 
+                  disabled={isGenerating}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-slate-700 disabled:opacity-50" 
                 />
               </div>
             </div>
@@ -116,11 +146,12 @@ export default function CreateExamPage() {
               <select 
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                disabled={isGenerating}
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 disabled:opacity-50"
               >
                 <option value="Abnormal Psychology">Abnormal Psychology</option>
                 <option value="Developmental Psychology">Developmental Psychology</option>
-                <option value="Industrial-Organizational Psychology">Industrial-Organizational Psychology</option>
+                <option value="Industrial Organizational Psychology">Industrial Organizational Psychology</option>
                 <option value="Psychological Assessment">Psychological Assessment</option>
               </select>
             </div>
@@ -128,26 +159,28 @@ export default function CreateExamPage() {
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-3">Generation Mode</label>
               <div className="flex flex-col sm:flex-row gap-4">
-                <label className={`flex-1 flex items-center p-4 rounded-lg border-2 cursor-pointer transition-colors ${generationMode === 'strict' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300'}`}>
+                <label className={`flex-1 flex items-center p-4 rounded-lg border-2 cursor-pointer transition-colors ${generationMode === 'strict' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300'} ${isGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}>
                   <input 
                     type="radio" 
                     name="generationMode" 
                     checked={generationMode === 'strict'}
                     onChange={() => setGenerationMode('strict')}
-                    className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer" 
+                    disabled={isGenerating}
+                    className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer disabled:cursor-not-allowed" 
                   />
                   <div className="ml-3">
                     <span className="block text-sm font-bold text-slate-800">Strict Board Exam Mode</span>
                     <span className="block text-xs font-bold text-slate-500 mt-0.5">TOS Compliant distribution</span>
                   </div>
                 </label>
-                <label className={`flex-1 flex items-center p-4 rounded-lg border-2 cursor-pointer transition-colors ${generationMode === 'custom' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300'}`}>
+                <label className={`flex-1 flex items-center p-4 rounded-lg border-2 cursor-pointer transition-colors ${generationMode === 'custom' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300'} ${isGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}>
                   <input 
                     type="radio" 
                     name="generationMode" 
                     checked={generationMode === 'custom'}
                     onChange={() => setGenerationMode('custom')}
-                    className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer" 
+                    disabled={isGenerating}
+                    className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer disabled:cursor-not-allowed" 
                   />
                   <div className="ml-3">
                     <span className="block text-sm font-bold text-slate-800">Custom Diagnostic Quiz Mode</span>
@@ -186,7 +219,8 @@ export default function CreateExamPage() {
                     <select 
                       value={customTopic}
                       onChange={(e) => setCustomTopic(e.target.value)}
-                      className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700"
+                      disabled={isGenerating}
+                      className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 disabled:opacity-50"
                     >
                       <option value="">All Topics</option>
                       <option value="Topic A">Specific Topic A</option>
@@ -202,7 +236,8 @@ export default function CreateExamPage() {
                       value={customItems}
                       onChange={(e) => setCustomItems(Number(e.target.value))}
                       required
-                      className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" 
+                      disabled={isGenerating}
+                      className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50" 
                     />
                   </div>
                 </div>
@@ -210,17 +245,22 @@ export default function CreateExamPage() {
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-3">Target Bloom's Taxonomy</label>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {bloomLevels.map(level => (
-                      <label key={level} className={`flex items-center p-3 rounded-lg border cursor-pointer transition-colors ${selectedBlooms.includes(level) ? 'border-blue-500 bg-white shadow-sm' : 'border-slate-200 bg-white/50 hover:border-blue-300'}`}>
+                    {bloomLevels.map(bloom => (
+                      <label key={bloom.level} className={`flex items-center p-3 rounded-lg border cursor-pointer transition-colors relative group ${selectedBlooms.includes(bloom.level) ? 'border-blue-500 bg-white shadow-sm' : 'border-slate-200 bg-white/50 hover:border-blue-300'} ${isGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}>
                         <input 
                           type="checkbox" 
-                          checked={selectedBlooms.includes(level)}
-                          onChange={() => toggleBloom(level)}
-                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          checked={selectedBlooms.includes(bloom.level)}
+                          onChange={() => toggleBloom(bloom.level)}
+                          disabled={isGenerating}
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
                         />
-                        <span className={`ml-3 text-xs font-bold ${selectedBlooms.includes(level) ? 'text-blue-900' : 'text-slate-700'}`}>
-                          {level}
+                        <span className={`ml-3 text-xs font-bold flex items-center gap-2 ${selectedBlooms.includes(bloom.level) ? 'text-blue-900' : 'text-slate-700'}`}>
+                          {bloom.level}
+                          <div className="text-slate-400 bg-slate-100 rounded-full w-4 h-4 flex items-center justify-center text-[10px]">?</div>
                         </span>
+                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block w-40 bg-slate-800 text-white text-[10px] rounded p-2 text-center shadow-lg z-10 font-bold">
+                          {bloom.tip}
+                        </div>
                       </label>
                     ))}
                   </div>
@@ -239,7 +279,8 @@ export default function CreateExamPage() {
             <button 
               type="button" 
               onClick={toggleSelectAll}
-              className="text-sm font-bold text-blue-600 hover:underline"
+              disabled={isGenerating}
+              className="text-sm font-bold text-blue-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isAllSelected ? 'Deselect All' : 'Select All'}
             </button>
@@ -247,14 +288,15 @@ export default function CreateExamPage() {
           
           <div className="space-y-3">
             {materials.map((mat) => (
-              <label key={mat.id} className={`flex items-center p-4 rounded-lg border-2 cursor-pointer transition-colors ${mat.checked ? 'border-blue-500 bg-blue-50' : 'border-slate-100 hover:border-blue-300 hover:bg-slate-50'}`}>
+              <label key={mat.id} className={`flex items-center p-4 rounded-lg border-2 cursor-pointer transition-colors ${mat.checked ? 'border-blue-500 bg-blue-50' : 'border-slate-100 hover:border-blue-300 hover:bg-slate-50'} ${isGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}>
                 <input 
                   type="checkbox" 
                   checked={mat.checked}
                   onChange={() => toggleMaterial(mat.id)}
-                  className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  disabled={isGenerating}
+                  className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
                 />
-                <span className={`ml-4 text-sm font-bold ${mat.checked ? 'text-blue-900' : 'text-slate-700'}`}>
+                <span className={`ml-4 text-sm font-bold flex-1 ${mat.checked ? 'text-blue-900' : 'text-slate-700'}`}>
                   {mat.title} <span className="text-xs text-slate-400 font-bold ml-2">(Uploaded by {mat.uploader})</span>
                 </span>
               </label>
@@ -262,21 +304,39 @@ export default function CreateExamPage() {
           </div>
         </div>
 
-        <div className="flex justify-end gap-4 pt-4">
-          <button 
-            type="button"
-            onClick={() => router.push('/faculty/exams')}
-            className="px-6 py-3 border border-slate-300 text-slate-700 text-sm font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
-          >
-            Cancel
-          </button>
-          <button 
-            type="submit"
-            className="px-8 py-3 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-            Generate Exam
-          </button>
+        <div className="fixed bottom-0 left-0 right-0 md:left-72 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20 transition-all duration-300">
+          <div className="max-w-4xl mx-auto flex justify-end gap-4">
+            <button 
+              type="button"
+              onClick={() => router.push('/faculty/exams')}
+              disabled={isGenerating}
+              className="px-6 py-3 border border-slate-300 text-slate-700 text-sm font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button 
+              type="submit"
+              disabled={isGenerating}
+              className={`min-w-[180px] px-8 py-3 text-white text-sm font-bold rounded-lg transition-colors shadow-sm flex items-center justify-center gap-2 ${
+                isGenerating ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+              }`}
+            >
+              {isGenerating ? (
+                <>
+                  <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                  Generate Exam
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
       </form>

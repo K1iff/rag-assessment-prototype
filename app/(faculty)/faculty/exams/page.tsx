@@ -8,12 +8,16 @@ export default function FacultyExamsPage() {
   const [selectedExam, setSelectedExam] = useState<null | number>(null);
   const [examTab, setExamTab] = useState('settings');
   const [selectedQuestions, setSelectedQuestions] = useState<number[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [questionToReject, setQuestionToReject] = useState<null | number>(null);
 
   const exams = [
-    { id: 1, title: 'Midterm Coverage Quiz', target: 'PSY301', items: 30, status: 'Active', dueDate: '2026-07-20', color: 'bg-emerald-600' },
+    { id: 1, title: 'Midterm Coverage Quiz', target: 'PSY301', items: 30, status: 'Active', dueDate: '2026-07-20', color: 'bg-emerald-500' },
     { id: 2, title: 'Personality Theories Final', target: 'PSY302', items: 50, status: 'Pending', dueDate: '2026-08-10', color: 'bg-amber-500' },
-    { id: 3, title: 'Introductory Concepts Quiz', target: 'PSY301', items: 15, status: 'Inactive', dueDate: '2026-06-15', color: 'bg-slate-600' },
-    { id: 4, title: 'Organizational Behavior Check', target: 'PSY303', items: 25, status: 'Active', dueDate: '2026-07-18', color: 'bg-emerald-600' },
+    { id: 3, title: 'Introductory Concepts Quiz', target: 'PSY301', items: 15, status: 'Inactive', dueDate: '2026-06-15', color: 'bg-slate-500' },
+    { id: 4, title: 'Organizational Behavior Check', target: 'PSY303', items: 25, status: 'Active', dueDate: '2026-07-18', color: 'bg-emerald-500' },
   ];
 
   const aiQuestions = [
@@ -33,15 +37,15 @@ export default function FacultyExamsPage() {
   ];
 
   const getStatusBadge = (status: string) => {
-    if (status === 'Active') return <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
-    if (status === 'Pending') return <span className="px-2 py-1 bg-amber-100 text-amber-800 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
-    return <span className="px-2 py-1 bg-slate-200 text-slate-700 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
+    if (status === 'Active') return <span className="shrink-0 px-2 py-1 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
+    if (status === 'Pending') return <span className="shrink-0 px-2 py-1 bg-amber-100 text-amber-800 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
+    return <span className="shrink-0 px-2 py-1 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
   };
 
   const getActionLabel = (status: string) => {
     if (status === 'Pending') return 'Review Questions';
     if (status === 'Inactive') return 'View Results';
-    return 'Edit Settings';
+    return 'Manage Exam';
   };
 
   const toggleQuestionSelection = (id: number) => {
@@ -57,11 +61,22 @@ export default function FacultyExamsPage() {
     setSelectedQuestions(highConfIds);
   };
 
+  const confirmRejection = (id: number) => {
+    setQuestionToReject(id);
+    setShowRejectModal(true);
+  };
+
   const currentExam = exams.find(e => e.id === selectedExam);
+
+  const filteredExams = exams.filter(exam => {
+    const matchesSearch = exam.title.toLowerCase().includes(searchQuery.toLowerCase()) || exam.target.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'All' || exam.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   if (selectedExam !== null && currentExam) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 relative">
         <div className="flex items-center gap-2 text-sm mb-4">
           <button onClick={() => setSelectedExam(null)} className="text-blue-600 hover:underline font-bold">Exams</button>
           <span className="text-slate-400">/</span>
@@ -226,7 +241,7 @@ export default function FacultyExamsPage() {
                       <div className="mb-5 ml-8">
                         <p className="text-lg font-bold text-slate-900 mb-2">{q.question}</p>
                         <div className="bg-slate-100 border border-slate-200 p-3 rounded-md flex items-start gap-2">
-                          <span className="text-lg">🤖</span>
+                          <span className="text-lg">📚</span>
                           <p className="text-xs text-slate-600 font-bold leading-relaxed">{q.citation}</p>
                         </div>
                       </div>
@@ -240,13 +255,31 @@ export default function FacultyExamsPage() {
                       </div>
                       
                       <div className="flex flex-wrap gap-3 pt-5 border-t border-slate-200 ml-8">
-                        <button className="px-5 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm">Approve</button>
-                        <button className="px-5 py-2.5 bg-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition-colors shadow-sm">Edit Manually</button>
-                        <button className="px-5 py-2.5 border border-purple-300 text-purple-700 text-xs font-bold rounded-lg hover:bg-purple-50 transition-colors shadow-sm flex items-center gap-1.5">
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                          Regenerate Question
+                        <button className="px-5 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm">
+                          Approve
                         </button>
-                        <button className="px-5 py-2.5 bg-red-100 text-red-700 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors shadow-sm ml-auto">Reject and Auto Replace</button>
+                        <button className="px-5 py-2.5 bg-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition-colors shadow-sm">
+                          Edit Manually
+                        </button>
+                        
+                        <div className="relative group ml-auto flex items-center">
+                          <button className="px-5 py-2.5 border border-purple-300 text-purple-700 text-xs font-bold rounded-lg hover:bg-purple-50 transition-colors shadow-sm flex items-center gap-1.5 mr-3">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                            Regenerate
+                          </button>
+                          <div className="absolute bottom-full mb-2 right-16 hidden group-hover:block w-48 bg-slate-800 text-white text-[10px] rounded p-2 text-center shadow-lg">
+                            Generates a similar question targeting the same topic.
+                          </div>
+                        </div>
+
+                        <div className="relative group flex items-center">
+                          <button onClick={() => confirmRejection(q.id)} className="px-5 py-2.5 bg-red-100 text-red-700 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors shadow-sm">
+                            Reject
+                          </button>
+                          <div className="absolute bottom-full mb-2 right-0 hidden group-hover:block w-48 bg-slate-800 text-white text-[10px] rounded p-2 text-center shadow-lg">
+                            Discards this question and auto generates a replacement.
+                          </div>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -302,11 +335,53 @@ export default function FacultyExamsPage() {
                     ))}
                   </tbody>
                 </table>
+                <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-between items-center text-sm font-bold text-slate-500">
+                  <span>Showing 1 to 3 of 45 students</span>
+                  <div className="flex gap-2">
+                    <button className="px-3 py-1 border border-slate-300 rounded hover:bg-white text-slate-400 cursor-not-allowed">Previous</button>
+                    <button className="px-3 py-1 border border-slate-300 rounded bg-white text-blue-600 shadow-sm">1</button>
+                    <button className="px-3 py-1 border border-slate-300 rounded hover:bg-white text-slate-600">2</button>
+                    <button className="px-3 py-1 border border-slate-300 rounded hover:bg-white text-slate-600">3</button>
+                    <button className="px-3 py-1 border border-slate-300 rounded hover:bg-white text-slate-600">Next</button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
         </div>
+
+        {showRejectModal && (
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 border border-slate-200">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-slate-800">Reject Item?</h3>
+              </div>
+              <p className="text-sm text-slate-600 font-bold mb-6 pl-13">
+                Are you sure you want to discard this question? The system will automatically generate a new item to replace it.
+              </p>
+              <div className="flex justify-end gap-3 pt-2">
+                <button 
+                  onClick={() => setShowRejectModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => setShowRejectModal(false)}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-colors"
+                >
+                  Yes, Reject and Replace
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -325,36 +400,73 @@ export default function FacultyExamsPage() {
           + Create New Exam
         </button>
       </div>
+
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4 mb-2">
+        <div className="flex-1 relative">
+          <svg className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input 
+            type="text" 
+            placeholder="Search by title or target audience" 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <div className="w-full sm:w-48">
+          <select 
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+          >
+            <option value="All">All Statuses</option>
+            <option value="Active">Active</option>
+            <option value="Pending">Pending</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </div>
+      </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 w-full">
-        {exams.map((exam) => (
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 w-full">
+        {filteredExams.map((exam) => (
           <div 
             key={exam.id} 
             className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col relative"
           >
             <div className={`h-1.5 w-full ${exam.color}`}></div>
             
-            <div className="absolute top-4 right-4">
-              <button className="text-slate-400 hover:text-slate-700 focus:outline-none" title="Quick Actions">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
-              </button>
-            </div>
-
-            <div 
-              onClick={() => { setSelectedExam(exam.id); setExamTab('settings'); }}
-              className="p-6 flex-1 flex flex-col justify-between cursor-pointer"
-            >
+            <div className="p-6 flex-1 flex flex-col justify-between">
               <div>
-                <div className="flex justify-between items-start mb-4 pr-6">
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{exam.target}</span>
+                <div className="flex justify-between items-start mb-4">
+                  <h3 className="font-bold text-lg text-slate-800 leading-snug pr-3">{exam.title}</h3>
                   {getStatusBadge(exam.status)}
                 </div>
-                <h3 className="font-bold text-lg text-slate-800 leading-snug">{exam.title}</h3>
-                <p className="text-sm text-slate-500 font-bold mt-2">Due: {exam.dueDate}</p>
+                
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Target Scope</p>
+                <p className="text-sm text-slate-700 font-bold mb-4">{exam.target}</p>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Due Date</p>
+                    <p className="text-sm text-slate-700 font-bold">{exam.dueDate}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Items</p>
+                    <p className="text-sm text-slate-700 font-bold">{exam.items}</p>
+                  </div>
+                </div>
               </div>
-              <div className="mt-6 pt-5 border-t border-slate-100 flex justify-between items-center">
-                <span className="text-sm font-bold text-slate-600">{exam.items} Questions</span>
-                <span className="text-sm font-bold text-blue-600 hover:underline">{getActionLabel(exam.status)}</span>
+              
+              <div className="mt-6 pt-5 border-t border-slate-100">
+                <button 
+                  onClick={() => { setSelectedExam(exam.id); setExamTab('settings'); }}
+                  className={`w-full py-2.5 text-sm font-bold rounded-lg transition-colors shadow-sm ${
+                    exam.status === 'Pending' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200'
+                  }`}
+                >
+                  {getActionLabel(exam.status)}
+                </button>
               </div>
             </div>
           </div>
