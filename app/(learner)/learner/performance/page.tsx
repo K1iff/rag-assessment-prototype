@@ -1,10 +1,29 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 
-export default function PerformancePage() {
+export default function UnifiedPerformancePage() {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState('latest');
+
+  const latestExam = {
+    examName: 'Comprehensive Mock Exam Area A',
+    completionDate: 'July 8, 2026',
+    scoreBreakdown: { correct: 82, incorrect: 18, total: 100 },
+    aiRagFeedback: 'Your performance indicates an excellent grasp of clinical diagnostic criteria under the DSM 5 framework. However, you consistently dropped marks on organizational behavior models within the Industrial Psychology segment. Focus your next AI generation session on workplace motivation theories.',
+    radarData: [
+      { subject: 'Personality', score: 88, fullMark: 100 },
+      { subject: 'Abnormal Psych', score: 74, fullMark: 100 },
+      { subject: 'Industrial', score: 62, fullMark: 100 },
+      { subject: 'Assessment', score: 80, fullMark: 100 },
+    ],
+    reviewItems: [
+      { qNum: 1, text: 'Which symptom is considered a negative symptom of schizophrenia?', studentAnswer: 'Avolition', correctAnswer: 'Avolition', isCorrect: true, explanation: 'Avolition represents a restriction in the initiation and persistence of goal directed behavior.' },
+      { qNum: 2, text: 'What is the primary feature of Panic Disorder?', studentAnswer: 'Generalized worry', correctAnswer: 'Recurrent unexpected panic attacks', isCorrect: false, explanation: 'Panic disorder specifically requires recurrent unexpected panic attacks.' }
+    ]
+  };
 
   const performanceStats = {
     examsCompleted: 8,
@@ -17,98 +36,165 @@ export default function PerformancePage() {
     ]
   };
 
-  const categories = [
-    { name: 'Theories of Personality', acc: '88%', status: 'STRONG MASTERY', color: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
-    { name: 'Abnormal Psychology', acc: '74%', status: 'PROFICIENT', color: 'text-blue-600 bg-blue-50 border-blue-100' },
-    { name: 'Industrial Psychology', acc: '62%', status: 'REVIEW RECOMMENDED', color: 'text-amber-600 bg-amber-50 border-amber-100' },
-    { name: 'Psychological Assessment', acc: '80%', status: 'STRONG MASTERY', color: 'text-emerald-600 bg-emerald-50 border-emerald-100' }
-  ];
-
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-800">Historical Performance View</h1>
-      <p className="text-sm text-slate-500 mt-1 mb-6 font-bold">Track your metrics, check core competency mastery, and start targeted reviews.</p>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Simulations Completed</span>
-          <p className="text-4xl font-bold text-slate-800 mt-2">{performanceStats.examsCompleted}</p>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Performance Dashboard</h1>
+          <p className="text-sm text-slate-500 mt-1 font-bold">Review your latest analytics and track your historical progress.</p>
         </div>
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Average Accuracy Score</span>
-          <p className="text-4xl font-bold text-blue-600 mt-2">{performanceStats.averageScore}</p>
-          <p className="text-[10px] text-slate-400 font-bold mt-1 leading-tight">Measures raw correct option totals over aggregate items attempted across all environments.</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estimated Standing</span>
-          <p className="text-4xl font-bold text-emerald-600 mt-2">{performanceStats.globalRank}</p>
-          <p className="text-[10px] text-slate-400 font-bold mt-1 leading-tight">Calculated comparatively across the totality of active system takers and learners.</p>
+        <div className="flex bg-slate-200 p-1 rounded-lg">
+          <button 
+            onClick={() => setActiveTab('latest')}
+            className={`px-4 py-2 text-sm font-bold rounded-md transition-colors ${activeTab === 'latest' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
+          >
+            Latest Summary
+          </button>
+          <button 
+            onClick={() => setActiveTab('history')}
+            className={`px-4 py-2 text-sm font-bold rounded-md transition-colors ${activeTab === 'history' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
+          >
+            Historical History
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="p-6 border-b border-slate-100 bg-slate-50">
-            <h3 className="font-bold text-base text-slate-700">Historical History Matrix</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold uppercase text-slate-500 tracking-wider">
-                  <th className="p-4">Simulation ID</th>
-                  <th className="p-4">Exam Module Title</th>
-                  <th className="p-4">Achieved Score</th>
-                  <th className="p-4">Date Completed</th>
-                  <th className="p-4">Evaluation</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                {performanceStats.recentExams.map((exam) => (
-                  <tr key={exam.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="p-4 font-mono text-xs text-slate-400">{exam.id}</td>
-                    <td className="p-4 font-bold text-slate-800">{exam.name}</td>
-                    <td className="p-4 font-bold text-slate-700">{exam.score}</td>
-                    <td className="p-4 text-slate-500 font-bold">{exam.date}</td>
-                    <td className="p-4">
-                      <span className={`inline-block px-3 py-1 rounded text-xs font-bold uppercase tracking-wider ${exam.status === 'Passed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                        {exam.status}
+      {activeTab === 'latest' && (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-white p-8 rounded-xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                <div>
+                  <h3 className="font-bold text-2xl text-slate-800">{latestExam.examName}</h3>
+                  <p className="text-sm text-slate-400 mt-1 font-bold">Attempt evaluated on {latestExam.completionDate}</p>
+                </div>
+                <div className="text-left md:text-right bg-slate-50 p-4 rounded-lg min-w-[140px]">
+                  <span className="text-3xl font-black text-emerald-600">{latestExam.scoreBreakdown.correct}%</span>
+                  <p className="text-xs font-bold text-slate-500 mt-1">{latestExam.scoreBreakdown.correct} correct out of {latestExam.scoreBreakdown.total}</p>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-100 p-8 rounded-xl">
+                <h4 className="text-base font-bold text-blue-800 flex items-center gap-2 mb-3">
+                  <span className="text-xl">🤖</span> AI Feedback
+                </h4>
+                <p className="text-sm text-blue-950 leading-relaxed font-bold">
+                  {latestExam.aiRagFeedback}
+                </p>
+              </div>
+              
+              <div className="space-y-4">
+                <h3 className="font-bold text-slate-700 text-lg">Question Review</h3>
+                {latestExam.reviewItems.map((item) => (
+                  <div key={item.qNum} className={`p-6 border rounded-xl bg-white shadow-sm flex flex-col gap-3 border-l-4 ${item.isCorrect ? 'border-l-emerald-500' : 'border-l-rose-500'}`}>
+                    <div className="flex justify-between items-center text-xs font-bold text-slate-400">
+                      <span>Item Attempt {item.qNum}</span>
+                      <span className={item.isCorrect ? 'text-emerald-600' : 'text-rose-600'}>
+                        {item.isCorrect ? '✓ Correct' : '✗ Incorrect'}
                       </span>
-                    </td>
-                  </tr>
+                    </div>
+                    <p className="text-base font-bold text-slate-800">{item.text}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-bold mt-2">
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded">
+                        <span className="text-slate-400 block mb-1">Your Submission:</span>
+                        <span className={item.isCorrect ? 'text-emerald-700' : 'text-rose-700'}>{item.studentAnswer}</span>
+                      </div>
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded">
+                        <span className="text-slate-400 block mb-1">Correct Answer:</span>
+                        <span className="text-emerald-700">{item.correctAnswer}</span>
+                      </div>
+                    </div>
+                    <div className="bg-slate-50 p-3 rounded text-xs font-bold text-slate-600 mt-2">
+                      <span className="text-blue-600 block mb-1">Explanation:</span>
+                      {item.explanation}
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            </div>
+
+            <div className="lg:col-span-1 space-y-6">
+              <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-6 h-80 flex flex-col">
+                <h4 className="font-bold text-base text-slate-700 mb-2">Competency Radar</h4>
+                <div className="flex-1 w-full relative">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart cx="50%" cy="50%" outerRadius="70%" data={latestExam.radarData}>
+                      <PolarGrid stroke="#e2e8f0" />
+                      <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 10, fontWeight: 'bold' }} />
+                      <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                      <Radar name="Score" dataKey="score" stroke="#2563eb" fill="#3b82f6" fillOpacity={0.5} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-100 p-8 rounded-xl">
+                <h4 className="text-base font-bold text-amber-800 mb-2">Action Plan</h4>
+                <p className="text-sm text-amber-900 leading-relaxed mb-6 font-bold">Based on your summary, prioritize Industrial Psychology resources before taking another simulation.</p>
+                <button 
+                  onClick={() => router.push('/learner/exams')}
+                  className="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm"
+                >
+                  Practice Industrial Drills
+                </button>
+              </div>
+            </div>
           </div>
         </div>
+      )}
 
-        <div className="lg:col-span-1 bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between gap-6">
-          <div>
-            <h3 className="font-bold text-slate-800 text-base border-b border-slate-100 pb-3 mb-4">Competency Area Performance</h3>
-            <div className="space-y-4">
-              {categories.map((cat, idx) => (
-                <div key={idx} className="flex flex-col gap-1 border-b border-slate-50 pb-2 last:border-0 last:pb-0">
-                  <span className="text-sm font-bold text-slate-800">{cat.name}</span>
-                  <div className="flex justify-between items-center mt-1">
-                    <span className="text-xs text-slate-500 font-bold">Accuracy: {cat.acc}</span>
-                    <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${cat.color}`}>{cat.status}</span>
-                  </div>
-                </div>
-              ))}
+      {activeTab === 'history' && (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Simulations Completed</span>
+              <p className="text-4xl font-bold text-slate-800 mt-2">{performanceStats.examsCompleted}</p>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Average Score</span>
+              <p className="text-4xl font-bold text-blue-600 mt-2">{performanceStats.averageScore}</p>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estimated Standing</span>
+              <p className="text-4xl font-bold text-emerald-600 mt-2">{performanceStats.globalRank}</p>
             </div>
           </div>
 
-          <div className="bg-amber-50 border border-amber-200 p-5 rounded-xl">
-            <h4 className="text-sm font-bold text-amber-800 mb-2">Remediation Action Plan</h4>
-            <p className="text-xs text-amber-900 leading-relaxed font-bold mb-4">Prioritize Industrial Psychology resources to optimize target metrics before launching structural simulations[cite: 290, 291, 292].</p>
-            <button 
-              onClick={() => router.push('/learner/exams')}
-              className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
-            >
-              Practice Industrial Psychology Drills Now [cite: 293]
-            </button>
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="p-6 border-b border-slate-100 bg-slate-50">
+              <h3 className="font-bold text-base text-slate-700">Exam History Matrix</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold uppercase text-slate-500 tracking-wider">
+                    <th className="p-4">Simulation ID</th>
+                    <th className="p-4">Exam Title</th>
+                    <th className="p-4">Score</th>
+                    <th className="p-4">Date Completed</th>
+                    <th className="p-4">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
+                  {performanceStats.recentExams.map((exam) => (
+                    <tr key={exam.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-4 font-mono text-xs text-slate-400">{exam.id}</td>
+                      <td className="p-4 font-bold text-slate-800">{exam.name}</td>
+                      <td className="p-4 font-bold text-slate-700">{exam.score}</td>
+                      <td className="p-4 text-slate-500 font-bold">{exam.date}</td>
+                      <td className="p-4">
+                        <span className={`inline-block px-3 py-1 rounded text-xs font-bold uppercase tracking-wider ${exam.status === 'Passed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                          {exam.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

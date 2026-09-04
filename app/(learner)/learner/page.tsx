@@ -70,7 +70,7 @@ export default function LearnerCalendarPage() {
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-3">
                 {schedule.status === 'Completed' && (
                   <button onClick={() => router.push('/learner/exams')} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors shadow-sm">
-                    View Post-Exam Dashboard
+                    View Post Exam Dashboard
                   </button>
                 )}
                 {schedule.status === 'Pending' && (
@@ -89,6 +89,28 @@ export default function LearnerCalendarPage() {
         </div>
 
         <div className="lg:col-span-1 space-y-6">
+          
+          <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
+            <h3 className="font-bold text-slate-800 mb-4">July 2026 Schedule</h3>
+            <div className="grid grid-cols-7 gap-1 text-center text-xs font-bold text-slate-400 mb-2">
+              <div>Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div>
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center text-sm font-bold text-slate-700">
+              <div className="p-1.5"></div><div className="p-1.5"></div><div className="p-1.5"></div>
+              {Array.from({ length: 31 }, (_, i) => i + 1).map(day => {
+                const isExamDate = [13, 15, 17].includes(day);
+                return (
+                  <div 
+                    key={day} 
+                    className={`p-1.5 rounded-md flex items-center justify-center h-8 w-8 mx-auto ${isExamDate ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-200 ring-offset-1' : 'hover:bg-slate-100'}`}
+                  >
+                    {day}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
             <h3 className="font-bold text-slate-800 mb-4">Weekly Goals Tracker</h3>
             <ul className="space-y-3 text-sm text-slate-600 font-bold">

@@ -7,6 +7,7 @@ export default function ActiveExamPage() {
   const router = useRouter();
   const [currentQuestion, setCurrentQuestion] = useState(1);
   const [flaggedQuestions, setFlaggedQuestions] = useState<number[]>([]);
+  const totalQuestions = 50;
 
   const toggleFlag = () => {
     if (flaggedQuestions.includes(currentQuestion)) {
@@ -20,15 +21,27 @@ export default function ActiveExamPage() {
     router.push('/learner/summary');
   };
 
+  const progressPercentage = (currentQuestion / totalQuestions) * 100;
+
   return (
-    <div className="space-y-6 flex flex-col w-full">
-      <div className="w-full flex justify-between items-end border-b border-slate-200 pb-4 mb-2">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Active Examination Environment</h1>
-          <p className="text-sm text-slate-500 mt-1 font-bold">Abnormal Psychology Quiz</p>
+    <div className="flex flex-col w-full relative">
+      
+      <div className="sticky top-0 z-40 bg-slate-50 pt-4 pb-4 border-b border-slate-200 w-full flex flex-col gap-4 shadow-sm mb-6">
+        <div className="w-full flex justify-between items-end">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Active Examination Environment</h1>
+            <p className="text-sm text-slate-500 mt-1 font-bold">Abnormal Psychology Quiz</p>
+          </div>
+          <div className="text-rose-600 font-mono font-bold bg-rose-50 border border-rose-100 px-4 py-2 rounded-lg text-lg shadow-sm">
+            Time Remaining 44:12
+          </div>
         </div>
-        <div className="text-rose-600 font-mono font-bold bg-rose-50 border border-rose-100 px-4 py-2 rounded-lg text-lg shadow-sm">
-          Time Remaining 44:12
+        
+        <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+          <div 
+            className="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-in-out" 
+            style={{ width: `${progressPercentage}%` }}
+          ></div>
         </div>
       </div>
       
@@ -37,7 +50,7 @@ export default function ActiveExamPage() {
         <div className="flex-1 bg-white p-8 md:p-10 rounded-xl border border-slate-200 shadow-sm flex flex-col">
           
           <div className="mb-10">
-            <p className="text-sm font-bold text-blue-600 uppercase tracking-wider mb-4">Question {currentQuestion} of 50</p>
+            <p className="text-sm font-bold text-blue-600 uppercase tracking-wider mb-4">Question {currentQuestion} of {totalQuestions}</p>
             <h3 className="text-2xl font-bold text-slate-900 leading-relaxed">
               Which of the following personality disorders is characterized by a pervasive and unjustified distrust and suspicion of others?
             </h3>
@@ -79,18 +92,18 @@ export default function ActiveExamPage() {
               
               <button 
                 onClick={() => {
-                  if (currentQuestion < 50) setCurrentQuestion(currentQuestion + 1);
+                  if (currentQuestion < totalQuestions) setCurrentQuestion(currentQuestion + 1);
                   else handleSubmit();
                 }}
                 className="px-8 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
               >
-                {currentQuestion === 50 ? 'Submit Exam' : 'Next Item'}
+                {currentQuestion === totalQuestions ? 'Submit Exam' : 'Next Item'}
               </button>
             </div>
           </div>
         </div>
 
-        <div className="w-full lg:w-80 bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
+        <div className="w-full lg:w-80 bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit sticky top-[140px]">
           <h3 className="font-bold text-slate-800 mb-4">Question Navigation</h3>
           
           <div className="flex flex-wrap gap-4 mb-6 text-xs text-slate-600 font-bold">
@@ -100,7 +113,7 @@ export default function ActiveExamPage() {
           </div>
           
           <div className="grid grid-cols-5 gap-2">
-            {Array.from({ length: 50 }, (_, i) => i + 1).map(qNum => {
+            {Array.from({ length: totalQuestions }, (_, i) => i + 1).map(qNum => {
               let btnStyle = "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100";
               
               if (currentQuestion === qNum) {

@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 
 export default function RoadmapPage() {
   const [expandedPhase, setExpandedPhase] = useState<number>(3);
+  const [showCelebration, setShowCelebration] = useState(false);
 
   const roadmapSteps = [
     { step: 1, title: 'Diagnostic Baseline', description: 'Establish foundational knowledge metrics.', completed: true, content: 'You scored an average of 72 percent on your baseline diagnostic. Your strongest area was Psychological Assessment.' },
@@ -14,9 +15,9 @@ export default function RoadmapPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-800">Interactive PRC Progress Roadmap</h1>
-      <p className="text-sm text-slate-500 mt-1 mb-6 font-bold">Monitor your macro milestone progression mapped directly against the official board exam syllabus.</p>
+    <div className="space-y-6 relative">
+      <h1 className="text-2xl font-bold text-slate-800">Interactive Progress Roadmap</h1>
+      <p className="text-sm text-slate-500 mt-1 mb-6 font-bold">Monitor your milestone progression mapped directly against the official board exam syllabus.</p>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
         <div className="lg:col-span-2 bg-white p-8 md:p-12 rounded-xl border border-slate-200 shadow-sm">
@@ -47,7 +48,18 @@ export default function RoadmapPage() {
                     </svg>
                   </div>
                   
-                  <h3 className="text-lg font-bold text-slate-800 mt-1 group-hover:text-blue-600 transition-colors">{step.title}</h3>
+                  <div className="flex justify-between items-center pr-4">
+                    <h3 className="text-lg font-bold text-slate-800 mt-1 group-hover:text-blue-600 transition-colors">{step.title}</h3>
+                    {step.current && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setShowCelebration(true); }}
+                        className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded hover:bg-emerald-200 transition-colors"
+                      >
+                        Simulate Phase Pass
+                      </button>
+                    )}
+                  </div>
+                  
                   <p className="text-sm text-slate-500 mt-1 max-w-lg leading-relaxed font-bold">{step.description}</p>
                   
                   {expandedPhase === step.step && (
@@ -63,10 +75,9 @@ export default function RoadmapPage() {
 
         <div className="lg:col-span-1 space-y-6">
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-            <h3 className="font-bold text-base text-slate-800 border-b border-slate-100 pb-2 mb-3">Roadmap Plotting Logic</h3>
+            <h3 className="font-bold text-base text-slate-800 border-b border-slate-100 pb-2 mb-3">Roadmap Logic</h3>
             <p className="text-xs text-slate-500 leading-relaxed font-bold">
-              Milestones and structural progressions are dynamically mapped using system competency validation algorithms. 
-              Passing any simulation unlocks the subsequent validation phase, while failing items triggers automatic AI background material updates.
+              Passing any simulation unlocks the next phase. Failing items triggers automatic AI updates.
             </p>
           </div>
 
@@ -86,6 +97,27 @@ export default function RoadmapPage() {
           </div>
         </div>
       </div>
+
+      {showCelebration && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-8 text-center relative overflow-hidden animate-in zoom-in duration-300">
+            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-emerald-400 to-blue-500"></div>
+            
+            <div className="text-6xl mb-4 animate-bounce mt-4">🎉</div>
+            <h2 className="text-2xl font-black text-slate-800 mb-2">Phase Completed!</h2>
+            <p className="text-slate-600 font-bold text-sm mb-8 leading-relaxed">
+              Outstanding work. You have successfully cleared the Adaptive Simulation phase and unlocked the Full Length Board Simulation.
+            </p>
+            
+            <button 
+              onClick={() => setShowCelebration(false)}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-md"
+            >
+              Continue Journey
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
