@@ -20,7 +20,7 @@ export default function AdminCohortsPage() {
       id: 1, 
       name: 'Cohort Alpha 2026', 
       description: 'First batch of psychology reviewers.', 
-      color: 'bg-indigo-600',
+      color: 'bg-indigo-500',
       status: 'Active',
       dateRange: 'Aug 2026 to Dec 2026',
       teachers: [{ id: 101, name: 'Dr. Maria Marquez', email: 'prof.marquez@univ.edu' }],
@@ -37,7 +37,7 @@ export default function AdminCohortsPage() {
       id: 2, 
       name: 'Cohort Beta 2026', 
       description: 'Evening session reviewers.', 
-      color: 'bg-teal-600',
+      color: 'bg-teal-500',
       status: 'Active',
       dateRange: 'Sep 2026 to Jan 2027',
       teachers: [],
@@ -47,7 +47,7 @@ export default function AdminCohortsPage() {
       id: 3, 
       name: 'Accelerated Program 2025', 
       description: 'Intensive weekend review class.', 
-      color: 'bg-slate-600',
+      color: 'bg-slate-500',
       status: 'Archived',
       dateRange: 'Jan 2025 to May 2025',
       teachers: [{ id: 102, name: 'Prof. Carlos Lim', email: 'carlos.lim@univ.edu' }],
@@ -61,7 +61,7 @@ export default function AdminCohortsPage() {
       id: Date.now(),
       name: newCohortName,
       description: newCohortDesc,
-      color: 'bg-blue-600',
+      color: 'bg-blue-500',
       status: 'Active',
       dateRange: `${newCohortStart} to ${newCohortEnd}`,
       teachers: [],
@@ -273,34 +273,47 @@ export default function AdminCohortsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 w-full">
         {displayedCohorts.map((cohort) => (
           <div 
             key={cohort.id} 
-            onClick={() => setSelectedCohort(cohort.id)}
-            className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer flex flex-col h-48 relative group"
+            className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col relative"
           >
-            <div className={`h-14 ${cohort.color} flex items-center justify-between px-4`}>
-              <span className="text-white font-bold text-xs bg-black/20 px-2.5 py-1 rounded-md flex items-center gap-2">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-                {cohort.dateRange}
-              </span>
-              <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider ${
-                cohort.status === 'Active' ? 'bg-emerald-400 text-emerald-950' : 'bg-slate-100 text-slate-600'
-              }`}>
-                {cohort.status}
-              </span>
-            </div>
-            <div className="p-5 flex-1 flex flex-col justify-between">
+            <div className={`h-1.5 w-full ${cohort.color}`}></div>
+            
+            <div className="p-6 flex-1 flex flex-col justify-between">
               <div>
-                <h3 className="font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{cohort.name}</h3>
-                <p className="text-xs text-slate-500 mt-1 line-clamp-2 font-bold">{cohort.description}</p>
+                <div className="flex justify-between items-start mb-4">
+                  <h3 className="font-bold text-lg text-slate-800 leading-snug pr-3">{cohort.name}</h3>
+                  <span className={`shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                    cohort.status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                  }`}>
+                    {cohort.status}
+                  </span>
+                </div>
+                
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Schedule</p>
+                <p className="text-sm text-slate-700 font-bold mb-4">{cohort.dateRange}</p>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Teachers</p>
+                    <p className="text-sm text-slate-700 font-bold">{cohort.teachers.length}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Students</p>
+                    <p className="text-sm text-slate-700 font-bold">{cohort.students.length}</p>
+                  </div>
+                </div>
               </div>
-              <div className="flex gap-4 text-xs font-bold text-slate-600 border-t border-slate-100 pt-3">
-                <span>{cohort.teachers.length} {cohort.teachers.length === 1 ? 'Teacher' : 'Teachers'}</span>
-                <span>{cohort.students.length} {cohort.students.length === 1 ? 'Student' : 'Students'}</span>
+              
+              <div className="mt-6 pt-5 border-t border-slate-100">
+                <button 
+                  onClick={() => setSelectedCohort(cohort.id)}
+                  className="w-full py-2.5 text-sm font-bold rounded-lg transition-colors shadow-sm bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200"
+                >
+                  Manage Workspace
+                </button>
               </div>
             </div>
           </div>
@@ -338,7 +351,7 @@ export default function AdminCohortsPage() {
                 <textarea 
                   value={newCohortDesc}
                   onChange={(e) => setNewCohortDesc(e.target.value)}
-                  placeholder="Provide a brief summary of this group..." 
+                  placeholder="Provide a brief summary of this group" 
                   required
                   rows={3}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none" 
