@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -9,21 +10,22 @@ export default function ForgotPasswordPage() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!email) {
-      setError('Email is required.');
-      return;
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError('Please enter a valid email address.');
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      // Directs the user to update_password after they click the email link
+      redirectTo: 'http://localhost:3000/forgot_password/update_password', 
+    });
+
+    if (error) {
+      setError(error.message);
       return;
     }
 
     setIsLoading(true);
 
-    // Placeholder for backend logic. The other developer will add the Supabase reset function here.
     setTimeout(() => {
       setIsLoading(false);
       setIsSubmitted(true);
