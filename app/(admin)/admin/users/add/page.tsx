@@ -12,16 +12,31 @@ export default function AddUserPage() {
   
   const [isLoading, setIsLoading] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setErrorMessage('');
 
-    // Simulate backend API call
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      // Validation check before sending to API
+      if (role === 'Learner / Reviewer' && !cohort) {
+        throw new Error('Please select a cohort for the learner.');
+      }
+
+      // Simulate a backend API call that takes 1.5 seconds
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      
+      // Simulate a random network failure for testing purposes
+      // if (Math.random() > 0.7) throw new Error('Network error. Failed to connect to the database.');
+
       setShowSuccess(true);
-    }, 1500);
+    } catch (error: any) {
+      setErrorMessage(error.message || 'An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleFinish = () => {
@@ -46,6 +61,16 @@ export default function AddUserPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 space-y-6">
+        
+        {errorMessage && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+            <svg className="w-5 h-5 text-red-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-sm text-red-800 font-bold">{errorMessage}</p>
+          </div>
+        )}
+
         <div>
           <label className="block text-sm font-bold text-slate-700 mb-2">Full Name</label>
           <input 
@@ -92,9 +117,10 @@ export default function AddUserPage() {
             <select 
               value={cohort}
               onChange={(e) => setCohort(e.target.value)}
-              required
               disabled={isLoading}
-              className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 disabled:bg-slate-50 disabled:text-slate-500"
+              className={`w-full px-4 py-3 border rounded-lg text-sm font-bold focus:outline-none focus:ring-1 bg-white text-slate-700 disabled:bg-slate-50 disabled:text-slate-500 ${
+                errorMessage && !cohort ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'
+              }`}
             >
               <option value="" disabled>Select a cohort...</option>
               <option value="Cohort Alpha 2026">Cohort Alpha 2026</option>

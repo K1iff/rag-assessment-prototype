@@ -6,13 +6,18 @@ import { useRouter } from 'next/navigation';
 export default function CreateExamPage() {
   const router = useRouter();
   
+  const [examTitle, setExamTitle] = useState('');
+  const [targetAudience, setTargetAudience] = useState('');
+  const [dueDate, setDueDate] = useState('');
   const [subject, setSubject] = useState('Abnormal Psychology');
   const [generationMode, setGenerationMode] = useState<'strict' | 'custom'>('strict');
   
   const [customItems, setCustomItems] = useState(30);
   const [customTopic, setCustomTopic] = useState('');
   const [selectedBlooms, setSelectedBlooms] = useState<string[]>([]);
+  
   const [isGenerating, setIsGenerating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const [materials, setMaterials] = useState([
     { id: 'mat1', title: 'Barlow Abnormal Psychology Textbook (PDF)', uploader: 'System Default', checked: true },
@@ -51,20 +56,41 @@ export default function CreateExamPage() {
     }
   };
 
-  const handleGenerate = (e: React.FormEvent) => {
+  const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage('');
+    
+    // UI Validation logic before API attempt
+    if (generationMode === 'custom' && selectedBlooms.length === 0) {
+      setErrorMessage('You must select at least one Bloom\'s Taxonomy level in Custom Mode.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    const selectedMatsCount = materials.filter(m => m.checked).length;
+    if (selectedMatsCount === 0) {
+      setErrorMessage('You must select at least one source reference material for the AI to read.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     setIsGenerating(true);
     
-    // Simulating API call before routing
-    setTimeout(() => {
+    try {
+      // Simulate heavy AI API processing
+      await new Promise((resolve) => setTimeout(resolve, 3000));
       router.push('/faculty/exams');
-    }, 2000);
+    } catch (error: any) {
+      setErrorMessage('The AI engine failed to generate the exam. Please check your parameters and try again.');
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const strictItemCount = subject === 'Psychological Assessment' ? 130 : 100;
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto relative pb-20">
+    <div className="space-y-6 max-w-4xl mx-auto relative pb-24">
       
       <div className="flex items-center gap-3 mb-2">
         <button 
@@ -80,6 +106,15 @@ export default function CreateExamPage() {
         <h1 className="text-2xl font-bold text-slate-800">Create New Exam</h1>
         <p className="text-sm text-slate-500 mt-1 font-bold">Configure the AI parameters and select reference materials to generate a new mock exam.</p>
       </div>
+
+      {errorMessage && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 animate-in fade-in duration-200">
+          <svg className="w-5 h-5 text-red-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <p className="text-sm text-red-800 font-bold">{errorMessage}</p>
+        </div>
+      )}
 
       <div className="flex items-center justify-between bg-slate-100 p-4 rounded-xl border border-slate-200">
         <div className="flex items-center gap-2">
@@ -107,30 +142,36 @@ export default function CreateExamPage() {
               <label className="block text-sm font-bold text-slate-700 mb-2">Exam Title</label>
               <input 
                 type="text" 
+                value={examTitle}
+                onChange={(e) => setExamTitle(e.target.value)}
                 placeholder="e.g. Midterm Coverage Quiz" 
                 required
                 disabled={isGenerating}
-                className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50" 
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-500" 
               />
             </div>
             <div className="flex flex-col md:flex-row gap-6">
               <div className="flex-1">
-                <label className="block text-sm font-bold text-slate-700 mb-2">Target Audience / Cohort</label>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Target Audience or Cohort</label>
                 <input 
                   type="text" 
+                  value={targetAudience}
+                  onChange={(e) => setTargetAudience(e.target.value)}
                   placeholder="e.g. PSY301" 
                   required
                   disabled={isGenerating}
-                  className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50" 
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-500" 
                 />
               </div>
               <div className="flex-1">
                 <label className="block text-sm font-bold text-slate-700 mb-2">Due Date</label>
                 <input 
                   type="date" 
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
                   required
                   disabled={isGenerating}
-                  className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-slate-700 disabled:opacity-50" 
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-slate-700 disabled:bg-slate-50 disabled:text-slate-500" 
                 />
               </div>
             </div>
@@ -147,7 +188,7 @@ export default function CreateExamPage() {
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
                 disabled={isGenerating}
-                className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 disabled:opacity-50"
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 disabled:bg-slate-50 disabled:text-slate-500"
               >
                 <option value="Abnormal Psychology">Abnormal Psychology</option>
                 <option value="Developmental Psychology">Developmental Psychology</option>
@@ -215,12 +256,12 @@ export default function CreateExamPage() {
               <div className="bg-blue-50 border border-blue-100 rounded-lg p-6 space-y-6">
                 <div className="flex flex-col md:flex-row gap-6">
                   <div className="flex-1">
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Topic / Competency Filter</label>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Topic Filter</label>
                     <select 
                       value={customTopic}
                       onChange={(e) => setCustomTopic(e.target.value)}
                       disabled={isGenerating}
-                      className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 disabled:opacity-50"
+                      className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 disabled:bg-slate-50 disabled:text-slate-500"
                     >
                       <option value="">All Topics</option>
                       <option value="Topic A">Specific Topic A</option>
@@ -237,7 +278,7 @@ export default function CreateExamPage() {
                       onChange={(e) => setCustomItems(Number(e.target.value))}
                       required
                       disabled={isGenerating}
-                      className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50" 
+                      className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-500" 
                     />
                   </div>
                 </div>
@@ -246,7 +287,7 @@ export default function CreateExamPage() {
                   <label className="block text-sm font-bold text-slate-700 mb-3">Target Bloom's Taxonomy</label>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {bloomLevels.map(bloom => (
-                      <label key={bloom.level} className={`flex items-center p-3 rounded-lg border cursor-pointer transition-colors relative group ${selectedBlooms.includes(bloom.level) ? 'border-blue-500 bg-white shadow-sm' : 'border-slate-200 bg-white/50 hover:border-blue-300'} ${isGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                      <label key={bloom.level} className={`flex items-center p-3 rounded-lg border cursor-pointer transition-colors relative group ${selectedBlooms.includes(bloom.level) ? 'border-blue-500 bg-white shadow-sm' : 'border-slate-200 bg-white hover:border-blue-300'} ${isGenerating ? 'opacity-50 cursor-not-allowed' : ''}`}>
                         <input 
                           type="checkbox" 
                           checked={selectedBlooms.includes(bloom.level)}
@@ -258,7 +299,7 @@ export default function CreateExamPage() {
                           {bloom.level}
                           <div className="text-slate-400 bg-slate-100 rounded-full w-4 h-4 flex items-center justify-center text-[10px]">?</div>
                         </span>
-                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block w-40 bg-slate-800 text-white text-[10px] rounded p-2 text-center shadow-lg z-10 font-bold">
+                        <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 hidden group-hover:block w-40 bg-slate-800 text-white text-[10px] rounded p-2 text-center shadow-lg z-10 font-bold">
                           {bloom.tip}
                         </div>
                       </label>
@@ -304,7 +345,7 @@ export default function CreateExamPage() {
           </div>
         </div>
 
-        <div className="fixed bottom-0 left-0 right-0 md:left-72 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20 transition-all duration-300">
+        <div className="fixed bottom-0 left-0 right-0 md:left-72 bg-white border-t border-slate-200 p-4 shadow-lg z-20 transition-all duration-300">
           <div className="max-w-4xl mx-auto flex justify-end gap-4">
             <button 
               type="button"
@@ -331,7 +372,7 @@ export default function CreateExamPage() {
                 </>
               ) : (
                 <>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022.547l-2.387.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
                   Generate Exam
                 </>
               )}
