@@ -9,37 +9,37 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const isExamActive = pathname.includes('/active_exam');
-
   const closeMobileMenu = () => {
     setIsMobileMenuOpen(false);
   };
 
+  // Automatically hide the sidebar if the user is in an active exam
+  if (pathname.includes('/take')) {
+    return <div className="min-h-screen bg-slate-50">{children}</div>;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row overflow-x-hidden">
       
-      {!isExamActive && (
-        <div className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center z-40 relative shadow-md">
-          <span className="font-bold text-lg text-blue-400">RPLE Platform</span>
-          <button 
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="p-2 text-slate-300 hover:text-white focus:outline-none"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              {isMobileMenuOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              )}
-            </svg>
-          </button>
-        </div>
-      )}
+      {/* Mobile Header */}
+      <div className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center z-40 relative shadow-md">
+        <span className="font-bold text-lg text-blue-400">RPLE Platform</span>
+        <button 
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-2 text-slate-300 hover:text-white focus:outline-none"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {isMobileMenuOpen ? (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            )}
+          </svg>
+        </button>
+      </div>
 
       <aside 
-        className={`bg-slate-900 text-white flex flex-col shrink-0 transition-all duration-300 overflow-hidden ${
-          isExamActive ? 'w-0 hidden md:flex md:w-0' : `fixed inset-y-0 left-0 z-50 w-72 transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0`
-        }`}
+        className={`bg-slate-900 text-white flex flex-col shrink-0 transition-all duration-300 overflow-hidden fixed inset-y-0 left-0 z-50 w-72 transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0`}
       >
         <div className="w-72 flex flex-col h-full bg-slate-900">
           <div className="p-6 border-b border-slate-800 flex flex-col items-center text-center">
@@ -73,14 +73,14 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
             <Link 
               href="/learner/performance"
               onClick={closeMobileMenu}
-              className={`block w-full text-left px-4 py-3 rounded-lg text-sm font-bold transition-colors ${pathname === '/learner/performance' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800'}`}
+              className={`block w-full text-left px-4 py-3 rounded-lg text-sm font-bold transition-colors ${pathname.startsWith('/learner/performance') ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800'}`}
             >
               Historical Performance
             </Link>
             <Link 
               href="/learner/roadmap"
               onClick={closeMobileMenu}
-              className={`block w-full text-left px-4 py-3 rounded-lg text-sm font-bold transition-colors ${pathname === '/learner/roadmap' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800'}`}
+              className={`block w-full text-left px-4 py-3 rounded-lg text-sm font-bold transition-colors ${pathname.startsWith('/learner/roadmap') ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800'}`}
             >
               PRC Progress Roadmap
             </Link>
@@ -96,7 +96,7 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
         </div>
       </aside>
 
-      {!isExamActive && isMobileMenuOpen && (
+      {isMobileMenuOpen && (
         <div 
           className="fixed inset-0 bg-black/50 z-40 md:hidden"
           onClick={closeMobileMenu}

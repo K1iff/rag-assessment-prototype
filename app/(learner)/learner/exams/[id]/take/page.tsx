@@ -18,6 +18,8 @@ export default function LearnerActiveExamPage() {
     { id: 1, text: 'Which of the following is considered a negative symptom of schizophrenia?', options: ['Delusions', 'Hallucinations', 'Avolition', 'Disorganized speech'] },
     { id: 2, text: 'What is the primary difference between Bipolar I and Bipolar II?', options: ['Presence of major depressive episodes', 'Presence of a full manic episode', 'Age of onset', 'Response to lithium'] },
     { id: 3, text: 'Which brain structure is most heavily implicated in the consolidation of new explicit memories?', options: ['Amygdala', 'Hippocampus', 'Basal Ganglia', 'Cerebellum'] },
+    { id: 4, text: 'Which therapeutic approach emphasizes unconditional positive regard?', options: ['Cognitive Behavioral Therapy', 'Psychoanalysis', 'Person-Centered Therapy', 'Gestalt Therapy'] },
+    { id: 5, text: 'In experimental research, the variable that is manipulated by the researcher is known as the:', options: ['Dependent variable', 'Confounding variable', 'Control variable', 'Independent variable'] },
   ];
 
   useEffect(() => {
@@ -83,7 +85,7 @@ export default function LearnerActiveExamPage() {
   const isTimeLow = timeLeft < 300; // Less than 5 minutes
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen flex flex-col">
       
       <header className="bg-white border-b border-slate-200 p-4 sticky top-0 z-30 shadow-sm flex justify-between items-center">
         <div>
@@ -101,82 +103,137 @@ export default function LearnerActiveExamPage() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-3xl w-full mx-auto p-6 md:p-10 flex flex-col">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-6 flex flex-col lg:flex-row gap-8">
         
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              Question {currentQuestionIndex + 1} of {mockQuestions.length}
-            </span>
-            <span className="text-xs font-bold text-blue-600">
-              {Object.keys(answers).length} Answered
-            </span>
+        {/* Left Side: Question Area */}
+        <div className="flex-1 flex flex-col">
+          <div className="mb-8">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                Question {currentQuestionIndex + 1} of {mockQuestions.length}
+              </span>
+              <span className="text-xs font-bold text-blue-600">
+                {Object.keys(answers).length} Answered
+              </span>
+            </div>
+            <div className="w-full bg-slate-200 rounded-full h-2">
+              <div 
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                style={{ width: `${progressPercentage}%` }}
+              ></div>
+            </div>
           </div>
-          <div className="w-full bg-slate-200 rounded-full h-2">
-            <div 
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
-              style={{ width: `${progressPercentage}%` }}
-            ></div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 flex-1 flex flex-col">
+            <h2 className="text-xl font-bold text-slate-800 mb-8 leading-relaxed">
+              {currentQuestion.text}
+            </h2>
+
+            <div className="space-y-4 flex-1">
+              {currentQuestion.options.map((option, idx) => {
+                const isSelected = answers[currentQuestion.id] === option;
+                return (
+                  <label 
+                    key={idx} 
+                    className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                      isSelected ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input 
+                      type="radio" 
+                      name={`question-${currentQuestion.id}`}
+                      value={option}
+                      checked={isSelected}
+                      onChange={() => handleOptionSelect(option)}
+                      className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer"
+                    />
+                    <span className={`ml-4 text-sm font-bold ${isSelected ? 'text-blue-900' : 'text-slate-700'}`}>
+                      {option}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex justify-between items-center mt-6">
+            <button 
+              onClick={handlePrevious}
+              disabled={currentQuestionIndex === 0}
+              className="px-6 py-3 border border-slate-300 text-slate-700 text-sm font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            
+            {isLastQuestion ? (
+              <button 
+                onClick={() => setShowSubmitModal(true)}
+                className="px-8 py-3 bg-emerald-600 text-white text-sm font-bold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm"
+              >
+                Finish and Submit
+              </button>
+            ) : (
+              <button 
+                onClick={handleNext}
+                className="px-8 py-3 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+              >
+                Next Question
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 flex-1 flex flex-col">
-          <h2 className="text-xl font-bold text-slate-800 mb-8 leading-relaxed">
-            {currentQuestion.text}
-          </h2>
+        {/* Right Side: Question Navigator */}
+        <div className="w-full lg:w-72 shrink-0">
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 sticky top-24">
+            <h3 className="font-bold text-slate-800 mb-4 text-sm uppercase tracking-wider border-b border-slate-100 pb-2">
+              Question Navigator
+            </h3>
+            
+            <div className="grid grid-cols-5 gap-2 mb-6">
+              {mockQuestions.map((q, idx) => {
+                const isAnswered = !!answers[q.id];
+                const isCurrent = currentQuestionIndex === idx;
+                
+                return (
+                  <button
+                    key={q.id}
+                    onClick={() => setCurrentQuestionIndex(idx)}
+                    className={`h-10 w-10 rounded-lg text-sm font-bold flex items-center justify-center transition-all shadow-sm ${
+                      isCurrent ? 'ring-2 ring-blue-600 bg-blue-50 text-blue-800' :
+                      isAnswered ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
+                    }`}
+                  >
+                    {idx + 1}
+                  </button>
+                );
+              })}
+            </div>
 
-          <div className="space-y-4 flex-1">
-            {currentQuestion.options.map((option, idx) => {
-              const isSelected = answers[currentQuestion.id] === option;
-              return (
-                <label 
-                  key={idx} 
-                  className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                    isSelected ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'
-                  }`}
-                >
-                  <input 
-                    type="radio" 
-                    name={`question-${currentQuestion.id}`}
-                    value={option}
-                    checked={isSelected}
-                    onChange={() => handleOptionSelect(option)}
-                    className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer"
-                  />
-                  <span className={`ml-4 text-sm font-bold ${isSelected ? 'text-blue-900' : 'text-slate-700'}`}>
-                    {option}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-        </div>
+            <div className="space-y-3 pt-4 border-t border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-4 h-4 rounded bg-blue-600"></div>
+                <span className="text-xs font-bold text-slate-600">Answered</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-4 h-4 rounded bg-slate-100 border border-slate-200"></div>
+                <span className="text-xs font-bold text-slate-600">Not Answered</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-4 h-4 rounded bg-blue-50 ring-2 ring-blue-600"></div>
+                <span className="text-xs font-bold text-slate-600">Current Question</span>
+              </div>
+            </div>
 
-        <div className="flex justify-between items-center mt-8">
-          <button 
-            onClick={handlePrevious}
-            disabled={currentQuestionIndex === 0}
-            className="px-6 py-3 border border-slate-300 text-slate-700 text-sm font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Previous
-          </button>
-          
-          {isLastQuestion ? (
             <button 
               onClick={() => setShowSubmitModal(true)}
-              className="px-8 py-3 bg-emerald-600 text-white text-sm font-bold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm"
+              className="w-full mt-6 py-2.5 bg-emerald-100 text-emerald-800 text-sm font-bold rounded-lg hover:bg-emerald-200 transition-colors"
             >
-              Finish and Submit
+              Submit Exam Now
             </button>
-          ) : (
-            <button 
-              onClick={handleNext}
-              className="px-8 py-3 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-            >
-              Next Question
-            </button>
-          )}
+          </div>
         </div>
+
       </main>
 
       {showSubmitModal && (
@@ -196,7 +253,7 @@ export default function LearnerActiveExamPage() {
               <button 
                 onClick={handleFinalSubmit}
                 disabled={isSubmitting}
-                className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-lg transition-colors flex items-center gap-2"
+                className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm"
               >
                 {isSubmitting ? 'Submitting...' : 'Confirm Submission'}
               </button>
