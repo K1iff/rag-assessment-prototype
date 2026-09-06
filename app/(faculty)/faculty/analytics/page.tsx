@@ -8,6 +8,11 @@ export default function FacultyAnalyticsPage() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [expandedCohort, setExpandedCohort] = useState<number | null>(null);
 
+  // Pagination states for expanded student roster
+  const [rosterSearch, setRosterSearch] = useState('');
+  const [rosterPage, setRosterPage] = useState(1);
+  const studentsPerPage = 4;
+
   const initialCohortAnalytics = [
     { id: 1, cohort: 'Cohort Alpha 2026', averageScoreNum: 84, completionRateNum: 92, status: 'On Track' },
     { id: 2, cohort: 'Cohort Beta 2026', averageScoreNum: 71, completionRateNum: 68, status: 'Needs Attention' },
@@ -18,6 +23,16 @@ export default function FacultyAnalyticsPage() {
     { id: 'Q-402', exam: 'Midterm Coverage Quiz', topic: 'Neurotransmitters', failedBy: '65%' },
     { id: 'Q-411', exam: 'Midterm Coverage Quiz', topic: 'Brain Anatomy', failedBy: '42%' },
     { id: 'Q-108', exam: 'Organizational Behavior Check', topic: 'Motivation Theories', failedBy: '58%' },
+  ];
+
+  const mockStudents = [
+    { id: 1, name: 'Juan Santos', grade: 88 },
+    { id: 2, name: 'Ana Reyes', grade: 92 },
+    { id: 3, name: 'Luis Cruz', grade: 65 },
+    { id: 4, name: 'Miguel Torres', grade: 78 },
+    { id: 5, name: 'Sofia Garcia', grade: 95 },
+    { id: 6, name: 'Diego Flores', grade: 72 },
+    { id: 7, name: 'Carmen Villanueva', grade: 85 }
   ];
 
   const handleSort = (key: 'cohort' | 'averageScoreNum' | 'completionRateNum') => {
@@ -40,19 +55,31 @@ export default function FacultyAnalyticsPage() {
       setExpandedCohort(null);
     } else {
       setExpandedCohort(id);
+      setRosterSearch('');
+      setRosterPage(1);
     }
   };
+
+  // Expanded Roster Logic
+  const filteredRoster = mockStudents.filter(student => 
+    student.name.toLowerCase().includes(rosterSearch.toLowerCase())
+  );
+  
+  const indexOfLastStudent = rosterPage * studentsPerPage;
+  const indexOfFirstStudent = indexOfLastStudent - studentsPerPage;
+  const currentRosterStudents = filteredRoster.slice(indexOfFirstStudent, indexOfLastStudent);
+  const totalRosterPages = Math.ceil(filteredRoster.length / studentsPerPage);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Student Analytics & Grades</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Student Analytics and Grades</h1>
           <p className="text-sm text-slate-500 mt-1 max-w-2xl font-bold">Inspect overall cohort performance, view item discrimination analysis, and export class grades.</p>
         </div>
         <button className="px-6 py-2.5 bg-white border border-slate-300 text-slate-700 text-sm font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-2 whitespace-nowrap">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-          Export Cohort Grades (CSV)
+          Export Cohort Grades
         </button>
       </div>
 
@@ -126,22 +153,53 @@ export default function FacultyAnalyticsPage() {
                         </span>
                       </td>
                     </tr>
+                    
                     {expandedCohort === record.id && (
                       <tr className="bg-slate-50 border-b border-slate-200">
                         <td colSpan={4} className="p-6">
-                          <h4 className="text-xs font-bold uppercase text-slate-500 mb-3">Student Roster</h4>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            <div className="bg-white border border-slate-200 p-3 rounded text-sm font-bold flex justify-between items-center shadow-sm">
-                              <span className="text-slate-700">Juan Santos</span>
-                              <span className="text-emerald-600">88%</span>
+                          <div className="flex justify-between items-center mb-4">
+                            <h4 className="text-xs font-bold uppercase text-slate-500">Student Roster Details</h4>
+                            <input 
+                              type="text" 
+                              placeholder="Search roster..." 
+                              value={rosterSearch}
+                              onChange={(e) => { setRosterSearch(e.target.value); setRosterPage(1); }}
+                              className="w-48 text-xs font-bold px-3 py-1.5 border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 outline-none" 
+                            />
+                          </div>
+                          
+                          {currentRosterStudents.length === 0 ? (
+                            <div className="py-6 text-center text-sm font-bold text-slate-500 bg-white border border-slate-200 rounded">
+                              No students match your search.
                             </div>
-                            <div className="bg-white border border-slate-200 p-3 rounded text-sm font-bold flex justify-between items-center shadow-sm">
-                              <span className="text-slate-700">Ana Reyes</span>
-                              <span className="text-emerald-600">92%</span>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                              {currentRosterStudents.map(student => (
+                                <div key={student.id} className="bg-white border border-slate-200 p-3 rounded text-sm font-bold flex justify-between items-center shadow-sm">
+                                  <span className="text-slate-700">{student.name}</span>
+                                  <span className={`${student.grade >= 75 ? 'text-emerald-600' : 'text-amber-600'}`}>{student.grade}%</span>
+                                </div>
+                              ))}
                             </div>
-                            <div className="bg-white border border-slate-200 p-3 rounded text-sm font-bold flex justify-between items-center shadow-sm">
-                              <span className="text-slate-700">Luis Cruz</span>
-                              <span className="text-amber-600">65%</span>
+                          )}
+
+                          <div className="flex justify-between items-center text-xs font-bold text-slate-500 pt-2 border-t border-slate-200">
+                            <span>Showing {filteredRoster.length > 0 ? indexOfFirstStudent + 1 : 0} to {Math.min(indexOfLastStudent, filteredRoster.length)} of {filteredRoster.length} students</span>
+                            <div className="flex gap-1.5">
+                              <button 
+                                onClick={() => setRosterPage(prev => Math.max(prev - 1, 1))}
+                                disabled={rosterPage === 1}
+                                className={`px-2.5 py-1 border rounded shadow-sm transition-colors ${rosterPage === 1 ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'}`}
+                              >
+                                Prev
+                              </button>
+                              <button 
+                                onClick={() => setRosterPage(prev => Math.min(prev + 1, totalRosterPages))}
+                                disabled={rosterPage === totalRosterPages || totalRosterPages === 0}
+                                className={`px-2.5 py-1 border rounded shadow-sm transition-colors ${rosterPage === totalRosterPages || totalRosterPages === 0 ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'}`}
+                              >
+                                Next
+                              </button>
                             </div>
                           </div>
                         </td>

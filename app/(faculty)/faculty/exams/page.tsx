@@ -8,10 +8,18 @@ export default function FacultyExamsPage() {
   const [selectedExam, setSelectedExam] = useState<null | number>(null);
   const [examTab, setExamTab] = useState('settings');
   const [selectedQuestions, setSelectedQuestions] = useState<number[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
+  
+  const [examSearchQuery, setExamSearchQuery] = useState('');
+  const [examStatusFilter, setExamStatusFilter] = useState('All');
+  
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [questionToReject, setQuestionToReject] = useState<null | number>(null);
+
+  // New states for Student Analytics Table
+  const [studentSearch, setStudentSearch] = useState('');
+  const [studentStatusFilter, setStudentStatusFilter] = useState('All');
+  const [studentPage, setStudentPage] = useState(1);
+  const studentsPerPage = 5;
 
   const exams = [
     { id: 1, title: 'Midterm Coverage Quiz', target: 'PSY301', items: 30, status: 'Active', dueDate: '2026-07-20', color: 'bg-emerald-500' },
@@ -30,10 +38,14 @@ export default function FacultyExamsPage() {
     { id: 2, question: 'What characterizes the preoperational stage of cognitive development?', options: [{ text: 'Abstract reasoning', count: 5, percent: 6 }, { text: 'Object permanence', count: 15, percent: 19 }, { text: 'Symbolic thinking', count: 50, percent: 62, isCorrect: true }, { text: 'Conservation', count: 10, percent: 13 }] },
   ];
 
-  const studentAnalytics = [
+  const allStudentAnalytics = [
     { id: 101, name: 'Juan Santos', status: 'Completed', takenAt: 'July 15, 2026 10:30 AM', grade: '28/30 (93%)' },
     { id: 102, name: 'Ana Reyes', status: 'Completed', takenAt: 'July 16, 2026 02:15 PM', grade: '22/30 (73%)' },
     { id: 103, name: 'Luis Cruz', status: 'Not Taken', takenAt: 'Pending', grade: 'Pending' },
+    { id: 104, name: 'Miguel Torres', status: 'Completed', takenAt: 'July 16, 2026 04:20 PM', grade: '25/30 (83%)' },
+    { id: 105, name: 'Sofia Garcia', status: 'Completed', takenAt: 'July 17, 2026 09:10 AM', grade: '29/30 (97%)' },
+    { id: 106, name: 'Diego Flores', status: 'Not Taken', takenAt: 'Pending', grade: 'Pending' },
+    { id: 107, name: 'Carmen Villanueva', status: 'Completed', takenAt: 'July 17, 2026 11:45 AM', grade: '20/30 (67%)' },
   ];
 
   const getStatusBadge = (status: string) => {
@@ -69,10 +81,32 @@ export default function FacultyExamsPage() {
   const currentExam = exams.find(e => e.id === selectedExam);
 
   const filteredExams = exams.filter(exam => {
-    const matchesSearch = exam.title.toLowerCase().includes(searchQuery.toLowerCase()) || exam.target.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'All' || exam.status === statusFilter;
+    const matchesSearch = exam.title.toLowerCase().includes(examSearchQuery.toLowerCase()) || exam.target.toLowerCase().includes(examSearchQuery.toLowerCase());
+    const matchesStatus = examStatusFilter === 'All' || exam.status === examStatusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  // Student Table Pagination Logic
+  const filteredStudents = allStudentAnalytics.filter(student => {
+    const matchesSearch = student.name.toLowerCase().includes(studentSearch.toLowerCase());
+    const matchesStatus = studentStatusFilter === 'All' || student.status === studentStatusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const indexOfLastStudent = studentPage * studentsPerPage;
+  const indexOfFirstStudent = indexOfLastStudent - studentsPerPage;
+  const currentStudents = filteredStudents.slice(indexOfFirstStudent, indexOfLastStudent);
+  const totalStudentPages = Math.ceil(filteredStudents.length / studentsPerPage);
+
+  const handleStudentSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setStudentSearch(e.target.value);
+    setStudentPage(1); 
+  };
+
+  const handleStudentStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setStudentStatusFilter(e.target.value);
+    setStudentPage(1);
+  };
 
   if (selectedExam !== null && currentExam) {
     return (
@@ -112,7 +146,7 @@ export default function FacultyExamsPage() {
           )}
 
           <button 
-            onClick={() => setExamTab('analytics')} 
+            onClick={() => { setExamTab('analytics'); setStudentPage(1); }} 
             className={`pb-4 border-b-2 text-sm font-bold whitespace-nowrap ${examTab === 'analytics' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
           >
             Student Analytics
@@ -122,76 +156,75 @@ export default function FacultyExamsPage() {
         <div className="bg-white border border-slate-200 rounded-b-xl p-8 shadow-sm min-h-[500px]">
           
           {examTab === 'settings' && (
-            <div className="max-w-3xl">
-              <h2 className="text-xl font-bold text-slate-800 mb-2">Edit Exam Details</h2>
-              <p className="text-sm text-slate-500 mb-8 font-bold">Manage availability, due dates, and general settings for this assessment.</p>
-              
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Assessment Title</label>
-                  <input type="text" defaultValue={currentExam.title} className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
-                </div>
-
-                <div className="flex flex-col md:flex-row gap-6">
-                  <div className="flex-1">
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Target Audience</label>
-                    <input type="text" defaultValue={currentExam.target} className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
-                  </div>
-                  <div className="flex-1">
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Due Date</label>
-                    <input type="date" defaultValue={currentExam.dueDate} className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Exam Status</label>
-                  <select defaultValue={currentExam.status} className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-                    <option value="Active">Active (Available for learners to take)</option>
-                    <option value="Pending">Pending (Questions need checking and validation)</option>
-                    <option value="Inactive">Inactive / Finished (Deadline passed)</option>
-                  </select>
-                </div>
-
-                <div className="pt-6 border-t border-slate-100 mt-6">
-                  <button className="px-8 py-3 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
-                    Save Changes
-                  </button>
-                </div>
-              </div>
-            </div>
+             <div className="max-w-3xl">
+               <h2 className="text-xl font-bold text-slate-800 mb-2">Edit Exam Details</h2>
+               <p className="text-sm text-slate-500 mb-8 font-bold">Manage availability, due dates, and general settings for this assessment.</p>
+               
+               <div className="space-y-6">
+                 <div>
+                   <label className="block text-sm font-bold text-slate-700 mb-2">Assessment Title</label>
+                   <input type="text" defaultValue={currentExam.title} className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                 </div>
+ 
+                 <div className="flex flex-col md:flex-row gap-6">
+                   <div className="flex-1">
+                     <label className="block text-sm font-bold text-slate-700 mb-2">Target Audience</label>
+                     <input type="text" defaultValue={currentExam.target} className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                   </div>
+                   <div className="flex-1">
+                     <label className="block text-sm font-bold text-slate-700 mb-2">Due Date</label>
+                     <input type="date" defaultValue={currentExam.dueDate} className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                   </div>
+                 </div>
+                 
+                 <div>
+                   <label className="block text-sm font-bold text-slate-700 mb-2">Exam Status</label>
+                   <select defaultValue={currentExam.status} className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white">
+                     <option value="Active">Active (Available for learners to take)</option>
+                     <option value="Pending">Pending (Questions need checking and validation)</option>
+                     <option value="Inactive">Inactive / Finished (Deadline passed)</option>
+                   </select>
+                 </div>
+ 
+                 <div className="pt-6 border-t border-slate-100 mt-6">
+                   <button className="px-8 py-3 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
+                     Save Changes
+                   </button>
+                 </div>
+               </div>
+             </div>
           )}
 
           {examTab === 'question_analytics' && (
-            <div>
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-800">Question Analytics</h2>
-                  <p className="text-sm text-slate-500 font-bold mt-1">Review the answer selection breakdown for each question.</p>
-                </div>
-              </div>
-
-              <div className="space-y-8">
-                {questionAnalytics.map(qa => (
-                  <div key={qa.id} className="p-6 border border-slate-200 rounded-xl bg-white shadow-sm">
-                     <p className="text-lg font-bold text-slate-900 mb-6">{qa.question}</p>
-                     <div className="space-y-4">
-                        {qa.options.map((opt, idx) => (
-                          <div key={idx} className="relative w-full bg-slate-100 rounded-lg h-12 flex items-center px-4 overflow-hidden">
-                            <div 
-                              className={`absolute left-0 top-0 h-full ${opt.isCorrect ? 'bg-emerald-200' : 'bg-slate-300'} opacity-50`} 
-                              style={{ width: `${opt.percent}%` }}
-                            ></div>
-                            <div className="relative z-10 flex justify-between w-full text-sm font-bold text-slate-800">
-                              <span>{opt.text} {opt.isCorrect && <span className="text-emerald-700 ml-2">(Correct)</span>}</span>
-                              <span>{opt.count} students ({opt.percent}%)</span>
-                            </div>
-                          </div>
-                        ))}
-                     </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+             <div>
+               <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                 <div>
+                   <h2 className="text-xl font-bold text-slate-800">Question Analytics</h2>
+                   <p className="text-sm text-slate-500 font-bold mt-1">Review the answer selection breakdown for each question.</p>
+                 </div>
+               </div>
+               <div className="space-y-8">
+                 {questionAnalytics.map(qa => (
+                   <div key={qa.id} className="p-6 border border-slate-200 rounded-xl bg-white shadow-sm">
+                      <p className="text-lg font-bold text-slate-900 mb-6">{qa.question}</p>
+                      <div className="space-y-4">
+                         {qa.options.map((opt, idx) => (
+                           <div key={idx} className="relative w-full bg-slate-100 rounded-lg h-12 flex items-center px-4 overflow-hidden">
+                             <div 
+                               className={`absolute left-0 top-0 h-full ${opt.isCorrect ? 'bg-emerald-200' : 'bg-slate-300'} opacity-50`} 
+                               style={{ width: `${opt.percent}%` }}
+                             ></div>
+                             <div className="relative z-10 flex justify-between w-full text-sm font-bold text-slate-800">
+                               <span>{opt.text} {opt.isCorrect && <span className="text-emerald-700 ml-2">(Correct)</span>}</span>
+                               <span>{opt.count} students ({opt.percent}%)</span>
+                             </div>
+                           </div>
+                         ))}
+                      </div>
+                   </div>
+                 ))}
+               </div>
+             </div>
           )}
 
           {examTab === 'questions' && (
@@ -205,92 +238,86 @@ export default function FacultyExamsPage() {
               </div>
             ) : (
               <div>
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-800">Pending Question Validations</h2>
-                    <p className="text-sm text-slate-500 font-bold mt-1">Review AI generated items before deploying to students.</p>
-                  </div>
-                  <div className="flex gap-3 w-full md:w-auto">
-                    <button onClick={selectAllHighConfidence} className="flex-1 md:flex-none px-4 py-2 border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
-                      Select High Confidence
-                    </button>
-                    <button className="flex-1 md:flex-none px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50" disabled={selectedQuestions.length === 0}>
-                      Batch Approve ({selectedQuestions.length})
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="space-y-6">
-                  {aiQuestions.map((q) => (
-                    <div key={q.id} className={`p-6 border rounded-xl transition-colors ${selectedQuestions.includes(q.id) ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="flex items-center gap-3">
-                          <input 
-                            type="checkbox" 
-                            checked={selectedQuestions.includes(q.id)}
-                            onChange={() => toggleQuestionSelection(q.id)}
-                            className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                          />
-                          <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">{q.topic}</span>
-                        </div>
-                        <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${q.confidence === 'High' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                          {q.confidence} Confidence
-                        </span>
-                      </div>
-
-                      <div className="mb-5 ml-8">
-                        <p className="text-lg font-bold text-slate-900 mb-2">{q.question}</p>
-                        <div className="bg-slate-100 border border-slate-200 p-3 rounded-md flex items-start gap-2">
-                          <span className="text-lg">📚</span>
-                          <p className="text-xs text-slate-600 font-bold leading-relaxed">{q.citation}</p>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-3 mb-6 ml-8">
-                        {q.options.map((opt, idx) => (
-                          <div key={idx} className={`p-4 border rounded-lg text-sm font-bold ${opt === q.answer ? 'bg-emerald-100 border-emerald-300 text-emerald-900' : 'bg-white border-slate-200 text-slate-600'}`}>
-                            {opt} {opt === q.answer && <span className="ml-2 text-xs font-bold text-emerald-700 uppercase tracking-wider">(Correct Answer)</span>}
-                          </div>
-                        ))}
-                      </div>
-                      
-                      <div className="flex flex-wrap gap-3 pt-5 border-t border-slate-200 ml-8">
-                        <button className="px-5 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm">
-                          Approve
-                        </button>
-                        <button className="px-5 py-2.5 bg-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition-colors shadow-sm">
-                          Edit Manually
-                        </button>
-                        
-                        <div className="relative group ml-auto flex items-center">
-                          <button className="px-5 py-2.5 border border-purple-300 text-purple-700 text-xs font-bold rounded-lg hover:bg-purple-50 transition-colors shadow-sm flex items-center gap-1.5 mr-3">
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                            Regenerate
-                          </button>
-                          <div className="absolute bottom-full mb-2 right-16 hidden group-hover:block w-48 bg-slate-800 text-white text-[10px] rounded p-2 text-center shadow-lg">
-                            Generates a similar question targeting the same topic.
-                          </div>
-                        </div>
-
-                        <div className="relative group flex items-center">
-                          <button onClick={() => confirmRejection(q.id)} className="px-5 py-2.5 bg-red-100 text-red-700 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors shadow-sm">
-                            Reject
-                          </button>
-                          <div className="absolute bottom-full mb-2 right-0 hidden group-hover:block w-48 bg-slate-800 text-white text-[10px] rounded p-2 text-center shadow-lg">
-                            Discards this question and auto generates a replacement.
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                   <div>
+                     <h2 className="text-xl font-bold text-slate-800">Pending Question Validations</h2>
+                     <p className="text-sm text-slate-500 font-bold mt-1">Review AI generated items before deploying to students.</p>
+                   </div>
+                   <div className="flex gap-3 w-full md:w-auto">
+                     <button onClick={selectAllHighConfidence} className="flex-1 md:flex-none px-4 py-2 border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
+                       Select High Confidence
+                     </button>
+                     <button className="flex-1 md:flex-none px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50" disabled={selectedQuestions.length === 0}>
+                       Batch Approve ({selectedQuestions.length})
+                     </button>
+                   </div>
+                 </div>
+                 
+                 <div className="space-y-6">
+                   {aiQuestions.map((q) => (
+                     <div key={q.id} className={`p-6 border rounded-xl transition-colors ${selectedQuestions.includes(q.id) ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
+                       <div className="flex justify-between items-start mb-4">
+                         <div className="flex items-center gap-3">
+                           <input 
+                             type="checkbox" 
+                             checked={selectedQuestions.includes(q.id)}
+                             onChange={() => toggleQuestionSelection(q.id)}
+                             className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                           />
+                           <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">{q.topic}</span>
+                         </div>
+                         <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${q.confidence === 'High' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                           {q.confidence} Confidence
+                         </span>
+                       </div>
+ 
+                       <div className="mb-5 ml-8">
+                         <p className="text-lg font-bold text-slate-900 mb-2">{q.question}</p>
+                         <div className="bg-slate-100 border border-slate-200 p-3 rounded-md flex items-start gap-2">
+                           <span className="text-lg">📚</span>
+                           <p className="text-xs text-slate-600 font-bold leading-relaxed">{q.citation}</p>
+                         </div>
+                       </div>
+                       
+                       <div className="space-y-3 mb-6 ml-8">
+                         {q.options.map((opt, idx) => (
+                           <div key={idx} className={`p-4 border rounded-lg text-sm font-bold ${opt === q.answer ? 'bg-emerald-100 border-emerald-300 text-emerald-900' : 'bg-white border-slate-200 text-slate-600'}`}>
+                             {opt} {opt === q.answer && <span className="ml-2 text-xs font-bold text-emerald-700 uppercase tracking-wider">(Correct Answer)</span>}
+                           </div>
+                         ))}
+                       </div>
+                       
+                       <div className="flex flex-wrap gap-3 pt-5 border-t border-slate-200 ml-8">
+                         <button className="px-5 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm">
+                           Approve
+                         </button>
+                         <button className="px-5 py-2.5 bg-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition-colors shadow-sm">
+                           Edit Manually
+                         </button>
+                         
+                         <div className="relative group ml-auto flex items-center">
+                           <button className="px-5 py-2.5 border border-purple-300 text-purple-700 text-xs font-bold rounded-lg hover:bg-purple-50 transition-colors shadow-sm flex items-center gap-1.5 mr-3">
+                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                             Regenerate
+                           </button>
+                         </div>
+ 
+                         <div className="relative group flex items-center">
+                           <button onClick={() => confirmRejection(q.id)} className="px-5 py-2.5 bg-red-100 text-red-700 text-xs font-bold rounded-lg hover:bg-red-200 transition-colors shadow-sm">
+                             Reject
+                           </button>
+                         </div>
+                       </div>
+                     </div>
+                   ))}
+                 </div>
+               </div>
             )
           )}
 
           {examTab === 'analytics' && (
             <div>
-              <div className="flex justify-between items-center mb-6">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                 <div>
                   <h2 className="text-xl font-bold text-slate-800">Student Analytics</h2>
                   <p className="text-sm text-slate-500 font-bold mt-1">Review student progress and completion grades for this assessment.</p>
@@ -301,7 +328,26 @@ export default function FacultyExamsPage() {
                 </button>
               </div>
 
-              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <div className="bg-slate-50 p-4 border border-slate-200 border-b-0 rounded-t-lg flex flex-col md:flex-row gap-4">
+                <input 
+                  type="text" 
+                  placeholder="Search student name..." 
+                  value={studentSearch}
+                  onChange={handleStudentSearch}
+                  className="w-full md:w-64 px-3 py-2 border border-slate-300 rounded text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <select 
+                  value={studentStatusFilter}
+                  onChange={handleStudentStatusChange}
+                  className="px-3 py-2 border border-slate-300 rounded text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                >
+                  <option value="All">All Statuses</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Not Taken">Not Taken</option>
+                </select>
+              </div>
+
+              <div className="overflow-x-auto border border-slate-200 rounded-b-lg">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
@@ -313,36 +359,52 @@ export default function FacultyExamsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
-                    {studentAnalytics.map(student => (
-                      <tr key={student.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-4 font-bold text-slate-800">{student.name}</td>
-                        <td className="p-4">
-                          <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${student.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
-                            {student.status}
-                          </span>
-                        </td>
-                        <td className="p-4 font-bold text-slate-500">{student.takenAt}</td>
-                        <td className="p-4 font-bold text-slate-700">{student.grade}</td>
-                        <td className="p-4 text-right flex gap-3 justify-end">
-                           <button disabled={student.status !== 'Completed'} className={`text-xs font-bold ${student.status === 'Completed' ? 'text-blue-600 hover:underline' : 'text-slate-400 cursor-not-allowed'}`}>
-                            View Answers
-                          </button>
-                          <button disabled={student.status !== 'Completed'} className={`text-xs font-bold ${student.status === 'Completed' ? 'text-red-600 hover:underline' : 'text-slate-400 cursor-not-allowed'}`}>
-                            Reset Attempt
-                          </button>
-                        </td>
+                    {currentStudents.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-8 text-center text-sm font-bold text-slate-500">No students match your filter criteria.</td>
                       </tr>
-                    ))}
+                    ) : (
+                      currentStudents.map(student => (
+                        <tr key={student.id} className="hover:bg-slate-50 transition-colors bg-white">
+                          <td className="p-4 font-bold text-slate-800">{student.name}</td>
+                          <td className="p-4">
+                            <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${student.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
+                              {student.status}
+                            </span>
+                          </td>
+                          <td className="p-4 font-bold text-slate-500">{student.takenAt}</td>
+                          <td className="p-4 font-bold text-slate-700">{student.grade}</td>
+                          <td className="p-4 text-right flex gap-3 justify-end">
+                            <button disabled={student.status !== 'Completed'} className={`text-xs font-bold ${student.status === 'Completed' ? 'text-blue-600 hover:underline' : 'text-slate-400 cursor-not-allowed'}`}>
+                              View Answers
+                            </button>
+                            <button disabled={student.status !== 'Completed'} className={`text-xs font-bold ${student.status === 'Completed' ? 'text-red-600 hover:underline' : 'text-slate-400 cursor-not-allowed'}`}>
+                              Reset Attempt
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
+                
                 <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-between items-center text-sm font-bold text-slate-500">
-                  <span>Showing 1 to 3 of 45 students</span>
-                  <div className="flex gap-2">
-                    <button className="px-3 py-1 border border-slate-300 rounded hover:bg-white text-slate-400 cursor-not-allowed">Previous</button>
-                    <button className="px-3 py-1 border border-slate-300 rounded bg-white text-blue-600 shadow-sm">1</button>
-                    <button className="px-3 py-1 border border-slate-300 rounded hover:bg-white text-slate-600">2</button>
-                    <button className="px-3 py-1 border border-slate-300 rounded hover:bg-white text-slate-600">3</button>
-                    <button className="px-3 py-1 border border-slate-300 rounded hover:bg-white text-slate-600">Next</button>
+                  <span>Showing {filteredStudents.length > 0 ? indexOfFirstStudent + 1 : 0} to {Math.min(indexOfLastStudent, filteredStudents.length)} of {filteredStudents.length} students</span>
+                  <div className="flex gap-1.5">
+                    <button 
+                      onClick={() => setStudentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={studentPage === 1}
+                      className={`px-3 py-1.5 border rounded shadow-sm transition-colors ${studentPage === 1 ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'}`}
+                    >
+                      Prev
+                    </button>
+                    <button 
+                      onClick={() => setStudentPage(prev => Math.min(prev + 1, totalStudentPages))}
+                      disabled={studentPage === totalStudentPages || totalStudentPages === 0}
+                      className={`px-3 py-1.5 border rounded shadow-sm transition-colors ${studentPage === totalStudentPages || totalStudentPages === 0 ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'}`}
+                    >
+                      Next
+                    </button>
                   </div>
                 </div>
               </div>
@@ -376,7 +438,7 @@ export default function FacultyExamsPage() {
                   onClick={() => setShowRejectModal(false)}
                   className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-colors"
                 >
-                  Yes, Reject and Replace
+                  Yes, Reject & Replace
                 </button>
               </div>
             </div>
@@ -409,15 +471,15 @@ export default function FacultyExamsPage() {
           <input 
             type="text" 
             placeholder="Search by title or target audience" 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={examSearchQuery}
+            onChange={(e) => setExamSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
         </div>
         <div className="w-full sm:w-48">
           <select 
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            value={examStatusFilter}
+            onChange={(e) => setExamStatusFilter(e.target.value)}
             className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
           >
             <option value="All">All Statuses</option>
@@ -471,6 +533,11 @@ export default function FacultyExamsPage() {
             </div>
           </div>
         ))}
+        {filteredExams.length === 0 && (
+          <div className="col-span-full p-8 text-center text-sm font-bold text-slate-500 bg-white rounded-xl border border-slate-200">
+            No exams match your search criteria.
+          </div>
+        )}
       </div>
     </div>
   );
