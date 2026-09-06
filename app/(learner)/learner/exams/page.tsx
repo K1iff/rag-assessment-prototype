@@ -167,7 +167,7 @@ export default function ScheduledExamsPage() {
                   Cancel
                 </button>
                 <button 
-                  onClick={() => router.push('/learner/active_exam')}
+                  onClick={() => router.push('/learner/exams/1/take')}
                   className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors"
                 >
                   Confirm and Start
