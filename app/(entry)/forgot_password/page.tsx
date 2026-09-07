@@ -16,7 +16,7 @@ export default function ForgotPasswordPage() {
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       // Directs the user to update_password after they click the email link
-      redirectTo: 'http://localhost:3000/forgot_password/update_password', 
+      redirectTo: 'https://rag-assessment-prototype.vercel.app/forgot_password/update_password', 
     });
 
     if (error) {
