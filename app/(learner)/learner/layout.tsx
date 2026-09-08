@@ -1,13 +1,41 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function LearnerLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const [learnerName, setLearnerName] = useState('Loading...');
+  const [learnerEmail, setLearnerEmail] = useState('Loading...');
+
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+      if (user) {
+        setLearnerEmail(user.email ?? 'Email not available');
+
+        const { data: profileData, error: profileError } = await supabase
+          .from('Users')
+          .select('name')
+          .eq('user_id', user.id)
+          .single();
+
+        if (profileData) {
+          setLearnerName(`${profileData.name}`);
+        }
+      } else {
+        router.push('/login');
+      }
+    };
+
+    fetchUserProfile();
+  }, [router]);
 
   const closeMobileMenu = () => {
     setIsMobileMenuOpen(false);
@@ -48,8 +76,8 @@ export default function LearnerLayout({ children }: { children: React.ReactNode 
                 <path d="M24 20.993V24H0v-2.996A14.977 14.977 0 0112.004 15c4.904 0 9.26 2.354 11.996 5.993zM16.002 8.999a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
             </div>
-            <h2 className="font-bold text-lg text-white">Juan Dela Cruz</h2>
-            <p className="text-xs text-slate-400 mt-1">learner@university.edu</p>
+            <h2 className="font-bold text-lg text-white">{learnerName}</h2>
+            <p className="text-xs text-slate-400 mt-1">{learnerEmail}</p>
             <span className="mt-3 px-3 py-1 bg-blue-900 bg-opacity-50 text-blue-400 text-[10px] rounded uppercase font-bold tracking-wider">
               Learner Account
             </span>
