@@ -1,18 +1,45 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function RoadmapPage() {
-  const [expandedPhase, setExpandedPhase] = useState<number>(3);
+  const [currentDbPhase, setCurrentDbPhase] = useState<number>(1);
+  const [expandedPhase, setExpandedPhase] = useState<number>(1);
   const [showCelebration, setShowCelebration] = useState(false);
 
-  const roadmapSteps = [
-    { step: 1, title: 'Diagnostic Baseline', description: 'Establish foundational knowledge metrics.', completed: true, content: 'You scored an average of 72 percent on your baseline diagnostic. Your strongest area was Psychological Assessment.' },
-    { step: 2, title: 'Core Subject Drills', description: 'Complete dedicated modules for all major board topics.', completed: true, content: 'All four core subject drills are completed. You are well prepared for the dynamic simulations.' },
-    { step: 3, title: 'Adaptive Simulation', description: 'Surpass a passing threshold on dynamic exams.', completed: false, current: true, content: 'Active Goal requires you to score 75 percent or higher on three dynamic exams. Current progress is one out of three completed.' },
-    { step: 4, title: 'Full Length Board Simulation', description: 'Simulate the exact timing and constraints of the actual PRC exam.', completed: false, content: 'This section is locked. Please clear Phase 3 to access the eight hour mock board simulation.' },
-    { step: 5, title: 'PRC Board Readiness Certified', description: 'Final clearance badge achieved.', completed: false, content: 'This section is locked. Achieve a passing mark on the Full Length Simulation to get certified.' },
+useEffect(() => {
+    const fetchProgress = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('Roadmap Progress')
+        .select('current_phase')
+        .eq('student_id', user.id)
+        .single();
+
+      if (data) {
+        setCurrentDbPhase(data.current_phase);
+        setExpandedPhase(data.current_phase); 
+      }
+    };
+    fetchProgress();
+  }, []);
+
+  const baseSteps = [
+    { step: 1, title: 'Diagnostic Baseline', description: 'Establish foundational knowledge metrics.', content: 'You scored an average of 72 percent on your baseline diagnostic. Your strongest area was Psychological Assessment.' },
+    { step: 2, title: 'Core Subject Drills', description: 'Complete dedicated modules for all major board topics.', content: 'All four core subject drills are completed. You are well prepared for the dynamic simulations.' },
+    { step: 3, title: 'Adaptive Simulation', description: 'Surpass a passing threshold on dynamic exams.', current: true, content: 'Active Goal requires you to score 75 percent or higher on three dynamic exams. Current progress is one out of three completed.' },
+    { step: 4, title: 'Full Length Board Simulation', description: 'Simulate the exact timing and constraints of the actual PRC exam.', content: 'This section is locked. Please clear Phase 3 to access the eight hour mock board simulation.' },
+    { step: 5, title: 'PRC Board Readiness Certified', description: 'Final clearance badge achieved.', content: 'This section is locked. Achieve a passing mark on the Full Length Simulation to get certified.' },
   ];
+
+  const roadmapSteps = baseSteps.map(step => ({
+    ...step,
+    completed: currentDbPhase > step.step,
+    current: currentDbPhase === step.step
+  }));
 
   return (
     <div className="space-y-6 relative">
