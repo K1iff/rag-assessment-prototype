@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useDebounce } from '@/hooks/useDebounce';
 
 export default function FacultyExamsPage() {
   const router = useRouter();
@@ -10,13 +11,14 @@ export default function FacultyExamsPage() {
   const [selectedQuestions, setSelectedQuestions] = useState<number[]>([]);
   
   const [examSearchQuery, setExamSearchQuery] = useState('');
+  const debouncedExamSearch = useDebounce(examSearchQuery, 300);
   const [examStatusFilter, setExamStatusFilter] = useState('All');
   
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [questionToReject, setQuestionToReject] = useState<null | number>(null);
 
-  // New states for Student Analytics Table
   const [studentSearch, setStudentSearch] = useState('');
+  const debouncedStudentSearch = useDebounce(studentSearch, 300);
   const [studentStatusFilter, setStudentStatusFilter] = useState('All');
   const [studentPage, setStudentPage] = useState(1);
   const studentsPerPage = 5;
@@ -81,14 +83,13 @@ export default function FacultyExamsPage() {
   const currentExam = exams.find(e => e.id === selectedExam);
 
   const filteredExams = exams.filter(exam => {
-    const matchesSearch = exam.title.toLowerCase().includes(examSearchQuery.toLowerCase()) || exam.target.toLowerCase().includes(examSearchQuery.toLowerCase());
+    const matchesSearch = exam.title.toLowerCase().includes(debouncedExamSearch.toLowerCase()) || exam.target.toLowerCase().includes(debouncedExamSearch.toLowerCase());
     const matchesStatus = examStatusFilter === 'All' || exam.status === examStatusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  // Student Table Pagination Logic
   const filteredStudents = allStudentAnalytics.filter(student => {
-    const matchesSearch = student.name.toLowerCase().includes(studentSearch.toLowerCase());
+    const matchesSearch = student.name.toLowerCase().includes(debouncedStudentSearch.toLowerCase());
     const matchesStatus = studentStatusFilter === 'All' || student.status === studentStatusFilter;
     return matchesSearch && matchesStatus;
   });

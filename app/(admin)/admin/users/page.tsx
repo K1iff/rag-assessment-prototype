@@ -4,10 +4,13 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Badge from '@/components/ui/Badge';
 import EmptyState from '@/components/ui/EmptyState';
+import { useDebounce } from '@/hooks/useDebounce';
 
 export default function AdminUsersPage() {
   const router = useRouter();
   const [userSearch, setUserSearch] = useState('');
+  const debouncedUserSearch = useDebounce(userSearch, 300);
+  
   const [cohortFilter, setCohortFilter] = useState('All Cohorts');
   const [roleFilter, setRoleFilter] = useState('All Roles');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -22,7 +25,7 @@ export default function AdminUsersPage() {
   ]);
 
   const filteredUsers = allUsers.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(userSearch.toLowerCase()) || user.email.toLowerCase().includes(userSearch.toLowerCase());
+    const matchesSearch = user.name.toLowerCase().includes(debouncedUserSearch.toLowerCase()) || user.email.toLowerCase().includes(debouncedUserSearch.toLowerCase());
     const matchesCohort = cohortFilter === 'All Cohorts' || user.cohort === cohortFilter;
     const matchesRole = roleFilter === 'All Roles' || user.role === roleFilter;
     return matchesSearch && matchesCohort && matchesRole;
