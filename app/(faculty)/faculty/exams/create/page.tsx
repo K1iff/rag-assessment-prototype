@@ -2,9 +2,11 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/components/ui/ToastContext';
 
 export default function CreateExamPage() {
   const router = useRouter();
+  const { addToast } = useToast();
   
   // Wizard State
   const [currentStep, setCurrentStep] = useState(1);
@@ -111,14 +113,13 @@ export default function CreateExamPage() {
     setIsGenerating(true);
     
     try {
-      // Simulate heavy AI API processing
       await new Promise((resolve) => setTimeout(resolve, 3000));
+      addToast('Exam configuration submitted successfully.', 'success');
       router.push('/faculty/exams');
     } catch (error: any) {
       setErrorMessage('The AI engine failed to generate the exam. Please check your parameters and try again.');
-    } finally {
       setIsGenerating(false);
-    }
+    } 
   };
 
   // UI Renderers
