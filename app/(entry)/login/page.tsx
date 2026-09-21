@@ -60,11 +60,11 @@ export default function LoginPage() {
     }
 
     if (profileData.role_id === 3) {
-      router.push('/admin');
+      window.location.href = '/admin';
     } else if (profileData.role_id === 2) {
-      router.push('/faculty');
+      window.location.href = '/faculty';
     } else if (profileData.role_id === 1) {
-      router.push('/learner');
+      window.location.href = '/learner';
     }
   };
 
