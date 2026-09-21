@@ -26,10 +26,9 @@ export default function LearnerActiveExamPage() {
     { id: 5, text: 'In experimental research, the variable that is manipulated by the researcher is known as the:', options: ['Dependent variable', 'Confounding variable', 'Control variable', 'Independent variable'] },
   ];
 
-  // Fetch the specific exam details using the URL parameter
   useEffect(() => {
     const fetchExamDetails = async () => {
-      const examId = params?.id; 
+      const examId = params?.id as string; 
       if (!examId) return;
 
       const { data: exam, error } = await supabase
@@ -45,40 +44,59 @@ export default function LearnerActiveExamPage() {
       }
 
       setExamTitle(exam.exam_title);
-      // Convert database minutes into seconds for the countdown
-      setTimeLeft((exam.time_limit_mins || 60) * 60); 
+      
+      const storageKey = `exam_endtime_${examId}`;
+      const storedEndTime = sessionStorage.getItem(storageKey);
+      
+      let endTime: number;
+      if (storedEndTime) {
+        endTime = parseInt(storedEndTime, 10);
+      } else {
+        const durationMs = (exam.time_limit_mins || 60) * 60 * 1000;
+        endTime = Date.now() + durationMs;
+        sessionStorage.setItem(storageKey, endTime.toString());
+      }
+
+      const calculatedTimeLeft = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
+      setTimeLeft(calculatedTimeLeft);
       setIsLoading(false);
     };
 
     fetchExamDetails();
   }, [params]);
 
-  // Timer countdown logic
   useEffect(() => {
-    // Prevent the timer from running if loading, submitting, or if time is already up
     if (isLoading || isSubmitting || showTimeUpModal) return;
 
+    const examId = params?.id as string;
+    const storageKey = `exam_endtime_${examId}`;
+
     const timerInterval = setInterval(() => {
-      setTimeLeft((prevTime) => {
-        if (prevTime <= 1) {
+      const storedEndTime = sessionStorage.getItem(storageKey);
+      
+      if (storedEndTime) {
+        const endTime = parseInt(storedEndTime, 10);
+        const newTimeLeft = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
+        
+        if (newTimeLeft <= 0) {
           clearInterval(timerInterval);
+          setTimeLeft(0);
           setShowTimeUpModal(true);
-          setShowSubmitModal(false); // Close the standard submit modal if it happens to be open
-          return 0;
+          setShowSubmitModal(false);
+        } else {
+          setTimeLeft(newTimeLeft);
         }
-        return prevTime - 1;
-      });
+      }
     }, 1000);
 
     return () => clearInterval(timerInterval);
-  }, [isLoading, isSubmitting, showTimeUpModal]);
+  }, [isLoading, isSubmitting, showTimeUpModal, params]);
 
-  // Auto-submit grace period when time is up
   useEffect(() => {
     if (showTimeUpModal && !isSubmitting) {
       const autoSubmitTimer = setTimeout(() => {
         handleFinalSubmit();
-      }, 5000); // 5 second grace period before auto-submitting
+      }, 5000); 
       
       return () => clearTimeout(autoSubmitTimer);
     }
@@ -119,8 +137,10 @@ export default function LearnerActiveExamPage() {
     setShowSubmitModal(false);
     setShowTimeUpModal(false);
 
+    const examId = params?.id as string;
+    sessionStorage.removeItem(`exam_endtime_${examId}`);
+
     try {
-      // Simulate backend API submission
       await new Promise((resolve) => setTimeout(resolve, 2000));
       router.push('/learner/performance');
     } catch (error) {
@@ -132,7 +152,7 @@ export default function LearnerActiveExamPage() {
   const currentQuestion = mockQuestions[currentQuestionIndex];
   const isLastQuestion = currentQuestionIndex === mockQuestions.length - 1;
   const progressPercentage = ((currentQuestionIndex + 1) / mockQuestions.length) * 100;
-  const isTimeLow = timeLeft > 0 && timeLeft < 300; // Less than 5 minutes
+  const isTimeLow = timeLeft > 0 && timeLeft < 300; 
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -157,7 +177,6 @@ export default function LearnerActiveExamPage() {
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 flex flex-col lg:flex-row gap-8">
         
-        {/* Left Side: Question Area */}
         <div className="flex-1 flex flex-col">
           <div className="mb-8">
             <div className="flex justify-between items-center mb-2">
@@ -235,7 +254,6 @@ export default function LearnerActiveExamPage() {
           </div>
         </div>
 
-        {/* Right Side: Question Navigator */}
         <div className="w-full lg:w-72 shrink-0">
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 sticky top-24">
             <h3 className="font-bold text-slate-800 mb-4 text-sm uppercase tracking-wider border-b border-slate-100 pb-2">
@@ -288,7 +306,6 @@ export default function LearnerActiveExamPage() {
 
       </main>
 
-      {/* Manual Submit Confirmation Modal */}
       {showSubmitModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 border border-slate-200">
@@ -315,7 +332,6 @@ export default function LearnerActiveExamPage() {
         </div>
       )}
 
-      {/* Time Up Forced Submission Modal */}
       {showTimeUpModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 border border-slate-200 text-center">
@@ -339,7 +355,6 @@ export default function LearnerActiveExamPage() {
         </div>
       )}
       
-      {/* Full Screen Loading State during final save */}
       {isSubmitting && (
         <div className="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
            <svg className="animate-spin h-10 w-10 text-blue-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

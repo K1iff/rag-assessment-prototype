@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDebounce } from '@/hooks/useDebounce';
+import { usePagination } from '@/hooks/usePagination';
 
 export default function FacultyExamsPage() {
   const router = useRouter();
@@ -20,8 +21,6 @@ export default function FacultyExamsPage() {
   const [studentSearch, setStudentSearch] = useState('');
   const debouncedStudentSearch = useDebounce(studentSearch, 300);
   const [studentStatusFilter, setStudentStatusFilter] = useState('All');
-  const [studentPage, setStudentPage] = useState(1);
-  const studentsPerPage = 5;
 
   const exams = [
     { id: 1, title: 'Midterm Coverage Quiz', target: 'PSY301', items: 30, status: 'Active', dueDate: '2026-07-20', color: 'bg-emerald-500' },
@@ -94,19 +93,26 @@ export default function FacultyExamsPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const indexOfLastStudent = studentPage * studentsPerPage;
-  const indexOfFirstStudent = indexOfLastStudent - studentsPerPage;
-  const currentStudents = filteredStudents.slice(indexOfFirstStudent, indexOfLastStudent);
-  const totalStudentPages = Math.ceil(filteredStudents.length / studentsPerPage);
+  const {
+    currentPage: studentPage,
+    totalPages: totalStudentPages,
+    currentItems: currentStudents,
+    indexOfFirstItem: indexOfFirstStudent,
+    indexOfLastItem: indexOfLastStudent,
+    totalItems: totalStudents,
+    nextPage,
+    prevPage,
+    resetPage
+  } = usePagination(filteredStudents, 5);
 
   const handleStudentSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setStudentSearch(e.target.value);
-    setStudentPage(1); 
+    resetPage();
   };
 
   const handleStudentStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setStudentStatusFilter(e.target.value);
-    setStudentPage(1);
+    resetPage();
   };
 
   if (selectedExam !== null && currentExam) {
@@ -147,7 +153,7 @@ export default function FacultyExamsPage() {
           )}
 
           <button 
-            onClick={() => { setExamTab('analytics'); setStudentPage(1); }} 
+            onClick={() => { setExamTab('analytics'); resetPage(); }} 
             className={`pb-4 border-b-2 text-sm font-bold whitespace-nowrap ${examTab === 'analytics' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
           >
             Student Analytics
@@ -390,17 +396,17 @@ export default function FacultyExamsPage() {
                 </table>
                 
                 <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-between items-center text-sm font-bold text-slate-500">
-                  <span>Showing {filteredStudents.length > 0 ? indexOfFirstStudent + 1 : 0} to {Math.min(indexOfLastStudent, filteredStudents.length)} of {filteredStudents.length} students</span>
+                  <span>Showing {filteredStudents.length > 0 ? indexOfFirstStudent + 1 : 0} to {Math.min(indexOfLastStudent, filteredStudents.length)} of {totalStudents} students</span>
                   <div className="flex gap-1.5">
                     <button 
-                      onClick={() => setStudentPage(prev => Math.max(prev - 1, 1))}
+                      onClick={prevPage}
                       disabled={studentPage === 1}
                       className={`px-3 py-1.5 border rounded shadow-sm transition-colors ${studentPage === 1 ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'}`}
                     >
                       Prev
                     </button>
                     <button 
-                      onClick={() => setStudentPage(prev => Math.min(prev + 1, totalStudentPages))}
+                      onClick={nextPage}
                       disabled={studentPage === totalStudentPages || totalStudentPages === 0}
                       className={`px-3 py-1.5 border rounded shadow-sm transition-colors ${studentPage === totalStudentPages || totalStudentPages === 0 ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'}`}
                     >
