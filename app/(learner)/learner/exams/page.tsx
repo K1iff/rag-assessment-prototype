@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import Skeleton from "@/components/ui/Skeleton";
 
 interface ScheduledExam {
   id: string;
@@ -221,8 +222,30 @@ export default function ScheduledExamsPage() {
       </p>
 
       {isLoading ? (
-        <div className="p-8 text-center text-slate-500 font-bold">
-          Loading your scheduled exams...
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 w-full">
+          {[1, 2, 3].map((key) => (
+            <div
+              key={key}
+              className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm flex flex-col relative h-[320px]"
+            >
+              <Skeleton className="h-1.5 w-full rounded-none bg-slate-300" />
+              <div className="p-6 flex-1 flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-start mb-4">
+                    <Skeleton className="h-6 w-3/4" />
+                    <Skeleton className="h-6 w-16" />
+                  </div>
+                  <Skeleton className="h-3 w-12 mb-2" />
+                  <Skeleton className="h-4 w-1/2 mb-5" />
+                  <Skeleton className="h-3 w-16 mb-2" />
+                  <Skeleton className="h-4 w-2/3" />
+                </div>
+                <div className="mt-6 pt-5 border-t border-slate-100">
+                  <Skeleton className="h-10 w-full rounded-lg" />
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       ) : scheduledExamsList.length === 0 ? (
         <div className="p-8 text-center text-slate-500 font-bold">
