@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import EmptyState from '@/components/ui/EmptyState';
 
 export default function AdminCohortsPage() {
   const [selectedCohort, setSelectedCohort] = useState<number | null>(null);
@@ -140,7 +141,10 @@ export default function AdminCohortsPage() {
             </div>
             <div className="p-2">
               {currentCohort.teachers.length === 0 ? (
-                <div className="p-6 text-center text-sm font-bold text-slate-500">No teachers assigned yet.</div>
+                <EmptyState 
+                  title="No Teachers Assigned" 
+                  message="There are currently no teachers assigned to this cohort workspace." 
+                />
               ) : (
                 <ul className="divide-y divide-slate-100">
                   {currentCohort.teachers.map(teacher => (
@@ -197,7 +201,10 @@ export default function AdminCohortsPage() {
             
             <div className="flex-1 p-2">
               {currentStudents.length === 0 ? (
-                <div className="p-6 text-center text-sm font-bold text-slate-500">No students found matching your search.</div>
+                <EmptyState 
+                  title="No Students Found" 
+                  message="No enrolled students match your current search query." 
+                />
               ) : (
                 <ul className="flex flex-col">
                   {currentStudents.map(student => (

@@ -12,6 +12,7 @@ export default function LearnerActiveExamPage() {
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [showTimeUpModal, setShowTimeUpModal] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [examTitle, setExamTitle] = useState('Loading Exam...');
@@ -52,22 +53,36 @@ export default function LearnerActiveExamPage() {
     fetchExamDetails();
   }, [params]);
 
-  // Timer logic
+  // Timer countdown logic
   useEffect(() => {
-    // Prevent the timer from running or auto-submitting while the database is still loading
-    if (isLoading) return;
-
-    if (timeLeft <= 0) {
-      handleFinalSubmit();
-      return;
-    }
+    // Prevent the timer from running if loading, submitting, or if time is already up
+    if (isLoading || isSubmitting || showTimeUpModal) return;
 
     const timerInterval = setInterval(() => {
-      setTimeLeft((prevTime) => prevTime - 1);
+      setTimeLeft((prevTime) => {
+        if (prevTime <= 1) {
+          clearInterval(timerInterval);
+          setShowTimeUpModal(true);
+          setShowSubmitModal(false); // Close the standard submit modal if it happens to be open
+          return 0;
+        }
+        return prevTime - 1;
+      });
     }, 1000);
 
     return () => clearInterval(timerInterval);
-  }, [timeLeft, isLoading]);
+  }, [isLoading, isSubmitting, showTimeUpModal]);
+
+  // Auto-submit grace period when time is up
+  useEffect(() => {
+    if (showTimeUpModal && !isSubmitting) {
+      const autoSubmitTimer = setTimeout(() => {
+        handleFinalSubmit();
+      }, 5000); // 5 second grace period before auto-submitting
+      
+      return () => clearTimeout(autoSubmitTimer);
+    }
+  }, [showTimeUpModal, isSubmitting]);
 
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
@@ -102,6 +117,7 @@ export default function LearnerActiveExamPage() {
   const handleFinalSubmit = async () => {
     setIsSubmitting(true);
     setShowSubmitModal(false);
+    setShowTimeUpModal(false);
 
     try {
       // Simulate backend API submission
@@ -116,7 +132,7 @@ export default function LearnerActiveExamPage() {
   const currentQuestion = mockQuestions[currentQuestionIndex];
   const isLastQuestion = currentQuestionIndex === mockQuestions.length - 1;
   const progressPercentage = ((currentQuestionIndex + 1) / mockQuestions.length) * 100;
-  const isTimeLow = timeLeft < 300; // Less than 5 minutes
+  const isTimeLow = timeLeft > 0 && timeLeft < 300; // Less than 5 minutes
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -128,7 +144,9 @@ export default function LearnerActiveExamPage() {
         </div>
         
         <div className={`flex items-center gap-2 px-4 py-2 rounded-lg font-mono text-lg font-bold shadow-sm border ${
-          isTimeLow ? 'bg-red-50 border-red-200 text-red-600 animate-pulse' : 'bg-slate-100 border-slate-200 text-slate-700'
+          timeLeft === 0 ? 'bg-red-600 border-red-700 text-white' :
+          isTimeLow ? 'bg-red-50 border-red-200 text-red-600 animate-pulse' : 
+          'bg-slate-100 border-slate-200 text-slate-700'
         }`}>
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -270,6 +288,7 @@ export default function LearnerActiveExamPage() {
 
       </main>
 
+      {/* Manual Submit Confirmation Modal */}
       {showSubmitModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 border border-slate-200">
@@ -289,13 +308,38 @@ export default function LearnerActiveExamPage() {
                 disabled={isSubmitting}
                 className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm"
               >
-                {isSubmitting ? 'Submitting...' : 'Confirm Submission'}
+                Confirm Submission
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Time Up Forced Submission Modal */}
+      {showTimeUpModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 border border-slate-200 text-center">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 mb-2">Time is Up!</h3>
+            <p className="text-sm text-slate-600 font-bold mb-6">
+              The allotted time for this exam has expired. Your current answers are being automatically submitted.
+            </p>
+            <button 
+              onClick={handleFinalSubmit}
+              disabled={isSubmitting}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm"
+            >
+              Acknowledge & Submit
+            </button>
+          </div>
+        </div>
+      )}
       
+      {/* Full Screen Loading State during final save */}
       {isSubmitting && (
         <div className="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
            <svg className="animate-spin h-10 w-10 text-blue-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

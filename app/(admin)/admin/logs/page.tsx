@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import EmptyState from '@/components/ui/EmptyState';
 
 export default function AdminLogsPage() {
   const [logSearch, setLogSearch] = useState('');
@@ -133,7 +134,12 @@ export default function AdminLogsPage() {
             <tbody className="divide-y divide-slate-100 text-xs md:text-sm text-slate-700">
               {currentLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center font-bold text-slate-500">No logs found matching your filters.</td>
+                  <td colSpan={6}>
+                    <EmptyState 
+                      title="No logs found" 
+                      message="No audit logs match your current search and filter criteria. Try adjusting your date range or event type." 
+                    />
+                  </td>
                 </tr>
               ) : (
                 currentLogs.map((log) => (
