@@ -146,21 +146,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-6 flex items-center justify-center">
-          <div className="h-px bg-slate-200 flex-1"></div>
-          <span className="px-3 text-xs font-bold text-slate-400 uppercase">Or continue with</span>
-          <div className="h-px bg-slate-200 flex-1"></div>
-        </div>
-
-        <div className="mt-6 grid grid-cols-2 gap-3">
-          <button type="button" disabled={isLoading} className="flex justify-center items-center py-2.5 px-4 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 bg-white hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-            Google
-          </button>
-          <button type="button" disabled={isLoading} className="flex justify-center items-center py-2.5 px-4 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 bg-white hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-            Microsoft
-          </button>
-        </div>
-
         <div className="mt-6 text-center">
           <p className="text-xs font-bold text-slate-500">
             Need an account? Please contact your university administrator.
