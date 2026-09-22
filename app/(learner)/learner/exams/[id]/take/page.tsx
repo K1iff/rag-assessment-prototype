@@ -1,18 +1,22 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function LearnerActiveExamPage() {
   const router = useRouter();
+  const params = useParams();
   
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [showTimeUpModal, setShowTimeUpModal] = useState(false);
 
-  // Timer logic: Set for 60 minutes (3600 seconds)
-  const [timeLeft, setTimeLeft] = useState(3600);
+  const [isLoading, setIsLoading] = useState(true);
+  const [examTitle, setExamTitle] = useState('Loading Exam...');
+  const [timeLeft, setTimeLeft] = useState(0);
 
   const mockQuestions = [
     { id: 1, text: 'Which of the following is considered a negative symptom of schizophrenia?', options: ['Delusions', 'Hallucinations', 'Avolition', 'Disorganized speech'] },
@@ -23,17 +27,80 @@ export default function LearnerActiveExamPage() {
   ];
 
   useEffect(() => {
-    if (timeLeft <= 0) {
-      handleFinalSubmit();
-      return;
-    }
+    const fetchExamDetails = async () => {
+      const examId = params?.id as string; 
+      if (!examId) return;
+
+      const { data: exam, error } = await supabase
+        .from('Exams')
+        .select('exam_title, time_limit_mins')
+        .eq('exam_id', examId)
+        .single();
+
+      if (error || !exam) {
+        console.error("Failed to load exam details");
+        setExamTitle('Error Loading Exam');
+        return;
+      }
+
+      setExamTitle(exam.exam_title);
+      
+      const storageKey = `exam_endtime_${examId}`;
+      const storedEndTime = sessionStorage.getItem(storageKey);
+      
+      let endTime: number;
+      if (storedEndTime) {
+        endTime = parseInt(storedEndTime, 10);
+      } else {
+        const durationMs = (exam.time_limit_mins || 60) * 60 * 1000;
+        endTime = Date.now() + durationMs;
+        sessionStorage.setItem(storageKey, endTime.toString());
+      }
+
+      const calculatedTimeLeft = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
+      setTimeLeft(calculatedTimeLeft);
+      setIsLoading(false);
+    };
+
+    fetchExamDetails();
+  }, [params]);
+
+  useEffect(() => {
+    if (isLoading || isSubmitting || showTimeUpModal) return;
+
+    const examId = params?.id as string;
+    const storageKey = `exam_endtime_${examId}`;
 
     const timerInterval = setInterval(() => {
-      setTimeLeft((prevTime) => prevTime - 1);
+      const storedEndTime = sessionStorage.getItem(storageKey);
+      
+      if (storedEndTime) {
+        const endTime = parseInt(storedEndTime, 10);
+        const newTimeLeft = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
+        
+        if (newTimeLeft <= 0) {
+          clearInterval(timerInterval);
+          setTimeLeft(0);
+          setShowTimeUpModal(true);
+          setShowSubmitModal(false);
+        } else {
+          setTimeLeft(newTimeLeft);
+        }
+      }
     }, 1000);
 
     return () => clearInterval(timerInterval);
-  }, [timeLeft]);
+  }, [isLoading, isSubmitting, showTimeUpModal, params]);
+
+  useEffect(() => {
+    if (showTimeUpModal && !isSubmitting) {
+      const autoSubmitTimer = setTimeout(() => {
+        handleFinalSubmit();
+      }, 5000); 
+      
+      return () => clearTimeout(autoSubmitTimer);
+    }
+  }, [showTimeUpModal, isSubmitting]);
 
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
@@ -68,9 +135,12 @@ export default function LearnerActiveExamPage() {
   const handleFinalSubmit = async () => {
     setIsSubmitting(true);
     setShowSubmitModal(false);
+    setShowTimeUpModal(false);
+
+    const examId = params?.id as string;
+    sessionStorage.removeItem(`exam_endtime_${examId}`);
 
     try {
-      // Simulate backend API submission
       await new Promise((resolve) => setTimeout(resolve, 2000));
       router.push('/learner/performance');
     } catch (error) {
@@ -82,19 +152,21 @@ export default function LearnerActiveExamPage() {
   const currentQuestion = mockQuestions[currentQuestionIndex];
   const isLastQuestion = currentQuestionIndex === mockQuestions.length - 1;
   const progressPercentage = ((currentQuestionIndex + 1) / mockQuestions.length) * 100;
-  const isTimeLow = timeLeft < 300; // Less than 5 minutes
+  const isTimeLow = timeLeft > 0 && timeLeft < 300; 
 
   return (
     <div className="min-h-screen flex flex-col">
       
       <header className="bg-white border-b border-slate-200 p-4 sticky top-0 z-30 shadow-sm flex justify-between items-center">
         <div>
-          <h1 className="font-bold text-slate-800 text-lg">Abnormal Psychology Midterm</h1>
+          <h1 className="font-bold text-slate-800 text-lg">{examTitle}</h1>
           <p className="text-xs text-slate-500 font-bold">Do not refresh or close this browser window.</p>
         </div>
         
         <div className={`flex items-center gap-2 px-4 py-2 rounded-lg font-mono text-lg font-bold shadow-sm border ${
-          isTimeLow ? 'bg-red-50 border-red-200 text-red-600 animate-pulse' : 'bg-slate-100 border-slate-200 text-slate-700'
+          timeLeft === 0 ? 'bg-red-600 border-red-700 text-white' :
+          isTimeLow ? 'bg-red-50 border-red-200 text-red-600 animate-pulse' : 
+          'bg-slate-100 border-slate-200 text-slate-700'
         }`}>
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -105,7 +177,6 @@ export default function LearnerActiveExamPage() {
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 flex flex-col lg:flex-row gap-8">
         
-        {/* Left Side: Question Area */}
         <div className="flex-1 flex flex-col">
           <div className="mb-8">
             <div className="flex justify-between items-center mb-2">
@@ -183,7 +254,6 @@ export default function LearnerActiveExamPage() {
           </div>
         </div>
 
-        {/* Right Side: Question Navigator */}
         <div className="w-full lg:w-72 shrink-0">
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 sticky top-24">
             <h3 className="font-bold text-slate-800 mb-4 text-sm uppercase tracking-wider border-b border-slate-100 pb-2">
@@ -255,9 +325,32 @@ export default function LearnerActiveExamPage() {
                 disabled={isSubmitting}
                 className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm"
               >
-                {isSubmitting ? 'Submitting...' : 'Confirm Submission'}
+                Confirm Submission
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showTimeUpModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 border border-slate-200 text-center">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 mb-2">Time is Up!</h3>
+            <p className="text-sm text-slate-600 font-bold mb-6">
+              The allotted time for this exam has expired. Your current answers are being automatically submitted.
+            </p>
+            <button 
+              onClick={handleFinalSubmit}
+              disabled={isSubmitting}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm"
+            >
+              Acknowledge & Submit
+            </button>
           </div>
         </div>
       )}
