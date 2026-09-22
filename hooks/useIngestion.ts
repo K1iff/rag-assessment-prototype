@@ -11,16 +11,20 @@ export function useIngestion() {
   const [status, setStatus] = useState<'IDLE' | 'PROCESSING' | 'SUCCESS' | 'FAILURE'>('IDLE');
   const [progressDetails, setProgressDetails] = useState<IngestionDetails | null>(null);
 
+  // Pulls the Vercel variable for production, falls back to localhost for local testing
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+
   // 1. Trigger the FastAPI Ingestion Endpoint
   const startIngestion = useCallback(async (pdfDirectory: string = "./textbooks") => {
     try {
       setStatus('PROCESSING');
       setProgressDetails({ message: 'Initializing textbook ingestion...' });
       
-      const response = await fetch('http://localhost:8000/api/ingest', {
+      const response = await fetch(`${API_BASE_URL}/api/ingest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pdf_directory: pdfDirectory }),
+        // Updated key to 'file_path' to match main.py's IngestionRequest Pydantic model
+        body: JSON.stringify({ file_path: pdfDirectory }),
       });
 
       const data = await response.json();
@@ -32,7 +36,7 @@ export function useIngestion() {
       setProgressDetails({ message: 'Failed to connect to the backend server.' });
       console.error(error);
     }
-  }, []);
+  }, [API_BASE_URL]);
 
   // 2. Poll the Task Status via Redis/Celery
   useEffect(() => {
@@ -40,11 +44,11 @@ export function useIngestion() {
 
     const interval = setInterval(async () => {
       try {
-        const response = await fetch(`http://localhost:8000/api/tasks/${taskId}`);
+        const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`);
         const data = await response.json();
 
         if (data.status === 'PROCESSING') {
-          // This captures the meta dictionary we passed to self.update_state() in Python
+          // This captures the meta dictionary passed to self.update_state() in Python
           setProgressDetails(data.details); 
         } 
         else if (data.status === 'SUCCESS') {
@@ -65,7 +69,7 @@ export function useIngestion() {
     }, 2500);
 
     return () => clearInterval(interval);
-  }, [taskId]);
+  }, [taskId, API_BASE_URL]);
 
   return { startIngestion, status, progressDetails };
 }
