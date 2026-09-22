@@ -132,7 +132,7 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
         </div>
 
         <aside 
-          className={`bg-slate-900 text-white flex flex-col shrink-0 transition-all duration-300 overflow-hidden fixed inset-y-0 left-0 z-50 w-72 transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0`}
+          className={`bg-slate-900 text-white flex flex-col shrink-0 transition-all duration-300 overflow-hidden fixed inset-y-0 left-0 z-50 w-72 transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:sticky md:top-0 md:h-screen md:translate-x-0`}
         >
           <div className="w-72 flex flex-col h-full bg-slate-900">
             <div className="p-6 border-b border-slate-800 flex flex-col items-center text-center">
