@@ -197,7 +197,7 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
         )}
 
         {/* Main Content Area */}
-        <main className="flex-1 flex justify-center w-full md:ml-72 transition-all duration-300">
+        <main className="flex-1 flex justify-center w-full md:pl-72 transition-all duration-300">
           <div className="w-full max-w-7xl p-6 md:p-10">
             {children}
           </div>
