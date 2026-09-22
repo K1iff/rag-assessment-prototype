@@ -123,7 +123,7 @@ export default function FacultyDashboardPage() {
           onClick={() => router.push('/faculty/exams/create')}
           className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap"
         >
-          + Create New Exam
+          Create New Exam
         </button>
       </div>
 
