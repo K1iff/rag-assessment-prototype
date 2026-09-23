@@ -50,7 +50,8 @@ export function useExamGeneration() {
 
     const interval = setInterval(async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`);
+        // Updated to match the new /api/v1/task/ routing
+        const response = await fetch(`${API_BASE_URL}/api/v1/task/${taskId}`);
         const data = await response.json();
 
         if (data.status === 'PROCESSING') {
