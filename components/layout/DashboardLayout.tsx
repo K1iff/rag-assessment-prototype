@@ -113,8 +113,9 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
 
   return (
     <ToastProvider>
-      <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row overflow-x-hidden">
+      <div className="min-h-screen bg-slate-50 flex flex-col">
         
+        {/* Mobile Header */}
         <div className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center z-40 relative shadow-md">
           <span className={`font-bold text-lg ${currentTheme.colorText}`}>{currentTheme.title}</span>
           <button 
@@ -131,8 +132,9 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
           </button>
         </div>
 
+        {/* Fixed Sidebar */}
         <aside 
-          className={`bg-slate-900 text-white flex flex-col shrink-0 transition-all duration-300 overflow-hidden fixed inset-y-0 left-0 z-50 w-72 transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0`}
+          className={`bg-slate-900 text-white flex flex-col fixed inset-y-0 left-0 z-50 w-72 transform transition-transform duration-300 overflow-hidden ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}
         >
           <div className="w-72 flex flex-col h-full bg-slate-900">
             <div className="p-6 border-b border-slate-800 flex flex-col items-center text-center">
@@ -186,6 +188,7 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
           </div>
         </aside>
 
+        {/* Mobile Overlay */}
         {isMobileMenuOpen && (
           <div 
             className="fixed inset-0 bg-black/50 z-40 md:hidden"
@@ -193,11 +196,13 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
           ></div>
         )}
 
-        <main className="flex-1 flex justify-center w-full transition-all duration-300">
+        {/* Main Content Area */}
+        <main className="flex-1 flex justify-center w-full md:pl-72 transition-all duration-300">
           <div className="w-full max-w-7xl p-6 md:p-10">
             {children}
           </div>
         </main>
+
       </div>
     </ToastProvider>
   );

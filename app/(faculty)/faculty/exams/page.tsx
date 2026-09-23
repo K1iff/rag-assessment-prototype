@@ -1,13 +1,24 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDebounce } from '@/hooks/useDebounce';
 import { usePagination } from '@/hooks/usePagination';
+import { supabase } from '@/lib/supabaseClient';
+
+interface FacultyExam {
+  id: string;
+  title: string;
+  target: string;
+  items: number;
+  status: string;
+  dueDate: string;
+  color: string;
+}
 
 export default function FacultyExamsPage() {
   const router = useRouter();
-  const [selectedExam, setSelectedExam] = useState<null | number>(null);
+  const [selectedExam, setSelectedExam] = useState<null | string>(null);
   const [examTab, setExamTab] = useState('settings');
   const [selectedQuestions, setSelectedQuestions] = useState<number[]>([]);
   
@@ -22,12 +33,9 @@ export default function FacultyExamsPage() {
   const debouncedStudentSearch = useDebounce(studentSearch, 300);
   const [studentStatusFilter, setStudentStatusFilter] = useState('All');
 
-  const exams = [
-    { id: 1, title: 'Midterm Coverage Quiz', target: 'PSY301', items: 30, status: 'Active', dueDate: '2026-07-20', color: 'bg-emerald-500' },
-    { id: 2, title: 'Personality Theories Final', target: 'PSY302', items: 50, status: 'Pending', dueDate: '2026-08-10', color: 'bg-amber-500' },
-    { id: 3, title: 'Introductory Concepts Quiz', target: 'PSY301', items: 15, status: 'Inactive', dueDate: '2026-06-15', color: 'bg-slate-500' },
-    { id: 4, title: 'Organizational Behavior Check', target: 'PSY303', items: 25, status: 'Active', dueDate: '2026-07-18', color: 'bg-emerald-500' },
-  ];
+  const [isLoading, setIsLoading] = useState(true);
+
+  const [exams, setExams] = useState<FacultyExam[]>([]);
 
   const aiQuestions = [
     { id: 1, topic: 'Schizophrenia Spectrum', question: 'Which symptom is considered a negative symptom of schizophrenia?', options: ['Delusions', 'Hallucinations', 'Avolition', 'Disorganized speech'], answer: 'Avolition', confidence: 'High', citation: 'Derived from Abnormal_Psych_DSM5_Guidelines.pdf, Page 42' },
@@ -48,6 +56,59 @@ export default function FacultyExamsPage() {
     { id: 106, name: 'Diego Flores', status: 'Not Taken', takenAt: 'Pending', grade: 'Pending' },
     { id: 107, name: 'Carmen Villanueva', status: 'Completed', takenAt: 'July 17, 2026 11:45 AM', grade: '20/30 (67%)' },
   ];
+
+  useEffect(() => {
+    const fetchFacultyExams = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: dbExams, error } = await supabase
+        .from('Exams')
+        .select(`
+          exam_id,
+          exam_title,
+          exam_subject,
+          schedule_start,
+          global_status,
+          references
+        `)
+        //.eq('created_by', user.id) // Assuming faculty can only see exams they created, otherwise remove the eq filter to see all exams
+        .order('schedule_start', { ascending: false });
+
+      if (error) {
+        console.error("Error fetching faculty exams:", error.message);
+        setIsLoading(false);
+        return;
+      }
+
+      const accentColors = ['bg-emerald-500', 'bg-amber-500', 'bg-slate-500', 'bg-blue-500'];
+
+      const formattedExams = dbExams.map((exam: any, index: number) => {
+        const dueDateObj = new Date(exam.schedule_start);
+        
+        // Calculate items based on references or default to 0 if we haven't built the Questions table yet
+        const totalItems = Array.isArray(exam.references) ? exam.references.length * 10 : 0; 
+        
+        // Map database status to UI status
+        const uiStatus = exam.global_status || 'Pending';
+
+        return {
+          id: exam.exam_id,
+          title: exam.exam_title,
+          target: exam.exam_subject || 'Comprehensive',
+          items: totalItems, 
+          status: uiStatus,
+          dueDate: dueDateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+          color: accentColors[index % accentColors.length]
+        };
+      });
+
+      setExams(formattedExams);
+      setIsLoading(false);
+    };
+
+    fetchFacultyExams();
+  }, []);
 
   const getStatusBadge = (status: string) => {
     if (status === 'Active') return <span className="shrink-0 px-2 py-1 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
@@ -497,6 +558,11 @@ export default function FacultyExamsPage() {
         </div>
       </div>
       
+      {isLoading ? (
+        <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
+          Loading exam data...
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 w-full">
         {filteredExams.map((exam) => (
           <div 
@@ -546,6 +612,7 @@ export default function FacultyExamsPage() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
