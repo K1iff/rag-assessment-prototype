@@ -1,13 +1,38 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import EmptyState from '@/components/ui/EmptyState';
 import { usePagination } from '@/hooks/usePagination';
+import { supabase } from '@/lib/supabaseClient';
+
+interface Student {
+  id: string;
+  name: string;
+  email: string;
+}
+
+interface Teacher {
+  id: string;
+  name: string;
+  email: string;
+}
+
+interface Cohort {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  account_status: string;
+  dateRange: string;
+  teachers: Teacher[];
+  students: Student[];
+}
 
 export default function AdminCohortsPage() {
-  const [selectedCohort, setSelectedCohort] = useState<number | null>(null);
+  const [selectedCohort, setSelectedCohort] = useState<string | null>(null);
   const [studentSearch, setStudentSearch] = useState('');
   const [cohortTab, setCohortTab] = useState('active');
+  const [isLoading, setIsLoading] = useState(true);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newCohortName, setNewCohortName] = useState('');
@@ -15,64 +40,88 @@ export default function AdminCohortsPage() {
   const [newCohortStart, setNewCohortStart] = useState('');
   const [newCohortEnd, setNewCohortEnd] = useState('');
 
-  const [cohorts, setCohorts] = useState([
-    { 
-      id: 1, 
-      name: 'Cohort Alpha 2026', 
-      description: 'First batch of psychology reviewers.', 
-      color: 'bg-indigo-500',
-      status: 'Active',
-      dateRange: 'Aug 2026 to Dec 2026',
-      teachers: [{ id: 101, name: 'Dr. Maria Marquez', email: 'prof.marquez@univ.edu' }],
-      students: [
-        { id: 201, name: 'Juan Santos', email: 'student.santos@stud.edu' }, 
-        { id: 202, name: 'Ana Reyes', email: 'ana.reyes@stud.edu' },
-        { id: 204, name: 'Miguel Torres', email: 'miguel.torres@stud.edu' },
-        { id: 205, name: 'Sofia Garcia', email: 'sofia.garcia@stud.edu' },
-        { id: 206, name: 'Diego Flores', email: 'diego.flores@stud.edu' },
-        { id: 207, name: 'Carmen Villanueva', email: 'carmen.v@stud.edu' }
-      ]
-    },
-    { 
-      id: 2, 
-      name: 'Cohort Beta 2026', 
-      description: 'Evening session reviewers.', 
-      color: 'bg-teal-500',
-      status: 'Active',
-      dateRange: 'Sep 2026 to Jan 2027',
-      teachers: [],
-      students: [{ id: 203, name: 'Luis Cruz', email: 'luis.cruz@stud.edu' }]
-    },
-    { 
-      id: 3, 
-      name: 'Accelerated Program 2025', 
-      description: 'Intensive weekend review class.', 
-      color: 'bg-slate-500',
-      status: 'Archived',
-      dateRange: 'Jan 2025 to May 2025',
-      teachers: [{ id: 102, name: 'Prof. Carlos Lim', email: 'carlos.lim@univ.edu' }],
-      students: []
-    },
-  ]);
+  const [cohorts, setCohorts] = useState<Cohort[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleCreateCohortSubmit = (e: React.FormEvent) => {
+  const fetchCohortsData = async () => {
+    setIsLoading(true);
+    
+    const [cohortsResponse, usersResponse] = await Promise.all([
+      supabase.from('Cohorts').select('*').order('created_at', { ascending: false }),
+      supabase.from('Users').select('user_id, name, email, role_id, cohort_id')
+    ]);
+
+    if (cohortsResponse.error) {
+      console.error("Error fetching cohorts:", cohortsResponse.error);
+      setIsLoading(false);
+      return;
+    }
+
+    const allUsers = usersResponse.data || [];
+    const colors = ['bg-indigo-500', 'bg-teal-500', 'bg-blue-500', 'bg-emerald-500', 'bg-violet-500'];
+
+    const mappedCohorts = cohortsResponse.data.map((cohort: any, index: number) => {
+      const start = new Date(cohort.start_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      const end = new Date(cohort.end_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      const enrolledStudents = allUsers
+        .filter(u => u.role_id === 1 && u.cohort_id === cohort.cohort_id)
+        .map(u => ({ id: u.user_id, name: u.name, email: u.email || 'No email' }));
+
+      return {
+        id: cohort.cohort_id,
+        name: cohort.cohort_name,
+        description: cohort.description || 'No description provided.',
+        color: colors[index % colors.length],
+        account_status: cohort.account_status || 'Active',
+        dateRange: `${start} to ${end}`,
+        teachers: [], 
+        students: enrolledStudents
+      };
+    });
+
+    setCohorts(mappedCohorts);
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    fetchCohortsData();
+  }, []);
+
+  const handleCreateCohortSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newCohort = {
-      id: Date.now(),
-      name: newCohortName,
-      description: newCohortDesc,
-      color: 'bg-blue-500',
-      status: 'Active',
-      dateRange: `${newCohortStart} to ${newCohortEnd}`,
-      teachers: [],
-      students: []
-    };
-    setCohorts([...cohorts, newCohort]);
+    setIsSubmitting(true);
+
+    const now = new Date();
+    const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    
+    const calculatedStatus = newCohortEnd < currentYearMonth ? 'Archived' : 'Active';
+
+    const { error } = await supabase
+      .from('Cohorts')
+      .insert([
+        {
+          cohort_name: newCohortName,
+          description: newCohortDesc,
+          start_date: `${newCohortStart}-01`, 
+          end_date: `${newCohortEnd}-01`,
+          account_status: calculatedStatus
+        }
+      ]);
+
+    if (error) {
+      console.error("Error creating cohort:", error);
+      setIsSubmitting(false);
+      return;
+    }
+
+    await fetchCohortsData();
+    
     setShowCreateModal(false);
     setNewCohortName('');
     setNewCohortDesc('');
     setNewCohortStart('');
     setNewCohortEnd('');
+    setIsSubmitting(false);
   };
 
   const currentCohort = cohorts.find(c => c.id === selectedCohort);
@@ -95,7 +144,7 @@ export default function AdminCohortsPage() {
   } = usePagination(filteredStudents, 5);
 
   const displayedCohorts = cohorts.filter(c => 
-    cohortTab === 'active' ? c.status === 'Active' : c.status === 'Archived'
+    cohortTab === 'active' ? c.account_status === 'Active' : c.account_status === 'Archived'
   );
 
   if (selectedCohort !== null && currentCohort) {
@@ -122,9 +171,9 @@ export default function AdminCohortsPage() {
               <p className="text-sm text-slate-500 font-bold">{currentCohort.description}</p>
               <div className="flex gap-2 mt-2">
                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
-                  currentCohort.status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                  currentCohort.account_status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
                  }`}>
-                  {currentCohort.status}
+                  {currentCohort.account_status}
                  </span>
                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 uppercase tracking-wider">
                    {currentCohort.dateRange}
@@ -286,52 +335,62 @@ export default function AdminCohortsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 w-full">
-        {displayedCohorts.map((cohort) => (
-          <div 
-            key={cohort.id} 
-            className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col relative"
-          >
-            <div className={`h-1.5 w-full ${cohort.color}`}></div>
-            
-            <div className="p-6 flex-1 flex flex-col justify-between">
-              <div>
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="font-bold text-lg text-slate-800 leading-snug pr-3">{cohort.name}</h3>
-                  <span className={`shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
-                    cohort.status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {cohort.status}
-                  </span>
-                </div>
-                
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Schedule</p>
-                <p className="text-sm text-slate-700 font-bold mb-4">{cohort.dateRange}</p>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Teachers</p>
-                    <p className="text-sm text-slate-700 font-bold">{cohort.teachers.length}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Students</p>
-                    <p className="text-sm text-slate-700 font-bold">{cohort.students.length}</p>
-                  </div>
-                </div>
-              </div>
+      {isLoading ? (
+        <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
+          Loading cohorts...
+        </div>
+      ) : displayedCohorts.length === 0 ? (
+        <div className="p-12 text-center bg-white rounded-xl border border-slate-200">
+          <EmptyState title="No Cohorts Found" message="Create a new cohort to start organizing your users." />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 w-full">
+          {displayedCohorts.map((cohort) => (
+            <div 
+              key={cohort.id} 
+              className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col relative"
+            >
+              <div className={`h-1.5 w-full ${cohort.color}`}></div>
               
-              <div className="mt-6 pt-5 border-t border-slate-100">
-                <button 
-                  onClick={() => setSelectedCohort(cohort.id)}
-                  className="w-full py-2.5 text-sm font-bold rounded-lg transition-colors shadow-sm bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200"
-                >
-                  Manage Workspace
-                </button>
+              <div className="p-6 flex-1 flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-start mb-4">
+                    <h3 className="font-bold text-lg text-slate-800 leading-snug pr-3">{cohort.name}</h3>
+                    <span className={`shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                      cohort.account_status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {cohort.account_status}
+                    </span>
+                  </div>
+                  
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Schedule</p>
+                  <p className="text-sm text-slate-700 font-bold mb-4">{cohort.dateRange}</p>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Teachers</p>
+                      <p className="text-sm text-slate-700 font-bold">{cohort.teachers.length}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Students</p>
+                      <p className="text-sm text-slate-700 font-bold">{cohort.students.length}</p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="mt-6 pt-5 border-t border-slate-100">
+                  <button 
+                    onClick={() => setSelectedCohort(cohort.id)}
+                    className="w-full py-2.5 text-sm font-bold rounded-lg transition-colors shadow-sm bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200"
+                  >
+                    Manage Workspace
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {showCreateModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
@@ -355,7 +414,8 @@ export default function AdminCohortsPage() {
                   onChange={(e) => setNewCohortName(e.target.value)}
                   placeholder="e.g. Intensive Program 2027" 
                   required
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                  disabled={isSubmitting}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50" 
                 />
               </div>
 
@@ -367,7 +427,8 @@ export default function AdminCohortsPage() {
                   placeholder="Provide a brief summary of this group" 
                   required
                   rows={3}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none" 
+                  disabled={isSubmitting}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none disabled:opacity-50" 
                 />
               </div>
 
@@ -379,7 +440,8 @@ export default function AdminCohortsPage() {
                     value={newCohortStart}
                     onChange={(e) => setNewCohortStart(e.target.value)}
                     required
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                    disabled={isSubmitting}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50" 
                   />
                 </div>
                 <div>
@@ -389,7 +451,8 @@ export default function AdminCohortsPage() {
                     value={newCohortEnd}
                     onChange={(e) => setNewCohortEnd(e.target.value)}
                     required
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500" 
+                    disabled={isSubmitting}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50" 
                   />
                 </div>
               </div>
@@ -398,15 +461,17 @@ export default function AdminCohortsPage() {
                 <button 
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors"
+                  disabled={isSubmitting}
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit"
-                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm"
+                  disabled={isSubmitting}
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm disabled:opacity-50 min-w-[150px]"
                 >
-                  Create Workspace
+                  {isSubmitting ? 'Creating...' : 'Create Workspace'}
                 </button>
               </div>
             </form>
