@@ -41,6 +41,13 @@ export default function LoginPage() {
       password: password,
     });
 
+    if (authData.user) {
+  await supabase
+    .from('Users')
+    .update({ last_login: new Date().toISOString() })
+    .eq('user_id', authData.user.id);
+    }
+
     if (authError) {
       setErrors({ email: 'Invalid login credentials. Please try again.' });
       setIsLoading(false);

@@ -1,10 +1,21 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Badge from '@/components/ui/Badge';
 import EmptyState from '@/components/ui/EmptyState';
 import { useDebounce } from '@/hooks/useDebounce';
+import { supabase } from '@/lib/supabaseClient';
+
+interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  cohort: string;
+  status: string;
+  lastLogin: string;
+}
 
 export default function AdminUsersPage() {
   const router = useRouter();
@@ -16,17 +27,63 @@ export default function AdminUsersPage() {
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
 
-  const [allUsers] = useState([
-    { id: 'U-001', name: 'Dr. Maria Marquez', email: 'prof.marquez@univ.edu', role: 'Teacher / Faculty', cohort: 'Cohort Alpha 2026', status: 'Active', lastLogin: '2026-07-10' },
-    { id: 'U-002', name: 'Prof. Carlos Lim', email: 'carlos.lim@univ.edu', role: 'Teacher / Faculty', cohort: 'Accelerated Program 2025', status: 'Active', lastLogin: '2026-07-09' },
-    { id: 'U-003', name: 'Juan Santos', email: 'student.santos@stud.edu', role: 'Learner / Reviewer', cohort: 'Cohort Alpha 2026', status: 'Active', lastLogin: '2026-07-10' },
-    { id: 'U-004', name: 'Ana Reyes', email: 'ana.reyes@stud.edu', role: 'Learner / Reviewer', cohort: 'Cohort Alpha 2026', status: 'Inactive', lastLogin: '2026-06-15' },
-    { id: 'U-005', name: 'Mark Admin', email: 'admin.mark@system.com', role: 'Admin', cohort: 'N/A', status: 'Active', lastLogin: '2026-07-10' },
-  ]);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      // Fetch the profiles from your custom Users table
+      const { data: usersData, error } = await supabase
+        .from('Users')
+        .select(`*,
+          Cohorts(cohort_name)`);
+
+      if (error) {
+        console.error("Error fetching users:", error.message);
+        setIsLoading(false);
+        return;
+      }
+
+      const formattedUsers = usersData.map((user: any) => {
+        let roleName = 'Unknown';
+        let displayCohort = 'N/A';
+
+        if (user.role_id === 1) {
+          roleName = 'Learner / Reviewer';
+          displayCohort = user.Cohorts?.cohort_name || 'Unassigned';
+        } else if (user.role_id === 2) {
+          roleName = 'Teacher / Faculty';
+          displayCohort = 'Multiple (Managed)'; // Reflects that teachers handle many
+        } else if (user.role_id === 3) {
+          roleName = 'Admin';
+          displayCohort = 'N/A';
+        }
+
+        const loginStr = user.last_login 
+          ? new Date(user.last_login).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          : 'Never logged in';
+
+        return {
+          id: user.user_id,
+          name: user.name,
+          email: user.email, 
+          role: roleName,
+          cohort: displayCohort,
+          status: user.account_status || 'Active',
+          lastLogin: loginStr
+        };
+      });
+
+      setAllUsers(formattedUsers);
+      setIsLoading(false);
+    };
+
+    fetchUsers();
+  }, []);
 
   const filteredUsers = allUsers.filter(user => {
     const matchesSearch = user.name.toLowerCase().includes(debouncedUserSearch.toLowerCase()) || user.email.toLowerCase().includes(debouncedUserSearch.toLowerCase());
-    const matchesCohort = cohortFilter === 'All Cohorts' || user.cohort === cohortFilter;
+    const matchesCohort = cohortFilter === 'All Cohorts' || user.cohort === cohortFilter || (user.cohort === 'Multiple (Managed)' && roleFilter === 'Teacher / Faculty');
     const matchesRole = roleFilter === 'All Roles' || user.role === roleFilter;
     return matchesSearch && matchesCohort && matchesRole;
   });
@@ -40,7 +97,7 @@ export default function AdminUsersPage() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedUsers.length === filteredUsers.length) {
+    if (selectedUsers.length === filteredUsers.length && filteredUsers.length > 0) {
       setSelectedUsers([]);
     } else {
       setSelectedUsers(filteredUsers.map(u => u.id));
@@ -92,8 +149,8 @@ export default function AdminUsersPage() {
             >
               <option value="All Cohorts">All Cohorts</option>
               <option value="Cohort Alpha 2026">Cohort Alpha 2026</option>
-              <option value="Accelerated Program 2025">Accelerated Program 2025</option>
-              <option value="N/A">N/A (Admins)</option>
+              <option value="Cohort Beta 2026">Cohort Beta 2026</option>
+              <option value="Unassigned">Unassigned</option>
             </select>
           </div>
         </div>
@@ -125,16 +182,23 @@ export default function AdminUsersPage() {
                   />
                 </th>
                 <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">User Details</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Role & Cohort</th>
+                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Role</th>
+                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Cohort</th>
                 <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Status</th>
                 <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Last Login</th>
                 <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
-              {filteredUsers.length === 0 ? (
+              {isLoading ? (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7} className="p-12 text-center text-slate-500 font-bold">
+                    Loading users...
+                  </td>
+                </tr>
+              ) : filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={7}>
                     <EmptyState 
                       title="No matching users" 
                       message="We could not find any users matching your current search criteria. Try adjusting your filters." 
@@ -158,7 +222,9 @@ export default function AdminUsersPage() {
                     </td>
                     <td className="p-4">
                       <p className="font-bold text-slate-600">{user.role}</p>
-                      <p className="text-xs font-bold text-slate-500">{user.cohort}</p>
+                    </td>
+                    <td className="p-4">
+                      <p className="font-bold text-slate-600">{user.cohort}</p>
                     </td>
                     <td className="p-4">
                       <Badge variant={user.status === 'Active' ? 'success' : 'neutral'}>
@@ -166,7 +232,7 @@ export default function AdminUsersPage() {
                       </Badge>
                     </td>
                     <td className="p-4 text-slate-500 font-bold">{user.lastLogin}</td>
-                    <td className="p-4 text-right space-x-4">
+                    <td className="p-4 text-right space-x-4 whitespace-nowrap">
                       <button className="text-xs font-bold text-blue-600 hover:underline">Reset Pass</button>
                       <button className={`text-xs font-bold hover:underline ${user.status === 'Active' ? 'text-rose-600' : 'text-emerald-600'}`}>
                         {user.status === 'Active' ? 'Deactivate' : 'Activate'}
