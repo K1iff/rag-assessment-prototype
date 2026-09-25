@@ -25,26 +25,37 @@ export default function AdminUsersPage() {
   const [cohortFilter, setCohortFilter] = useState('All Cohorts');
   const [roleFilter, setRoleFilter] = useState('All Roles');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-
+  
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+  const [dbCohorts, setDbCohorts] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const fetchUsers = async () => {
-      // Fetch the profiles from your custom Users table
-      const { data: usersData, error } = await supabase
-        .from('Users')
-        .select(`*,
-          Cohorts(cohort_name)`);
+    const fetchUsersAndCohorts = async () => {
+      // Fetch users and cohorts simultaneously
+      const [usersResponse, cohortsResponse] = await Promise.all([
+        supabase.from('Users').select(`
+          *,
+          Cohorts (
+            cohort_name
+          )
+        `),
+        supabase.from('Cohorts').select('cohort_name').eq('account_status', 'Active').order('cohort_name')
+      ]);
 
-      if (error) {
-        console.error("Error fetching users:", error.message);
+      if (usersResponse.error) {
+        console.error("Error fetching users:", usersResponse.error.message);
         setIsLoading(false);
         return;
       }
 
-      const formattedUsers = usersData.map((user: any) => {
+      // Populate dynamic cohort dropdown
+      if (cohortsResponse.data) {
+        setDbCohorts(cohortsResponse.data.map(c => c.cohort_name));
+      }
+
+      // Map the database rows to the UI structure
+      const formattedUsers = usersResponse.data.map((user: any) => {
         let roleName = 'Unknown';
         let displayCohort = 'N/A';
 
@@ -53,7 +64,7 @@ export default function AdminUsersPage() {
           displayCohort = user.Cohorts?.cohort_name || 'Unassigned';
         } else if (user.role_id === 2) {
           roleName = 'Teacher / Faculty';
-          displayCohort = 'Multiple (Managed)'; // Reflects that teachers handle many
+          displayCohort = 'Multiple (Managed)';
         } else if (user.role_id === 3) {
           roleName = 'Admin';
           displayCohort = 'N/A';
@@ -78,7 +89,7 @@ export default function AdminUsersPage() {
       setIsLoading(false);
     };
 
-    fetchUsers();
+    fetchUsersAndCohorts();
   }, []);
 
   const filteredUsers = allUsers.filter(user => {
@@ -101,6 +112,48 @@ export default function AdminUsersPage() {
       setSelectedUsers([]);
     } else {
       setSelectedUsers(filteredUsers.map(u => u.id));
+    }
+  };
+
+  const handleToggleStatus = async (userId: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
+    
+    const { error } = await supabase
+      .from('Users')
+      .update({ account_status: newStatus })
+      .eq('user_id', userId);
+
+    if (!error) {
+      // Instantly update the UI without reloading the page
+      setAllUsers(prev => prev.map(user => 
+        user.id === userId ? { ...user, status: newStatus } : user
+      ));
+    } else {
+      console.error("Error toggling status:", error.message);
+    }
+  };
+
+  const handleResetPassword = async (userId: string, email: string) => {
+    const defaultPassword = "malayan@2026";
+    
+    // Quick confirmation before proceeding
+    if (!confirm(`Are you sure you want to reset the password for ${email}?`)) return;
+
+    try {
+      const response = await fetch('/api/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, newPassword: defaultPassword }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) throw new Error(data.error);
+
+      alert(`Success! Password for ${email} has been reset to: ${defaultPassword}`);
+    } catch (error: any) {
+      console.error("Failed to reset password:", error);
+      alert(`Error resetting password: ${error.message}`);
     }
   };
 
@@ -148,9 +201,13 @@ export default function AdminUsersPage() {
               className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white md:w-56"
             >
               <option value="All Cohorts">All Cohorts</option>
-              <option value="Cohort Alpha 2026">Cohort Alpha 2026</option>
-              <option value="Cohort Beta 2026">Cohort Beta 2026</option>
-              <option value="Unassigned">Unassigned</option>
+              {/* Dynamically map active cohorts from DB */}
+              {dbCohorts.map(name => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+              <option value="Unassigned">Unassigned (Learners)</option>
+              <option value="Multiple (Managed)">Multiple (Teachers)</option>
+              <option value="N/A">N/A (Admins)</option>
             </select>
           </div>
         </div>
@@ -232,12 +289,20 @@ export default function AdminUsersPage() {
                       </Badge>
                     </td>
                     <td className="p-4 text-slate-500 font-bold">{user.lastLogin}</td>
-                    <td className="p-4 text-right space-x-4 whitespace-nowrap">
-                      <button className="text-xs font-bold text-blue-600 hover:underline">Reset Pass</button>
-                      <button className={`text-xs font-bold hover:underline ${user.status === 'Active' ? 'text-rose-600' : 'text-emerald-600'}`}>
-                        {user.status === 'Active' ? 'Deactivate' : 'Activate'}
-                      </button>
-                    </td>
+<td className="p-4 text-right space-x-4 whitespace-nowrap">
+  <button 
+    onClick={() => handleResetPassword(user.id, user.email)}
+    className="text-xs font-bold text-blue-600 hover:underline"
+  >
+    Reset Pass
+  </button>
+  <button 
+    onClick={() => handleToggleStatus(user.id, user.status)}
+    className={`text-xs font-bold hover:underline ${user.status === 'Active' ? 'text-rose-600' : 'text-emerald-600'}`}
+  >
+    {user.status === 'Active' ? 'Deactivate' : 'Activate'}
+  </button>
+</td>
                   </tr>
                 ))
               )}

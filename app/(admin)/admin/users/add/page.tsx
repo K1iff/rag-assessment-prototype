@@ -74,7 +74,7 @@ export default function AddUserPage() {
 
       const { data: authData, error: authError } = await tempAdminClient.auth.signUp({
         email: email,
-        password: 'WelcomeToPlatform123!', 
+        password: 'malayan@2026'  // Default password for new users, 
       });
 
       if (authError) throw authError;
