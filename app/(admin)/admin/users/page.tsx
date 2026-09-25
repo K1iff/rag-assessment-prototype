@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Badge from '@/components/ui/Badge';
 import EmptyState from '@/components/ui/EmptyState';
 import { useDebounce } from '@/hooks/useDebounce';
 import { supabase } from '@/lib/supabaseClient';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 interface UserProfile {
   id: string;
@@ -17,6 +18,8 @@ interface UserProfile {
   lastLogin: string;
 }
 
+const PAGE_SIZE = 50;
+
 export default function AdminUsersPage() {
   const router = useRouter();
   const [userSearch, setUserSearch] = useState('');
@@ -25,18 +28,21 @@ export default function AdminUsersPage() {
   const [cohortFilter, setCohortFilter] = useState('All Cohorts');
   const [roleFilter, setRoleFilter] = useState('All Roles');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  
+  // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
 
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Virtualization Scroll Container Ref
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const fetchUsers = async () => {
-      // Fetch the profiles from your custom Users table
       const { data: usersData, error } = await supabase
         .from('Users')
-        .select(`*,
-          Cohorts(cohort_name)`);
+        .select(`*, Cohorts(cohort_name)`);
 
       if (error) {
         console.error("Error fetching users:", error.message);
@@ -53,7 +59,7 @@ export default function AdminUsersPage() {
           displayCohort = user.Cohorts?.cohort_name || 'Unassigned';
         } else if (user.role_id === 2) {
           roleName = 'Teacher / Faculty';
-          displayCohort = 'Multiple (Managed)'; // Reflects that teachers handle many
+          displayCohort = 'Multiple (Managed)';
         } else if (user.role_id === 3) {
           roleName = 'Admin';
           displayCohort = 'N/A';
@@ -81,6 +87,7 @@ export default function AdminUsersPage() {
     fetchUsers();
   }, []);
 
+  // Filter Logic
   const filteredUsers = allUsers.filter(user => {
     const matchesSearch = user.name.toLowerCase().includes(debouncedUserSearch.toLowerCase()) || user.email.toLowerCase().includes(debouncedUserSearch.toLowerCase());
     const matchesCohort = cohortFilter === 'All Cohorts' || user.cohort === cohortFilter || (user.cohort === 'Multiple (Managed)' && roleFilter === 'Teacher / Faculty');
@@ -88,24 +95,45 @@ export default function AdminUsersPage() {
     return matchesSearch && matchesCohort && matchesRole;
   });
 
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedUserSearch, cohortFilter, roleFilter]);
+
+  // Pagination Logic
+  const totalPages = Math.ceil(filteredUsers.length / PAGE_SIZE);
+  const paginatedUsers = filteredUsers.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  // Virtualization Logic
+  const rowVirtualizer = useVirtualizer({
+    count: paginatedUsers.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => 64, // Approximate row height in pixels
+    overscan: 5,
+  });
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0]?.start || 0 : 0;
+  const paddingBottom = virtualItems.length > 0
+    ? rowVirtualizer.getTotalSize() - (virtualItems[virtualItems.length - 1]?.end || 0)
+    : 0;
+
   const toggleSelectUser = (id: string) => {
-    if (selectedUsers.includes(id)) {
-      setSelectedUsers(selectedUsers.filter(userId => userId !== id));
-    } else {
-      setSelectedUsers([...selectedUsers, id]);
-    }
+    setSelectedUsers(prev => 
+      prev.includes(id) ? prev.filter(userId => userId !== id) : [...prev, id]
+    );
   };
 
   const toggleSelectAll = () => {
-    if (selectedUsers.length === filteredUsers.length && filteredUsers.length > 0) {
+    if (selectedUsers.length === paginatedUsers.length && paginatedUsers.length > 0) {
       setSelectedUsers([]);
     } else {
-      setSelectedUsers(filteredUsers.map(u => u.id));
+      setSelectedUsers(paginatedUsers.map(u => u.id));
     }
   };
 
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-6 relative w-full">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Global User Directory</h1>
@@ -119,8 +147,8 @@ export default function AdminUsersPage() {
         </button>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-        <div className="p-6 border-b border-slate-100 bg-slate-50 flex flex-col gap-4">
+      <div className="w-full bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+        <div className="p-6 border-b border-slate-100 bg-slate-50 flex flex-col gap-4 z-10">
           <h3 className="font-bold text-slate-700">Filter Directory</h3>
           <div className="flex flex-col md:flex-row gap-3 w-full">
             <div className="relative flex-1">
@@ -155,8 +183,13 @@ export default function AdminUsersPage() {
           </div>
         </div>
 
-        {selectedUsers.length > 0 && (
-          <div className="bg-blue-50 px-6 py-3 flex items-center justify-between border-b border-blue-100">
+        {/* Animated Bulk Actions Bar */}
+        <div 
+          className={`transition-all duration-300 ease-in-out overflow-hidden bg-blue-50 border-blue-100 ${
+            selectedUsers.length > 0 ? 'max-h-24 opacity-100 border-b' : 'max-h-0 opacity-0 border-b-0'
+          }`}
+        >
+          <div className="px-6 py-3 flex flex-wrap items-center justify-between gap-3">
             <span className="text-sm font-bold text-blue-800">{selectedUsers.length} users selected</span>
             <div className="flex gap-2">
               <button className="px-3 py-1.5 bg-white border border-blue-200 text-blue-700 text-xs font-bold rounded hover:bg-blue-100 transition-colors shadow-sm">
@@ -167,16 +200,17 @@ export default function AdminUsersPage() {
               </button>
             </div>
           </div>
-        )}
+        </div>
 
-        <div className="overflow-x-auto">
+        {/* Virtualized Table Container */}
+        <div ref={tableContainerRef} className="overflow-x-auto overflow-y-auto max-h-[600px] w-full relative">
           <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-white border-b border-slate-200">
+            <thead className="sticky top-0 bg-white z-10 shadow-sm border-b border-slate-200">
+              <tr>
                 <th className="p-4 w-12 text-center">
                   <input 
                     type="checkbox" 
-                    checked={selectedUsers.length === filteredUsers.length && filteredUsers.length > 0}
+                    checked={selectedUsers.length === paginatedUsers.length && paginatedUsers.length > 0}
                     onChange={toggleSelectAll}
                     className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                   />
@@ -196,7 +230,7 @@ export default function AdminUsersPage() {
                     Loading users...
                   </td>
                 </tr>
-              ) : filteredUsers.length === 0 ? (
+              ) : paginatedUsers.length === 0 ? (
                 <tr>
                   <td colSpan={7}>
                     <EmptyState 
@@ -206,51 +240,77 @@ export default function AdminUsersPage() {
                   </td>
                 </tr>
               ) : (
-                filteredUsers.map((user) => (
-                  <tr key={user.id} className={`transition-colors ${selectedUsers.includes(user.id) ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}>
-                    <td className="p-4 text-center">
-                      <input 
-                        type="checkbox" 
-                        checked={selectedUsers.includes(user.id)}
-                        onChange={() => toggleSelectUser(user.id)}
-                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
-                    </td>
-                    <td className="p-4">
-                      <p className="font-bold text-slate-800">{user.name}</p>
-                      <p className="text-xs font-bold text-slate-500">{user.email}</p>
-                    </td>
-                    <td className="p-4">
-                      <p className="font-bold text-slate-600">{user.role}</p>
-                    </td>
-                    <td className="p-4">
-                      <p className="font-bold text-slate-600">{user.cohort}</p>
-                    </td>
-                    <td className="p-4">
-                      <Badge variant={user.status === 'Active' ? 'success' : 'neutral'}>
-                        {user.status}
-                      </Badge>
-                    </td>
-                    <td className="p-4 text-slate-500 font-bold">{user.lastLogin}</td>
-                    <td className="p-4 text-right space-x-4 whitespace-nowrap">
-                      <button className="text-xs font-bold text-blue-600 hover:underline">Reset Pass</button>
-                      <button className={`text-xs font-bold hover:underline ${user.status === 'Active' ? 'text-rose-600' : 'text-emerald-600'}`}>
-                        {user.status === 'Active' ? 'Deactivate' : 'Activate'}
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                <>
+                  {paddingTop > 0 && <tr><td colSpan={7} style={{ height: `${paddingTop}px` }} /></tr>}
+                  {virtualItems.map((virtualRow) => {
+                    const user = paginatedUsers[virtualRow.index];
+                    return (
+                      <tr 
+                        key={user.id} 
+                        className={`transition-colors h-[64px] ${selectedUsers.includes(user.id) ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}
+                      >
+                        <td className="p-4 text-center">
+                          <input 
+                            type="checkbox" 
+                            checked={selectedUsers.includes(user.id)}
+                            onChange={() => toggleSelectUser(user.id)}
+                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          />
+                        </td>
+                        <td className="p-4">
+                          <p className="font-bold text-slate-800">{user.name}</p>
+                          <p className="text-xs font-bold text-slate-500">{user.email}</p>
+                        </td>
+                        <td className="p-4">
+                          <p className="font-bold text-slate-600">{user.role}</p>
+                        </td>
+                        <td className="p-4">
+                          <p className="font-bold text-slate-600">{user.cohort}</p>
+                        </td>
+                        <td className="p-4">
+                          <Badge variant={user.status === 'Active' ? 'success' : 'neutral'}>
+                            {user.status}
+                          </Badge>
+                        </td>
+                        <td className="p-4 text-slate-500 font-bold">{user.lastLogin}</td>
+                        <td className="p-4 text-right space-x-4 whitespace-nowrap">
+                          <button className="text-xs font-bold text-blue-600 hover:underline">Reset Pass</button>
+                          <button className={`text-xs font-bold hover:underline ${user.status === 'Active' ? 'text-rose-600' : 'text-emerald-600'}`}>
+                            {user.status === 'Active' ? 'Deactivate' : 'Activate'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {paddingBottom > 0 && <tr><td colSpan={7} style={{ height: `${paddingBottom}px` }} /></tr>}
+                </>
               )}
             </tbody>
           </table>
         </div>
         
-        <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-between items-center text-sm font-bold text-slate-500">
-          <span>Showing {filteredUsers.length > 0 ? '1' : '0'} to {filteredUsers.length} of {allUsers.length} users</span>
-          <div className="flex gap-2">
-            <button className="px-3 py-1 border border-slate-300 rounded bg-white text-slate-400 cursor-not-allowed shadow-sm">Previous</button>
-            <button className="px-3 py-1 border border-slate-300 rounded bg-blue-600 text-white shadow-sm">1</button>
-            <button className="px-3 py-1 border border-slate-300 rounded bg-white hover:bg-slate-100 text-slate-600 shadow-sm">Next</button>
+        {/* Pagination Footer */}
+        <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-between items-center text-sm font-bold text-slate-500 z-10">
+          <span>
+            Showing {paginatedUsers.length > 0 ? (currentPage - 1) * PAGE_SIZE + 1 : 0} to{' '}
+            {Math.min(currentPage * PAGE_SIZE, filteredUsers.length)} of {filteredUsers.length} users
+          </span>
+          <div className="flex gap-2 items-center">
+            <button 
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1 border border-slate-300 rounded bg-white text-slate-600 disabled:text-slate-300 disabled:cursor-not-allowed hover:bg-slate-100 transition-colors shadow-sm"
+            >
+              Previous
+            </button>
+            <span className="px-2">Page {currentPage} of {totalPages || 1}</span>
+            <button 
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages || totalPages === 0}
+              className="px-3 py-1 border border-slate-300 rounded bg-white text-slate-600 disabled:text-slate-300 disabled:cursor-not-allowed hover:bg-slate-100 transition-colors shadow-sm"
+            >
+              Next
+            </button>
           </div>
         </div>
       </div>
