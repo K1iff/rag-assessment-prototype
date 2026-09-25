@@ -74,7 +74,7 @@ export default function AddUserPage() {
 
       const { data: authData, error: authError } = await tempAdminClient.auth.signUp({
         email: email,
-        password: 'WelcomeToPlatform123!', 
+        password: 'malayan@2026'  // Default password for new users, 
       });
 
       if (authError) throw authError;
@@ -94,6 +94,19 @@ export default function AddUserPage() {
           ]);
 
         if (dbError) throw dbError;
+
+        const { data: sessionData } = await supabase.auth.getUser();
+        const activeAdminEmail = sessionData?.user?.email || 'Unknown Admin';
+
+        await supabase.from('AuditLogs').insert([{
+          user_email: activeAdminEmail,
+          role: 'Admin',
+          action: `Created new user account: ${email} as ${role}`,
+          type: 'Security',
+          severity: 'Warning', 
+          ip_address: 'Internal',
+          user_agent: navigator.userAgent
+        }]);
       }
       
       addToast(`${name} was successfully registered as a ${role}.`, 'success');
