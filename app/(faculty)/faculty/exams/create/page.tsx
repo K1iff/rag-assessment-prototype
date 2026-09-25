@@ -40,6 +40,7 @@ const TOS_TOPICS: Record<string, string[]> = {
 const BLOOM_LEVELS = ['Remembering', 'Understanding', 'Applying', 'Analyzing', 'Evaluating', 'Creating'];
 
 type CustomBlock = { id: string; topic: string; customTopicInput: string; bloom: string; count: number };
+type Cohort = { id: string; name: string };
 
 export default function CreateExamPage() {
   const router = useRouter();
@@ -53,69 +54,67 @@ export default function CreateExamPage() {
   });
 
   const [currentStep, setCurrentStep] = useState(1);
-  const [errors, setErrors] = useState<{ [key: string]: boolean }>({});
+  const [errors, setErrors] = useState<{ [key: string]: boolean | string }>({});
 
-  // Form State - Step 1
+  // Form State - Step 1 (Details)
   const [examTitle, setExamTitle] = useState('');
-  const [targetAudience, setTargetAudience] = useState('');
-  const [dueDate, setDueDate] = useState('');
+  const [selectedCohort, setSelectedCohort] = useState('');
+  const [cohorts, setCohorts] = useState<Cohort[]>([]);
+  const [scheduleStart, setScheduleStart] = useState('');
+  const [scheduleEnd, setScheduleEnd] = useState('');
+  const [passingScorePercent, setPassingScorePercent] = useState(75);
+  const [timeLimit, setTimeLimit] = useState(60);
   
-  // Form State - Step 2
+  // Form State - Step 2 (Parameters)
   const [subject, setSubject] = useState('Abnormal Psychology');
   const [generationMode, setGenerationMode] = useState<'strict' | 'custom'>('strict');
-  
   const [customBlocks, setCustomBlocks] = useState<CustomBlock[]>([
     { id: 'initial-1', topic: '', customTopicInput: '', bloom: '', count: 5 }
   ]);
   
-  // Form State - Step 3 (Dynamic Materials)
+  // Form State - Step 3 (Sources)
   const [availableMaterials, setAvailableMaterials] = useState<any[]>([]);
-  const [selectedMaterials, setSelectedMaterials] = useState<string[]>([]); // Stores file_path strings
+  const [selectedMaterials, setSelectedMaterials] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Fetch approved materials from Supabase on mount
+  // Initialization: Fetch Cohorts & Indexed Materials
   useEffect(() => {
-    const fetchIndexedMaterials = async () => {
-      const { data, error } = await supabase
+    const fetchInitialData = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Fetch Cohorts assigned to this teacher
+      const { data: cohortData } = await supabase
+        .from('Cohort Teachers')
+        .select('cohort_id, Cohorts(cohort_name)')
+        .eq('teacher_id', user.id);
+      
+      if (cohortData) {
+        setCohorts(cohortData.map((ct: any) => ({
+          id: ct.cohort_id,
+          name: ct.Cohorts.cohort_name
+        })));
+      }
+
+      // Fetch active materials
+      const { data: materialData } = await supabase
         .from('Material Requests')
         .select('id, title, file_name, file_path, file_size_mb, faculty:Users(name)')
         .in('status', ['Approved & Indexed']);
       
-      if (!error && data) {
-        setAvailableMaterials(data);
+      if (materialData) {
+        setAvailableMaterials(materialData);
       }
     };
-    fetchIndexedMaterials();
+    fetchInitialData();
   }, []);
 
   const strictItemCount = subject === 'Psychological Assessment' ? 130 : 100;
   const isGenerating = genStatus === 'PENDING' || genStatus === 'PROCESSING';
 
-  const handleAddBlock = () => {
-    setCustomBlocks([...customBlocks, { id: Date.now().toString(), topic: '', customTopicInput: '', bloom: '', count: 1 }]);
-  };
-
-  const handleRemoveBlock = (id: string) => {
-    if (customBlocks.length === 1) return;
-    setCustomBlocks(customBlocks.filter(b => b.id !== id));
-  };
-
-  const updateBlock = (id: string, field: keyof CustomBlock, value: string | number) => {
-    setCustomBlocks(customBlocks.map(b => b.id === id ? { ...b, [field]: value } : b));
-  };
-
-  const toggleMaterialSelection = (filePath: string) => {
-    if (selectedMaterials.includes(filePath)) {
-      setSelectedMaterials(selectedMaterials.filter(path => path !== filePath));
-    } else {
-      setSelectedMaterials([...selectedMaterials, filePath]);
-    }
-  };
-
   const filteredMaterials = availableMaterials.filter(m => {
     const query = searchQuery.toLowerCase();
     const uploaderName = m.faculty?.name || 'Admin Upload';
-    
     return (
       m.title.toLowerCase().includes(query) || 
       m.file_name.toLowerCase().includes(query) ||
@@ -123,13 +122,23 @@ export default function CreateExamPage() {
     );
   });
 
+  const handleAddBlock = () => setCustomBlocks([...customBlocks, { id: Date.now().toString(), topic: '', customTopicInput: '', bloom: '', count: 1 }]);
+  const handleRemoveBlock = (id: string) => customBlocks.length > 1 && setCustomBlocks(customBlocks.filter(b => b.id !== id));
+  const updateBlock = (id: string, field: keyof CustomBlock, value: string | number) => setCustomBlocks(customBlocks.map(b => b.id === id ? { ...b, [field]: value } : b));
+  
+  const toggleMaterialSelection = (filePath: string) => {
+    setSelectedMaterials(prev => prev.includes(filePath) ? prev.filter(p => p !== filePath) : [...prev, filePath]);
+  };
+
   const handleNext = () => {
     let newErrors: { [key: string]: boolean } = {};
 
     if (currentStep === 1) {
       if (!examTitle) newErrors.title = true;
-      if (!targetAudience) newErrors.audience = true;
-      if (!dueDate) newErrors.date = true;
+      if (!selectedCohort) newErrors.cohort = true;
+      if (!scheduleStart) newErrors.start = true;
+      if (!scheduleEnd) newErrors.end = true;
+      if (!timeLimit || timeLimit <= 0) newErrors.time = true;
       
       if (Object.keys(newErrors).length > 0) {
         setErrors(newErrors);
@@ -139,9 +148,7 @@ export default function CreateExamPage() {
     }
     
     if (currentStep === 2 && generationMode === 'custom') {
-      const incompleteBlocks = customBlocks.some(b => 
-        !b.topic || (b.topic === 'Other' && !b.customTopicInput) || !b.bloom
-      );
+      const incompleteBlocks = customBlocks.some(b => !b.topic || (b.topic === 'Other' && !b.customTopicInput) || !b.bloom);
       if (incompleteBlocks) {
         newErrors.customBlocks = true;
         setErrors(newErrors);
@@ -169,7 +176,33 @@ export default function CreateExamPage() {
     setErrors({});
 
     const sessionUUID = crypto.randomUUID(); 
+    
+    // Calculate exact passing score based on parameters
+    const totalItems = generationMode === 'strict' 
+      ? strictItemCount 
+      : customBlocks.reduce((acc, block) => acc + block.count, 0);
+    const exactPassingScore = Math.round(totalItems * (passingScorePercent / 100));
 
+    // 1. Create the parent exam record in Supabase
+    const { error: dbError } = await supabase.from('Exams').insert({
+      exam_id: sessionUUID,
+      exam_title: examTitle,
+      exam_subject: subject,
+      schedule_start: scheduleStart,
+      schedule_end: scheduleEnd,
+      passing_score: exactPassingScore,
+      references: selectedMaterials,
+      time_limit_mins: timeLimit,
+      global_status: 'Pending',
+      cohort_id: selectedCohort
+    });
+
+    if (dbError) {
+      setErrors({ database: `Failed to create exam record: ${dbError.message}` });
+      return;
+    }
+
+    // 2. Trigger the FastAPI AI generation pipeline
     if (generationMode === 'strict') {
       const blueprintMap: Record<string, string> = {
         "Abnormal Psychology": "1",
@@ -224,10 +257,12 @@ export default function CreateExamPage() {
         <p className="text-sm text-slate-500 mt-1 font-bold">Configure the AI parameters and select reference materials to generate a mock exam.</p>
       </div>
 
-      {Object.keys(errors).length > 0 && (
+      {Object.values(errors).some(Boolean) && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 animate-in fade-in duration-200">
           <svg className="w-5 h-5 text-red-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-          <p className="text-sm text-red-800 font-bold">Please complete all highlighted fields before proceeding.</p>
+          <p className="text-sm text-red-800 font-bold">
+            {typeof errors.database === 'string' ? errors.database : 'Please complete all highlighted fields before proceeding.'}
+          </p>
         </div>
       )}
       
@@ -245,40 +280,84 @@ export default function CreateExamPage() {
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 animate-in fade-in slide-in-from-right-4 duration-300">
             <h2 className="text-lg font-bold text-slate-800 mb-6">1. General Exam Details</h2>
             <div className="space-y-6">
-              <div>
-                <label className={`block text-sm font-bold mb-2 transition-colors ${errors.title ? 'text-red-600' : 'text-slate-700'}`}>Exam Title</label>
-                <input 
-                  type="text" 
-                  value={examTitle}
-                  onChange={(e) => { setExamTitle(e.target.value); setErrors({...errors, title: false}); }}
-                  placeholder="e.g. Midterm Coverage Quiz" 
-                  disabled={isGenerating}
-                  className={`w-full px-4 py-3 border rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 transition-colors disabled:bg-slate-50 disabled:text-slate-500 ${errors.title ? 'border-red-400 focus:border-red-500 focus:ring-red-500 bg-red-50' : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'}`} 
-                />
-              </div>
-              <div className="flex flex-col md:flex-row gap-6">
-                <div className="flex-1">
-                  <label className={`block text-sm font-bold mb-2 transition-colors ${errors.audience ? 'text-red-600' : 'text-slate-700'}`}>Target Audience or Cohort</label>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className={`block text-sm font-bold mb-2 transition-colors ${errors.title ? 'text-red-600' : 'text-slate-700'}`}>Exam Title</label>
                   <input 
                     type="text" 
-                    value={targetAudience}
-                    onChange={(e) => { setTargetAudience(e.target.value); setErrors({...errors, audience: false}); }}
-                    placeholder="e.g. PSY301" 
+                    value={examTitle}
+                    onChange={(e) => { setExamTitle(e.target.value); setErrors({...errors, title: false}); }}
+                    placeholder="e.g. Midterm Coverage Quiz" 
                     disabled={isGenerating}
-                    className={`w-full px-4 py-3 border rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 transition-colors disabled:bg-slate-50 disabled:text-slate-500 ${errors.audience ? 'border-red-400 focus:border-red-500 focus:ring-red-500 bg-red-50' : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'}`} 
+                    className={`w-full px-4 py-3 border rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 transition-colors disabled:bg-slate-50 disabled:text-slate-500 ${errors.title ? 'border-red-400 focus:border-red-500 focus:ring-red-500 bg-red-50' : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'}`} 
                   />
                 </div>
-                <div className="flex-1">
-                  <label className={`block text-sm font-bold mb-2 transition-colors ${errors.date ? 'text-red-600' : 'text-slate-700'}`}>Due Date</label>
-                  <input 
-                    type="date" 
-                    value={dueDate}
-                    onChange={(e) => { setDueDate(e.target.value); setErrors({...errors, date: false}); }}
+                <div>
+                  <label className={`block text-sm font-bold mb-2 transition-colors ${errors.cohort ? 'text-red-600' : 'text-slate-700'}`}>Target Cohort</label>
+                  <select 
+                    value={selectedCohort}
+                    onChange={(e) => { setSelectedCohort(e.target.value); setErrors({...errors, cohort: false}); }}
                     disabled={isGenerating}
-                    className={`w-full px-4 py-3 border rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 transition-colors disabled:bg-slate-50 disabled:text-slate-500 ${errors.date ? 'border-red-400 focus:border-red-500 focus:ring-red-500 bg-red-50' : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'}`} 
+                    className={`w-full px-4 py-3 border rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 transition-colors bg-white disabled:bg-slate-50 disabled:text-slate-500 ${errors.cohort ? 'border-red-400 focus:border-red-500 focus:ring-red-500 bg-red-50' : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'}`}
+                  >
+                    <option value="" disabled>Select a cohort...</option>
+                    {cohorts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className={`block text-sm font-bold mb-2 transition-colors ${errors.start ? 'text-red-600' : 'text-slate-700'}`}>Schedule Start</label>
+                  <input 
+                    type="datetime-local" 
+                    value={scheduleStart}
+                    onChange={(e) => { setScheduleStart(e.target.value); setErrors({...errors, start: false}); }}
+                    disabled={isGenerating}
+                    className={`w-full px-4 py-3 border rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 transition-colors disabled:bg-slate-50 disabled:text-slate-500 ${errors.start ? 'border-red-400 focus:border-red-500 focus:ring-red-500 bg-red-50' : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'}`} 
+                  />
+                </div>
+                <div>
+                  <label className={`block text-sm font-bold mb-2 transition-colors ${errors.end ? 'text-red-600' : 'text-slate-700'}`}>Schedule End</label>
+                  <input 
+                    type="datetime-local" 
+                    value={scheduleEnd}
+                    onChange={(e) => { setScheduleEnd(e.target.value); setErrors({...errors, end: false}); }}
+                    disabled={isGenerating}
+                    className={`w-full px-4 py-3 border rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 transition-colors disabled:bg-slate-50 disabled:text-slate-500 ${errors.end ? 'border-red-400 focus:border-red-500 focus:ring-red-500 bg-red-50' : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'}`} 
                   />
                 </div>
               </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Passing Score (%)</label>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="range" min="5" max="100" step="5"
+                      value={passingScorePercent}
+                      onChange={(e) => setPassingScorePercent(Number(e.target.value))}
+                      disabled={isGenerating}
+                      className="w-full accent-blue-600"
+                    />
+                    <span className="text-sm font-bold text-slate-900 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 min-w-[60px] text-center">
+                      {passingScorePercent}%
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <label className={`block text-sm font-bold mb-2 transition-colors ${errors.time ? 'text-red-600' : 'text-slate-700'}`}>Time Limit (Minutes)</label>
+                  <input 
+                    type="number" min="1"
+                    value={timeLimit}
+                    onChange={(e) => { setTimeLimit(Number(e.target.value)); setErrors({...errors, time: false}); }}
+                    disabled={isGenerating}
+                    className={`w-full px-4 py-3 border rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 transition-colors disabled:bg-slate-50 disabled:text-slate-500 ${errors.time ? 'border-red-400 focus:border-red-500 focus:ring-red-500 bg-red-50' : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'}`} 
+                  />
+                </div>
+              </div>
+
             </div>
           </div>
         )}
@@ -442,7 +521,6 @@ export default function CreateExamPage() {
             
             <div className={`border rounded-xl bg-slate-50 overflow-hidden ${errors.materials ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-200'}`}>
               
-              {/* Active Selection Chips */}
               {selectedMaterials.length > 0 && (
                 <div className="p-4 border-b border-slate-200 bg-white flex flex-wrap gap-2">
                   {selectedMaterials.map(path => {
@@ -463,7 +541,6 @@ export default function CreateExamPage() {
                 </div>
               )}
 
-              {/* Search Bar */}
               <div className="p-4 border-b border-slate-200 bg-white flex items-center gap-3">
                 <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                 <input 
@@ -476,7 +553,6 @@ export default function CreateExamPage() {
                 />
               </div>
 
-              {/* Scrollable File List */}
               <div className="max-h-[300px] overflow-y-auto divide-y divide-slate-100 bg-white">
                 {availableMaterials.length === 0 ? (
                   <div className="p-8 text-center text-sm font-bold text-slate-500">No active materials found in the knowledge base.</div>
@@ -509,7 +585,6 @@ export default function CreateExamPage() {
               </div>
             </div>
 
-            {/* Live Progress Tracker */}
             {(genStatus === 'PENDING' || genStatus === 'PROCESSING') && progressDetails && (
               <div className="mt-8 bg-blue-50 border border-blue-200 rounded-xl p-5 shadow-sm animate-in fade-in slide-in-from-bottom-2">
                 <div className="flex justify-between items-end mb-3">
@@ -535,7 +610,6 @@ export default function CreateExamPage() {
           </div>
         )}
 
-        {/* Action Bar */}
         <div className="fixed bottom-0 left-0 right-0 md:left-72 bg-white border-t border-slate-200 p-4 shadow-lg z-20">
           <div className="max-w-4xl mx-auto flex justify-between items-center gap-4">
             <div>
