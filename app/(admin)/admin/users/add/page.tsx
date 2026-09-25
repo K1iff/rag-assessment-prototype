@@ -94,6 +94,19 @@ export default function AddUserPage() {
           ]);
 
         if (dbError) throw dbError;
+
+        const { data: sessionData } = await supabase.auth.getUser();
+        const activeAdminEmail = sessionData?.user?.email || 'Unknown Admin';
+
+        await supabase.from('AuditLogs').insert([{
+          user_email: activeAdminEmail,
+          role: 'Admin',
+          action: `Created new user account: ${email} as ${role}`,
+          type: 'Security',
+          severity: 'Warning', 
+          ip_address: 'Internal',
+          user_agent: navigator.userAgent
+        }]);
       }
       
       addToast(`${name} was successfully registered as a ${role}.`, 'success');

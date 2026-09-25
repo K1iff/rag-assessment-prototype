@@ -36,7 +36,6 @@ export default function LoginPage() {
     setErrors({});
     setIsLoading(true);
 
-    // No try/catch needed if we handle errors via state and returns!
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -84,6 +83,19 @@ export default function LoginPage() {
         setIsLoading(false);
         return;
       }
+
+      const roleMap: Record<number, string> = { 1: 'Learner', 2: 'Teacher', 3: 'Admin' };
+      const userRoleString = roleMap[profileData.role_id] || 'Unknown';
+
+      await supabase.from('AuditLogs').insert([{
+        user_email: email, // This is the email they just typed into the form
+        role: userRoleString, // Now perfectly accurate!
+        action: 'Successful user login',
+        type: 'User Activity',
+        severity: 'Info',
+        ip_address: 'Client IP',
+        user_agent: navigator.userAgent
+      }]);
 
       if (profileData.role_id === 3) {
         window.location.href = '/admin';

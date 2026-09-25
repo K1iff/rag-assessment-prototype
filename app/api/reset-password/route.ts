@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const { userId, newPassword } = await request.json();
+    const { userId, newPassword, adminEmail, targetEmail } = await request.json();
 
     // Initialize the Admin client using the secret Service Role Key
     const supabaseAdmin = createClient(
@@ -18,6 +18,16 @@ export async function POST(request: Request) {
     );
 
     if (error) throw error;
+
+    await supabaseAdmin.from('AuditLogs').insert([{
+      user_email: adminEmail,
+      role: 'Admin',
+      action: `Forced password reset for user ID: ${targetEmail}`,
+      type: 'Security',
+      severity: 'Warning',
+      ip_address: 'Internal API',
+      user_agent: 'Server Route'
+    }]);
 
     return NextResponse.json({ success: true, message: 'Password reset successful' });
   } catch (error: any) {
