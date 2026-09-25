@@ -42,6 +42,15 @@ export default function LoginPage() {
     });
 
     if (authError) {
+      await supabase.from('AuditLogs').insert([{
+        user_email: email,
+        role: 'Unauthenticated',
+        action: 'Failed login attempt (Invalid credentials)',
+        type: 'Security',
+        severity: 'Warning',
+        ip_address: 'Client IP', 
+        user_agent: navigator.userAgent
+      }]);
       setErrors({ email: 'Invalid email or password.' });
       setIsLoading(false);
       return;
