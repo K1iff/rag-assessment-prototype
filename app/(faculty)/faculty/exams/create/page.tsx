@@ -58,8 +58,9 @@ export default function CreateExamPage() {
 
   // Form State - Step 1 (Details)
   const [examTitle, setExamTitle] = useState('');
-  const [selectedCohort, setSelectedCohort] = useState('');
+  const [selectedCohorts, setSelectedCohorts] = useState<string[]>([]);
   const [cohorts, setCohorts] = useState<Cohort[]>([]);
+  const [isCohortDropdownOpen, setIsCohortDropdownOpen] = useState(false);
   const [scheduleStart, setScheduleStart] = useState('');
   const [scheduleEnd, setScheduleEnd] = useState('');
   const [passingScorePercent, setPassingScorePercent] = useState(75);
@@ -83,7 +84,6 @@ export default function CreateExamPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Fetch Cohorts assigned to this teacher
       const { data: cohortData } = await supabase
         .from('Cohort Teachers')
         .select('cohort_id, Cohorts(cohort_name)')
@@ -96,7 +96,6 @@ export default function CreateExamPage() {
         })));
       }
 
-      // Fetch active materials
       const { data: materialData } = await supabase
         .from('Material Requests')
         .select('id, title, file_name, file_path, file_size_mb, faculty:Users(name)')
@@ -122,6 +121,11 @@ export default function CreateExamPage() {
     );
   });
 
+  const toggleCohortSelection = (cohortId: string) => {
+    setSelectedCohorts(prev => prev.includes(cohortId) ? prev.filter(id => id !== cohortId) : [...prev, cohortId]);
+    setErrors({...errors, cohort: false});
+  };
+
   const handleAddBlock = () => setCustomBlocks([...customBlocks, { id: Date.now().toString(), topic: '', customTopicInput: '', bloom: '', count: 1 }]);
   const handleRemoveBlock = (id: string) => customBlocks.length > 1 && setCustomBlocks(customBlocks.filter(b => b.id !== id));
   const updateBlock = (id: string, field: keyof CustomBlock, value: string | number) => setCustomBlocks(customBlocks.map(b => b.id === id ? { ...b, [field]: value } : b));
@@ -135,7 +139,7 @@ export default function CreateExamPage() {
 
     if (currentStep === 1) {
       if (!examTitle) newErrors.title = true;
-      if (!selectedCohort) newErrors.cohort = true;
+      if (selectedCohorts.length === 0) newErrors.cohort = true;
       if (!scheduleStart) newErrors.start = true;
       if (!scheduleEnd) newErrors.end = true;
       if (!timeLimit || timeLimit <= 0) newErrors.time = true;
@@ -177,13 +181,11 @@ export default function CreateExamPage() {
 
     const sessionUUID = crypto.randomUUID(); 
     
-    // Calculate exact passing score based on parameters
     const totalItems = generationMode === 'strict' 
       ? strictItemCount 
       : customBlocks.reduce((acc, block) => acc + block.count, 0);
     const exactPassingScore = Math.round(totalItems * (passingScorePercent / 100));
 
-    // 1. Create the parent exam record in Supabase
     const { error: dbError } = await supabase.from('Exams').insert({
       exam_id: sessionUUID,
       exam_title: examTitle,
@@ -193,8 +195,7 @@ export default function CreateExamPage() {
       passing_score: exactPassingScore,
       references: selectedMaterials,
       time_limit_mins: timeLimit,
-      global_status: 'Pending',
-      cohort_id: selectedCohort
+      global_status: 'Pending'
     });
 
     if (dbError) {
@@ -202,7 +203,18 @@ export default function CreateExamPage() {
       return;
     }
 
-    // 2. Trigger the FastAPI AI generation pipeline
+    const cohortPayload = selectedCohorts.map(cohortId => ({
+      exam_id: sessionUUID,
+      cohort_id: cohortId
+    }));
+
+    const { error: junctionError } = await supabase.from('Exam_Cohorts').insert(cohortPayload);
+    
+    if (junctionError) {
+      setErrors({ database: `Failed to assign cohorts: ${junctionError.message}` });
+      return;
+    }
+
     if (generationMode === 'strict') {
       const blueprintMap: Record<string, string> = {
         "Abnormal Psychology": "1",
@@ -281,7 +293,7 @@ export default function CreateExamPage() {
             <h2 className="text-lg font-bold text-slate-800 mb-6">1. General Exam Details</h2>
             <div className="space-y-6">
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 gap-6">
                 <div>
                   <label className={`block text-sm font-bold mb-2 transition-colors ${errors.title ? 'text-red-600' : 'text-slate-700'}`}>Exam Title</label>
                   <input 
@@ -293,17 +305,64 @@ export default function CreateExamPage() {
                     className={`w-full px-4 py-3 border rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 transition-colors disabled:bg-slate-50 disabled:text-slate-500 ${errors.title ? 'border-red-400 focus:border-red-500 focus:ring-red-500 bg-red-50' : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'}`} 
                   />
                 </div>
-                <div>
-                  <label className={`block text-sm font-bold mb-2 transition-colors ${errors.cohort ? 'text-red-600' : 'text-slate-700'}`}>Target Cohort</label>
-                  <select 
-                    value={selectedCohort}
-                    onChange={(e) => { setSelectedCohort(e.target.value); setErrors({...errors, cohort: false}); }}
-                    disabled={isGenerating}
-                    className={`w-full px-4 py-3 border rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 transition-colors bg-white disabled:bg-slate-50 disabled:text-slate-500 ${errors.cohort ? 'border-red-400 focus:border-red-500 focus:ring-red-500 bg-red-50' : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'}`}
+                
+                {/* UPGRADED MULTI-SELECT DROPDOWN */}
+                <div className="relative">
+                  <label className={`block text-sm font-bold mb-2 transition-colors ${errors.cohort ? 'text-red-600' : 'text-slate-700'}`}>Target Cohort(s)</label>
+                  <div 
+                    onClick={() => !isGenerating && setIsCohortDropdownOpen(!isCohortDropdownOpen)}
+                    className={`min-h-[46px] w-full px-3 py-2 border rounded-lg flex flex-wrap gap-2 items-center cursor-pointer bg-white transition-colors ${errors.cohort ? 'border-red-400 bg-red-50 ring-1 ring-red-400' : 'border-slate-300 hover:border-blue-400'} ${isGenerating ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
                   >
-                    <option value="" disabled>Select a cohort...</option>
-                    {cohorts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                    {selectedCohorts.length === 0 ? (
+                      <span className="text-sm font-bold text-slate-400 px-1">Select assigned cohorts...</span>
+                    ) : (
+                      selectedCohorts.map(id => {
+                        const cohort = cohorts.find(c => c.id === id);
+                        return (
+                          <span key={id} className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 border border-blue-200 text-blue-900 text-xs font-bold rounded-md z-10">
+                            {cohort?.name}
+                            <button 
+                              type="button" 
+                              onClick={(e) => { e.stopPropagation(); toggleCohortSelection(id); }}
+                              className="text-blue-500 hover:text-blue-800 bg-white rounded-full p-0.5 transition-colors"
+                            >
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                          </span>
+                        );
+                      })
+                    )}
+                    <div className="ml-auto px-1">
+                      <svg className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isCohortDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    </div>
+                  </div>
+
+                  {isCohortDropdownOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setIsCohortDropdownOpen(false)}></div>
+                      <div className="absolute z-20 w-full mt-2 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-auto py-1 animate-in fade-in slide-in-from-top-2">
+                        {cohorts.length === 0 ? (
+                          <div className="p-4 text-sm text-slate-500 font-bold text-center">No active cohorts assigned to you.</div>
+                        ) : (
+                          cohorts.map(c => {
+                            const isSelected = selectedCohorts.includes(c.id);
+                            return (
+                              <div 
+                                key={c.id} 
+                                onClick={() => toggleCohortSelection(c.id)}
+                                className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
+                              >
+                                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 bg-white'}`}>
+                                  {isSelected && <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                                </div>
+                                <span className={`text-sm font-bold ${isSelected ? 'text-blue-900' : 'text-slate-700'}`}>{c.name}</span>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -345,6 +404,9 @@ export default function CreateExamPage() {
                       {passingScorePercent}%
                     </span>
                   </div>
+                  <p className="text-[11px] font-bold text-amber-600 mt-2 leading-tight">
+                    Note: The passing score ratio is hard-locked upon creation. It cannot be changed later to preserve the integrity of student analytics.
+                  </p>
                 </div>
                 <div>
                   <label className={`block text-sm font-bold mb-2 transition-colors ${errors.time ? 'text-red-600' : 'text-slate-700'}`}>Time Limit (Minutes)</label>
@@ -516,7 +578,7 @@ export default function CreateExamPage() {
         {/* STEP 3 */}
         {currentStep === 3 && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 animate-in fade-in slide-in-from-right-4 duration-300">
-            <h2 className="text-lg font-bold text-slate-800">3. Source References</h2>
+            <h2 className="text-lg font-bold text-slate-800 mb-6">3. Source References</h2>
             <p className={`text-sm font-bold mt-1 mb-6 transition-colors ${errors.materials ? 'text-red-600' : 'text-slate-500'}`}>Select the active knowledge base files the AI should use to craft the items.</p>
             
             <div className={`border rounded-xl bg-slate-50 overflow-hidden ${errors.materials ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-200'}`}>

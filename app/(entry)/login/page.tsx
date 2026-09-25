@@ -37,41 +37,73 @@ export default function LoginPage() {
     setIsLoading(true);
 
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: email,
-      password: password,
+      email,
+      password,
     });
 
-    if (authData.user) {
-  await supabase
-    .from('Users')
-    .update({ last_login: new Date().toISOString() })
-    .eq('user_id', authData.user.id);
-    }
-
     if (authError) {
-      setErrors({ email: 'Invalid login credentials. Please try again.' });
+      setErrors({ email: 'Invalid email or password.' });
       setIsLoading(false);
       return;
     }
 
-    const { data: profileData, error: profileError } = await supabase
-      .from('Users')
-      .select('role_id')
-      .eq('user_id', authData.user.id)
-      .single();
+    if (authData.user) {
+      const { data: userData, error: userError } = await supabase
+        .from('Users')
+        .select('account_status')
+        .eq('user_id', authData.user.id)
+        .single();
 
-    if (profileError || !profileData) {
-      setErrors({ email: 'Could not retrieve user profile.' });
-      setIsLoading(false);
-      return;
-    }
+      if (userError || !userData) {
+        setErrors({ email: "Could not verify account status." });
+        setIsLoading(false);
+        return;
+      }
 
-    if (profileData.role_id === 3) {
-      window.location.href = '/admin';
-    } else if (profileData.role_id === 2) {
-      window.location.href = '/faculty';
-    } else if (profileData.role_id === 1) {
-      window.location.href = '/learner';
+      if (userData.account_status !== 'Active') {
+        await supabase.auth.signOut();
+        setErrors({ email: "Your account has been deactivated. Please contact an administrator." });
+        setIsLoading(false);
+        return;
+      }
+
+      await supabase
+        .from('Users')
+        .update({ last_login: new Date().toISOString() })
+        .eq('user_id', authData.user.id);
+
+      const { data: profileData, error: profileError } = await supabase
+        .from('Users')
+        .select('role_id')
+        .eq('user_id', authData.user.id)
+        .single();
+
+      if (profileError || !profileData) {
+        setErrors({ email: "Could not retrieve user profile." });
+        setIsLoading(false);
+        return;
+      }
+
+      const roleMap: Record<number, string> = { 1: 'Learner', 2: 'Teacher', 3: 'Admin' };
+      const userRoleString = roleMap[profileData.role_id] || 'Unknown';
+
+      await supabase.from('AuditLogs').insert([{
+        user_email: email, // This is the email they just typed into the form
+        role: userRoleString, // Now perfectly accurate!
+        action: 'Successful user login',
+        type: 'User Activity',
+        severity: 'Info',
+        ip_address: 'Client IP',
+        user_agent: navigator.userAgent
+      }]);
+
+      if (profileData.role_id === 3) {
+        window.location.href = '/admin';
+      } else if (profileData.role_id === 2) {
+        window.location.href = '/faculty';
+      } else if (profileData.role_id === 1) {
+        window.location.href = '/learner';
+      }
     }
   };
 
