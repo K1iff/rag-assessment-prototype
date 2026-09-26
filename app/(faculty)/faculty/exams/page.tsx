@@ -36,12 +36,85 @@ interface ValidationItem {
   citation: string;
 }
 
+interface StudentReviewItem {
+  qNum: number;
+  text: string;
+  options: string[];
+  studentAnswer: string;
+  correctAnswer: string;
+  isCorrect: boolean;
+}
+
+interface SelectedStudentReview {
+  name: string;
+  grade: string;
+  rawScore: number;
+  takenAt: string;
+  items: StudentReviewItem[];
+}
+
+// --- Helper Functions ---
+const formatCitations = (rawCitations: any): string => {
+  if (!rawCitations) return 'No citation provided';
+
+  let parsed: any = rawCitations;
+  try {
+    while (typeof parsed === 'string') {
+      parsed = JSON.parse(parsed);
+    }
+  } catch (e) {
+    return String(rawCitations).replace(/^["']|["']$/g, '').trim();
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    if (typeof parsed === 'string') return parsed;
+    return 'No citation provided';
+  }
+
+  const docMap: Record<string, Set<number>> = {};
+
+  parsed.forEach((item: any) => {
+    if (!item) return;
+    let src = item.source || item.document || item.doc || 'Unknown Document';
+    // Remove leading ID/timestamp numbers and separators (e.g., "1790343250140_TOS..." -> "TOS...")
+    src = src.replace(/^\d+[-_]/, '').trim();
+
+    if (!docMap[src]) {
+      docMap[src] = new Set<number>();
+    }
+
+    if (item.page !== undefined && item.page !== null) {
+      const pageNum = Number(item.page);
+      if (!isNaN(pageNum)) {
+        docMap[src].add(pageNum);
+      }
+    }
+  });
+
+  const formattedDocs = Object.keys(docMap).map((docName) => {
+    const pages = Array.from(docMap[docName]).sort((a, b) => a - b);
+    if (pages.length > 0) {
+      return `${docName}, Pages: ${pages.join(', ')}`;
+    }
+    return docName;
+  });
+
+  return formattedDocs.join(' | ') || 'No citation provided';
+};
+
+const normalizeForComparison = (str: string) => {
+  return String(str || '')
+    .replace(/^[\\"'“”\[\]]+|[\\"'“”\[\]]+$/g, '')
+    .trim()
+    .toLowerCase();
+};
+
 export default function FacultyExamsPage() {
   const router = useRouter();
   const { addToast } = useToast();
 
   const { regenerateItem, status: regenStatus, progressDetails: regenProgress } = useRegeneration();
-  
+
   // Navigation & Tabs
   const [selectedExam, setSelectedExam] = useState<null | string>(null);
   const [examTab, setExamTab] = useState('settings');
@@ -51,155 +124,177 @@ export default function FacultyExamsPage() {
   const [examSearchQuery, setExamSearchQuery] = useState('');
   const debouncedExamSearch = useDebounce(examSearchQuery, 300);
   const [examStatusFilter, setExamStatusFilter] = useState('All');
-  
+
   const [studentSearch, setStudentSearch] = useState('');
   const debouncedStudentSearch = useDebounce(studentSearch, 300);
   const [studentStatusFilter, setStudentStatusFilter] = useState('All');
 
   // Selection & Action States
   const [selectedQuestions, setSelectedQuestions] = useState<string[]>([]);
-  const [regeneratingItems, setRegeneratingItems] = useState<string[]>([]); 
-  
-  // Modals
+  const [regeneratingItems, setRegeneratingItems] = useState<string[]>([]);
+
+  // Modals & Sub-views
   const [showRegenerateModal, setShowRegenerateModal] = useState(false);
   const [questionToRegenerate, setQuestionToRegenerate] = useState<null | string>(null);
-  
+
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingItem, setEditingItem] = useState<ValidationItem | null>(null);
 
   const [showActivationModal, setShowActivationModal] = useState(false);
   const [pendingApprovalAction, setPendingApprovalAction] = useState<(() => void) | null>(null);
 
-  const [showAnswersModal, setShowAnswersModal] = useState(false);
-  const [studentAnswersData, setStudentAnswersData] = useState<any[]>([]);
-  const [selectedStudentName, setSelectedStudentName] = useState('');
+  // Student Review Sub-View (In-tab)
+  const [selectedStudentForReview, setSelectedStudentForReview] = useState<SelectedStudentReview | null>(null);
+  const [isLoadingReview, setIsLoadingReview] = useState(false);
 
   // Data States
   const [isLoading, setIsLoading] = useState(true);
   const [exams, setExams] = useState<FacultyExam[]>([]);
   const [aiQuestions, setAiQuestions] = useState<ValidationItem[]>([]);
-  
+
   const [studentAnalytics, setStudentAnalytics] = useState<any[]>([]);
   const [isFetchingAnalytics, setIsFetchingAnalytics] = useState(false);
 
   const [questionAnalytics, setQuestionAnalytics] = useState<any[]>([]);
 
-// --- Initialization (Exams List) ---
-useEffect(() => {
-  const fetchFacultyExams = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+  // --- Fetch Exams ---
+  useEffect(() => {
+    const fetchFacultyExams = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-    // 1. Get the cohorts this specific teacher is assigned to
-    const { data: userCohorts } = await supabase
-      .from('Cohort Teachers')
-      .select('cohort_id')
-      .eq('teacher_id', user.id);
-      
-    const cohortIds = userCohorts?.map(c => c.cohort_id) || [];
+      const { data: userCohorts } = await supabase
+        .from('Cohort Teachers')
+        .select('cohort_id')
+        .eq('teacher_id', user.id);
 
-    // If the teacher belongs to no cohorts, they have no exams to see.
-    if (cohortIds.length === 0) {
-      setExams([]);
+      const cohortIds = userCohorts?.map(c => c.cohort_id) || [];
+
+      if (cohortIds.length === 0) {
+        setExams([]);
+        setIsLoading(false);
+        return;
+      }
+
+      const { data: examLinks } = await supabase
+        .from('Exam_Cohorts')
+        .select('exam_id')
+        .in('cohort_id', cohortIds);
+
+      const examIds = examLinks?.map(link => link.exam_id) || [];
+
+      if (examIds.length === 0) {
+        setExams([]);
+        setIsLoading(false);
+        return;
+      }
+
+      const { data: dbExams, error } = await supabase
+        .from('Exams')
+        .select(`
+          exam_id, exam_title, exam_subject, schedule_start, schedule_end, passing_score, time_limit_mins, global_status, references,
+          Exam_Cohorts ( Cohorts ( cohort_name ) ),
+          "Mock Exam Items" ( id )
+        `)
+        .in('exam_id', examIds)
+        .order('schedule_start', { ascending: false });
+
+      if (!error && dbExams) {
+        const accentColors = ['bg-emerald-500', 'bg-amber-500', 'bg-slate-500', 'bg-blue-500', 'bg-purple-500'];
+
+        const formattedExams = dbExams.map((exam: any, index: number) => {
+          const cohortsList = exam.Exam_Cohorts?.map((ec: any) => ec.Cohorts?.cohort_name).filter(Boolean) || [];
+          const itemCount = exam['Mock Exam Items'] ? exam['Mock Exam Items'].length : 0;
+
+          return {
+            id: exam.exam_id,
+            title: exam.exam_title,
+            target: exam.exam_subject || 'Comprehensive',
+            cohorts: cohortsList,
+            items: itemCount,
+            status: exam.global_status || 'Pending',
+            startDateStr: exam.schedule_start ? new Date(exam.schedule_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date',
+            endDateStr: exam.schedule_end ? new Date(exam.schedule_end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date',
+            scheduleStart: exam.schedule_start ? new Date(exam.schedule_start).toISOString().slice(0, 16) : '',
+            scheduleEnd: exam.schedule_end ? new Date(exam.schedule_end).toISOString().slice(0, 16) : '',
+            passingScore: exam.passing_score || 0,
+            timeLimit: exam.time_limit_mins || 60,
+            color: accentColors[index % accentColors.length]
+          };
+        });
+        setExams(formattedExams);
+      }
       setIsLoading(false);
-      return;
-    }
+    };
 
-    // 2. Find all exams linked to these specific cohorts
-    const { data: examLinks } = await supabase
-      .from('Exam_Cohorts')
-      .select('exam_id')
-      .in('cohort_id', cohortIds);
+    fetchFacultyExams();
 
-    const examIds = examLinks?.map(link => link.exam_id) || [];
+    const interval = setInterval(() => {
+      fetchFacultyExams();
+    }, 15000);
 
-    if (examIds.length === 0) {
-      setExams([]);
-      setIsLoading(false);
-      return;
-    }
+    return () => clearInterval(interval);
+  }, []);
 
-    // 3. Fetch ONLY the exams that belong to their cohorts
-    const { data: dbExams, error } = await supabase
-      .from('Exams')
-      .select(`
-        exam_id, exam_title, exam_subject, schedule_start, schedule_end, passing_score, time_limit_mins, global_status, references,
-        Exam_Cohorts ( Cohorts ( cohort_name ) ),
-        "Mock Exam Items" ( id )
-      `)
-      .in('exam_id', examIds)
-      .order('schedule_start', { ascending: false });
+  // --- Fetch Questions for Validation Tab ---
+  const fetchExamQuestions = React.useCallback(async () => {
+    if (!selectedExam) return;
+    const { data } = await supabase
+      .from('Mock Exam Items')
+      .select('*')
+      .eq('exam_session_id', selectedExam)
+      .order('created_at', { ascending: true });
 
-    if (!error && dbExams) {
-      const accentColors = ['bg-emerald-500', 'bg-amber-500', 'bg-slate-500', 'bg-blue-500', 'bg-purple-500'];
-      
-      const formattedExams = dbExams.map((exam: any, index: number) => {
-        const cohortsList = exam.Exam_Cohorts?.map((ec: any) => ec.Cohorts?.cohort_name).filter(Boolean) || [];
-        const itemCount = exam['Mock Exam Items'] ? exam['Mock Exam Items'].length : 0;
+    if (data) {
+      const formattedQuestions = data.map(q => {
+        let parsedOptions: string[] = [];
+        let mappedAnswer = String(q.correct_answer || '').trim();
+
+        try {
+          let raw = q.options;
+          while (typeof raw === 'string') raw = JSON.parse(raw);
+
+          if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+            parsedOptions = Object.values(raw).map(opt => String(opt));
+            if (raw[mappedAnswer.toUpperCase()]) {
+              mappedAnswer = String(raw[mappedAnswer.toUpperCase()]);
+            }
+          } else if (Array.isArray(raw)) {
+            parsedOptions = raw.map(opt => String(opt));
+            if (mappedAnswer.length === 1 && /^[A-Z]$/i.test(mappedAnswer)) {
+              const charIdx = mappedAnswer.toUpperCase().charCodeAt(0) - 65;
+              if (parsedOptions[charIdx]) mappedAnswer = parsedOptions[charIdx];
+            }
+          }
+        } catch (e) {
+          parsedOptions = [];
+        }
 
         return {
-          id: exam.exam_id,
-          title: exam.exam_title,
-          target: exam.exam_subject || 'Comprehensive',
-          cohorts: cohortsList,
-          items: itemCount, 
-          status: exam.global_status || 'Pending',
-          startDateStr: exam.schedule_start ? new Date(exam.schedule_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date',
-          endDateStr: exam.schedule_end ? new Date(exam.schedule_end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date',
-          scheduleStart: exam.schedule_start ? new Date(exam.schedule_start).toISOString().slice(0, 16) : '',
-          scheduleEnd: exam.schedule_end ? new Date(exam.schedule_end).toISOString().slice(0, 16) : '',
-          passingScore: exam.passing_score || 0,
-          timeLimit: exam.time_limit_mins || 60,
-          color: accentColors[index % accentColors.length]
-        };
-      });
-      setExams(formattedExams);
-    }
-    setIsLoading(false);
-  };
-  fetchFacultyExams();
-}, []);
-
-const fetchExamQuestions = React.useCallback(async () => {
-  if (!selectedExam) return;
-  const { data } = await supabase
-    .from('Mock Exam Items')
-    .select('*')
-    .eq('exam_session_id', selectedExam)
-    .order('created_at', { ascending: true });
-
-  if (data) {
-    const formattedQuestions = data.map(q => {
-       let parsedOptions = [];
-       try { parsedOptions = typeof q.options === 'string' ? JSON.parse(q.options) : q.options; } catch(e) { parsedOptions = []; }
-       
-       let parsedCitation = 'No citation provided';
-       try { if (q.citations) parsedCitation = typeof q.citations === 'string' ? q.citations : JSON.stringify(q.citations); } catch(e) {}
-
-       return {
           id: q.id,
           topic: q.competency || q.subject || 'General Scope',
           question: q.question || '',
           options: parsedOptions.length > 0 ? parsedOptions : ['A', 'B', 'C', 'D'],
-          answer: q.correct_answer || '',
+          answer: mappedAnswer,
           status: q.status || 'PASSED',
           rationale: q.rationale || 'No rationale provided.',
-          citation: parsedCitation
-       };
-    });
-    setAiQuestions(formattedQuestions);
-  }
-}, [selectedExam]);
+          citation: formatCitations(q.citations)
+        };
+      });
+      setAiQuestions(formattedQuestions);
+    }
+  }, [selectedExam]);
 
-useEffect(() => {
-  fetchExamQuestions();
-}, [fetchExamQuestions]);
+  useEffect(() => {
+    fetchExamQuestions();
+  }, [fetchExamQuestions]);
 
-  // --- Dynamic Fetch (Student Analytics) ---
+  // --- Fetch Student Analytics ---
   useEffect(() => {
     const fetchAnalytics = async () => {
       if (!selectedExam || examTab !== 'analytics') return;
       setIsFetchingAnalytics(true);
+      setSelectedStudentForReview(null);
 
       const { data: ecData } = await supabase.from('Exam_Cohorts').select('cohort_id').eq('exam_id', selectedExam);
       const cohortIds = ecData?.map(ec => ec.cohort_id) || [];
@@ -210,23 +305,27 @@ useEffect(() => {
         students = studentData || [];
       }
 
-      const { data: attemptsData } = await supabase.from('Student Attempts').select('*').eq('exam_id', selectedExam);
+      const { data: attemptsData } = await supabase
+        .from('Student Attempts')
+        .select('*')
+        .eq('exam_id', selectedExam)
+        .order('completed_at', { ascending: false });
 
       const mergedData = students.map(st => {
         const attempt = attemptsData?.find(a => a.student_id === st.user_id);
-        const totalItems = currentExam?.items || 0;
-        const gradeText = attempt?.final_score !== null && attempt?.final_score !== undefined 
-            ? `${attempt.final_score}/${totalItems} (${Math.round((attempt.final_score / totalItems) * 100)}%)` 
-            : 'Pending';
+        const isCompleted = attempt?.exam_status?.toLowerCase() === 'completed';
+        const hasScore = attempt?.final_score !== null && attempt?.final_score !== undefined;
+
+        const gradeText = hasScore ? `${attempt.final_score}%` : 'Pending';
 
         return {
           id: st.user_id,
           attemptId: attempt?.attempt_id || null,
           name: st.name,
-          status: attempt ? (attempt.exam_status === 'Completed' ? 'Completed' : 'In Progress') : 'Not Taken',
+          status: attempt ? (isCompleted ? 'Completed' : 'In Progress') : 'Not Taken',
           takenAt: attempt?.completed_at ? new Date(attempt.completed_at).toLocaleString() : 'Pending',
           grade: gradeText,
-          rawScore: attempt?.final_score || 0
+          rawScore: attempt?.final_score ?? 0
         };
       });
 
@@ -236,47 +335,71 @@ useEffect(() => {
     fetchAnalytics();
   }, [selectedExam, examTab]);
 
-  // --- Dynamic Fetch (Question Analytics) ---
+  // --- Fetch Question Analytics ---
   useEffect(() => {
     const fetchQuestionAnalytics = async () => {
       if (!selectedExam || examTab !== 'question_analytics') return;
       setIsFetchingAnalytics(true);
-  
+
       const { data: questions } = await supabase
         .from('Mock Exam Items')
         .select('id, question, options, correct_answer')
         .eq('exam_session_id', selectedExam);
-        
+
       if (!questions || questions.length === 0) {
         setQuestionAnalytics([]);
         setIsFetchingAnalytics(false);
         return;
       }
-  
+
       const questionIds = questions.map(q => q.id);
       const { data: answers } = await supabase
         .from('Student Answers')
         .select('question_id, selected_option')
         .in('question_id', questionIds);
-  
+
       const safeAnswers = answers || [];
-  
+
       const analytics = questions.map(q => {
-        let parsedOptions = [];
-        try { parsedOptions = typeof q.options === 'string' ? JSON.parse(q.options) : q.options; } catch(e) { parsedOptions = []; }
-        
+        let parsedOptions: string[] = [];
+        let mappedCorrectAnswer = String(q.correct_answer || '').trim();
+
+        try {
+          let raw = q.options;
+          while (typeof raw === 'string') raw = JSON.parse(raw);
+          if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+            parsedOptions = Object.values(raw).map(opt => String(opt));
+            if (raw[mappedCorrectAnswer.toUpperCase()]) {
+              mappedCorrectAnswer = String(raw[mappedCorrectAnswer.toUpperCase()]);
+            }
+          } else if (Array.isArray(raw)) {
+            parsedOptions = raw.map(opt => String(opt));
+            if (mappedCorrectAnswer.length === 1 && /^[A-Z]$/i.test(mappedCorrectAnswer)) {
+              const charIdx = mappedCorrectAnswer.toUpperCase().charCodeAt(0) - 65;
+              if (parsedOptions[charIdx]) mappedCorrectAnswer = parsedOptions[charIdx];
+            }
+          }
+        } catch (e) {
+          parsedOptions = [];
+        }
+
         const qAnswers = safeAnswers.filter(a => a.question_id === q.id);
         const totalAnswers = qAnswers.length;
-  
+
         const optionsStats = parsedOptions.map((opt: string) => {
-          const count = qAnswers.filter(a => a.selected_option === opt).length;
+          const count = qAnswers.filter(a => normalizeForComparison(a.selected_option) === normalizeForComparison(opt)).length;
           const percent = totalAnswers > 0 ? Math.round((count / totalAnswers) * 100) : 0;
-          return { text: opt, count, percent, isCorrect: opt === q.correct_answer };
+          return {
+            text: opt,
+            count,
+            percent,
+            isCorrect: normalizeForComparison(opt) === normalizeForComparison(mappedCorrectAnswer)
+          };
         });
-  
+
         return { id: q.id, question: q.question, options: optionsStats, totalAnswers };
       });
-  
+
       setQuestionAnalytics(analytics);
       setIsFetchingAnalytics(false);
     };
@@ -292,7 +415,9 @@ useEffect(() => {
 
   // --- Handlers ---
   const handleExamClick = (exam: FacultyExam) => {
+    if (exam.status === 'Generating') return;
     setSelectedExam(exam.id);
+    setSelectedStudentForReview(null);
     if (exam.status === 'Pending') setExamTab('questions');
     else if (exam.status === 'Inactive') setExamTab('analytics');
     else setExamTab('settings');
@@ -325,8 +450,8 @@ useEffect(() => {
     } else {
       const newStartDateStr = scheduleStart ? new Date(scheduleStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date';
       const newEndDateStr = scheduleEnd ? new Date(scheduleEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date';
-      
-      setExams(prev => prev.map(ex => ex.id === selectedExam ? { 
+
+      setExams(prev => prev.map(ex => ex.id === selectedExam ? {
         ...ex, title, scheduleStart, scheduleEnd, timeLimit, status, startDateStr: newStartDateStr, endDateStr: newEndDateStr
       } : ex));
       addToast('Exam settings successfully updated.', 'success');
@@ -340,9 +465,9 @@ useEffect(() => {
     }
     const headers = ['Student Name', 'Status', 'Date Taken', 'Grade'];
     const rows = filteredStudents.map(s => [
-      `"${s.name}"`, 
-      `"${s.status}"`, 
-      `"${s.takenAt}"`, 
+      `"${s.name}"`,
+      `"${s.status}"`,
+      `"${s.takenAt}"`,
       `"${s.grade}"`
     ]);
     const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
@@ -353,27 +478,78 @@ useEffect(() => {
     link.click();
   };
 
-  const handleViewAnswers = async (attemptId: string, studentName: string) => {
-    setSelectedStudentName(studentName);
-    const { data, error } = await supabase
+  // --- View Student Answers Handler (Integrated In-Tab) ---
+  const handleViewAnswers = async (student: any) => {
+    if (!student.attemptId) {
+      addToast('No attempt record found for this student.', 'error');
+      return;
+    }
+
+    setIsLoadingReview(true);
+    const { data: answersData, error } = await supabase
       .from('Student Answers')
       .select(`
-        selected_option, 
-        is_correct, 
-        rag_feedback,
-        "Mock Exam Items" ( question, correct_answer, options, rationale )
+        selected_option,
+        is_correct,
+        "Mock Exam Items" ( question, correct_answer, options )
       `)
-      .eq('attempt_id', attemptId);
-      
-    if (!error && data) {
-      setStudentAnswersData(data);
-      setShowAnswersModal(true);
-    } else {
+      .eq('attempt_id', student.attemptId);
+
+    if (error || !answersData) {
       addToast('Failed to fetch student answers.', 'error');
+      setIsLoadingReview(false);
+      return;
     }
+
+    const reviewItems: StudentReviewItem[] = answersData.map((ans: any, idx: number) => {
+      const rawMock = ans['Mock Exam Items'];
+      const mockItem = Array.isArray(rawMock) ? rawMock[0] : rawMock;
+
+      let parsedOptions: string[] = [];
+      let mappedCorrectAnswer = String(mockItem?.correct_answer || 'N/A').trim();
+
+      try {
+        let raw = mockItem?.options;
+        while (typeof raw === 'string') raw = JSON.parse(raw);
+
+        if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+          parsedOptions = Object.values(raw).map(opt => String(opt));
+          if (raw[mappedCorrectAnswer.toUpperCase()]) {
+            mappedCorrectAnswer = String(raw[mappedCorrectAnswer.toUpperCase()]);
+          }
+        } else if (Array.isArray(raw)) {
+          parsedOptions = raw.map(opt => String(opt));
+          if (mappedCorrectAnswer.length === 1 && /^[A-Z]$/i.test(mappedCorrectAnswer)) {
+            const charIdx = mappedCorrectAnswer.toUpperCase().charCodeAt(0) - 65;
+            if (parsedOptions[charIdx]) mappedCorrectAnswer = parsedOptions[charIdx];
+          }
+        }
+      } catch (e) {
+        parsedOptions = [];
+      }
+
+      return {
+        qNum: idx + 1,
+        text: mockItem?.question || 'Question data unavailable',
+        options: parsedOptions,
+        studentAnswer: String(ans.selected_option || 'No Answer Selected').replace(/^["']|["']$/g, '').trim(),
+        correctAnswer: mappedCorrectAnswer.replace(/^["']|["']$/g, '').trim(),
+        isCorrect: ans.is_correct
+      };
+    });
+
+    setSelectedStudentForReview({
+      name: student.name,
+      grade: student.grade,
+      rawScore: student.rawScore,
+      takenAt: student.takenAt,
+      items: reviewItems
+    });
+    setIsLoadingReview(false);
   };
 
   const getStatusBadge = (status: string) => {
+    if (status === 'Generating') return <span className="shrink-0 px-2 py-1 bg-blue-100 text-blue-800 rounded text-[10px] font-bold uppercase tracking-wider animate-pulse border border-blue-200 shadow-sm">Generating AI...</span>;
     if (status === 'Active') return <span className="shrink-0 px-2 py-1 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
     if (status === 'Pending') return <span className="shrink-0 px-2 py-1 bg-amber-100 text-amber-800 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
     return <span className="shrink-0 px-2 py-1 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
@@ -388,7 +564,7 @@ useEffect(() => {
   const getAIStatusStyle = (status: string) => {
     if (status === 'PASSED') return 'bg-emerald-100 text-emerald-800';
     if (status === 'FLAGGED_FOR_MANUAL_REVIEW') return 'bg-amber-100 text-amber-800';
-    return 'bg-blue-100 text-blue-800'; 
+    return 'bg-blue-100 text-blue-800';
   };
 
   const getAIStatusLabel = (status: string) => {
@@ -403,7 +579,7 @@ useEffect(() => {
   };
 
   const selectGroup = (targetStatus?: string) => {
-    const listToSelect = targetStatus 
+    const listToSelect = targetStatus
       ? aiQuestions.filter(q => q.status === targetStatus && validationTab === 'pending').map(q => q.id)
       : aiQuestions.filter(q => validationTab === 'pending').map(q => q.id);
     setSelectedQuestions(listToSelect);
@@ -460,11 +636,11 @@ useEffect(() => {
     const questionText = formData.get('question') as string;
     const answer = formData.get('answer') as string;
 
-    await supabase.from('Mock Exam Items').update({ 
-      question: questionText, 
-      options: JSON.stringify(updatedOptions), 
-      correct_answer: answer, 
-      status: 'APPROVED' 
+    await supabase.from('Mock Exam Items').update({
+      question: questionText,
+      options: JSON.stringify(updatedOptions),
+      correct_answer: answer,
+      status: 'APPROVED'
     }).eq('id', editingItem.id);
 
     if (makeActive) {
@@ -472,10 +648,10 @@ useEffect(() => {
       setExams(prev => prev.map(ex => ex.id === selectedExam ? { ...ex, status: 'Active' } : ex));
     }
 
-    setAiQuestions(prev => prev.map(q => q.id === editingItem.id ? { 
-      ...q, question: questionText, options: updatedOptions, answer, status: 'APPROVED' 
+    setAiQuestions(prev => prev.map(q => q.id === editingItem.id ? {
+      ...q, question: questionText, options: updatedOptions, answer, status: 'APPROVED'
     } : q));
-    
+
     setShowEditModal(false);
     setEditingItem(null);
     addToast('Question manually edited and approved.', 'success');
@@ -502,21 +678,20 @@ useEffect(() => {
     if (!questionToRegenerate || !selectedExam) return;
     setShowRegenerateModal(false);
     setRegeneratingItems(prev => [...prev, questionToRegenerate]);
-    regenerateItem(questionToRegenerate, selectedExam); // Triggers the hook
+    regenerateItem(questionToRegenerate, selectedExam);
   };
 
-  // Watch the hook's status to re-fetch data when complete
   useEffect(() => {
     if (regenStatus === 'SUCCESS') {
       fetchExamQuestions().then(() => {
-        setRegeneratingItems([]); // Clears the loading overlay
+        setRegeneratingItems([]);
         addToast('Replacement generated successfully.', 'success');
       });
     } else if (regenStatus === 'FAILURE') {
       setRegeneratingItems([]);
       addToast(regenProgress?.message || 'Failed to regenerate question.', 'error');
     }
-  }, [regenStatus, fetchExamQuestions]);
+  }, [regenStatus, fetchExamQuestions, regenProgress, addToast]);
 
   const handlePullFromVault = async (itemToReplace: ValidationItem) => {
     setRegeneratingItems(prev => [...prev, itemToReplace.id]);
@@ -537,7 +712,7 @@ useEffect(() => {
     const vaultItem = data[Math.floor(Math.random() * data.length)];
 
     let parsedOptions = [];
-    try { parsedOptions = typeof vaultItem.options === 'string' ? JSON.parse(vaultItem.options) : vaultItem.options; } 
+    try { parsedOptions = typeof vaultItem.options === 'string' ? JSON.parse(vaultItem.options) : vaultItem.options; }
     catch(e) { parsedOptions = [vaultItem.correct_answer, 'Option B', 'Option C', 'Option D']; }
 
     await supabase.from('Mock Exam Items').update({
@@ -546,11 +721,11 @@ useEffect(() => {
         correct_answer: vaultItem.correct_answer,
         rationale: vaultItem.rationale || 'Pulled from an archived validated exam.',
         citations: JSON.stringify(`Historical Exam Resource (Vault Item: ${vaultItem.id.slice(0,8)})`),
-        status: 'PASSED' 
+        status: 'PASSED'
     }).eq('id', itemToReplace.id);
 
-    setAiQuestions(prev => prev.map(q => q.id === itemToReplace.id ? { 
-      ...q, 
+    setAiQuestions(prev => prev.map(q => q.id === itemToReplace.id ? {
+      ...q,
       question: vaultItem.question,
       options: parsedOptions,
       answer: vaultItem.correct_answer,
@@ -582,7 +757,7 @@ useEffect(() => {
     return matchesSearch && matchesStatus;
   });
 
-  const { currentPage: studentPage, totalPages: totalStudentPages, currentItems: currentStudents, indexOfFirstItem: indexOfFirstStudent, indexOfLastItem: indexOfLastStudent, totalItems: totalStudents, nextPage, prevPage, resetPage } = usePagination(filteredStudents, 5);
+  const { currentPage: studentPage, totalPages: totalStudentPages, currentItems: currentStudents, nextPage, prevPage, resetPage } = usePagination(filteredStudents, 5);
 
   const handleStudentSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setStudentSearch(e.target.value);
@@ -599,35 +774,35 @@ useEffect(() => {
     return (
       <div className="space-y-6 relative pb-24">
         <div className="flex items-center gap-2 text-sm mb-4">
-          <button onClick={() => { setSelectedExam(null); setSelectedQuestions([]); }} className="text-blue-600 hover:underline font-bold">Exams</button>
+          <button onClick={() => { setSelectedExam(null); setSelectedQuestions([]); setSelectedStudentForReview(null); }} className="text-blue-600 hover:underline font-bold">Exams</button>
           <span className="text-slate-400">/</span>
           <span className="text-slate-600 font-bold">{currentExam.title}</span>
         </div>
 
         <div className="bg-slate-900 text-white rounded-t-xl flex gap-8 px-8 pt-5 border-b border-slate-700 overflow-x-auto scrollbar-hide">
-          <button onClick={() => setExamTab('settings')} className={`pb-4 border-b-2 text-sm font-bold whitespace-nowrap ${examTab === 'settings' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
+          <button onClick={() => { setExamTab('settings'); setSelectedStudentForReview(null); }} className={`pb-4 border-b-2 text-sm font-bold whitespace-nowrap ${examTab === 'settings' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
             Exam Settings
           </button>
 
           {currentExam.status === 'Inactive' ? (
-             <button onClick={() => setExamTab('question_analytics')} className={`pb-4 border-b-2 text-sm font-bold whitespace-nowrap ${examTab === 'question_analytics' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
+             <button onClick={() => { setExamTab('question_analytics'); setSelectedStudentForReview(null); }} className={`pb-4 border-b-2 text-sm font-bold whitespace-nowrap ${examTab === 'question_analytics' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
                Question Analytics
              </button>
           ) : (
-            <button 
-              onClick={() => setExamTab('questions')} 
+            <button
+              onClick={() => { setExamTab('questions'); setSelectedStudentForReview(null); }}
               className={`pb-4 border-b-2 text-sm font-bold flex items-center gap-2 whitespace-nowrap ${examTab === 'questions' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
             >
               {currentExam.status === 'Pending' ? 'Question Validation' : 'View Questions'}
             </button>
           )}
 
-          <button 
-            onClick={() => { if (currentExam.status !== 'Pending') { setExamTab('analytics'); resetPage(); } }} 
+          <button
+            onClick={() => { if (currentExam.status !== 'Pending') { setExamTab('analytics'); resetPage(); setSelectedStudentForReview(null); } }}
             className={`pb-4 border-b-2 text-sm font-bold flex items-center gap-2 whitespace-nowrap ${examTab === 'analytics' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'} ${currentExam.status === 'Pending' ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {currentExam.status === 'Pending' && <span>🔒</span>}
-            Student Analytics
+            Student Attempts
           </button>
         </div>
 
@@ -702,17 +877,17 @@ useEffect(() => {
                     {isReadOnly ? 'Review the items currently deployed in this active assessment.' : 'Review AI generated items and lock them into the final exam.'}
                   </p>
                 </div>
-                
+
                 {!isReadOnly && (
                   <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 w-full md:w-auto">
-                    <button 
-                      onClick={() => { setValidationTab('pending'); setSelectedQuestions([]); }} 
+                    <button
+                      onClick={() => { setValidationTab('pending'); setSelectedQuestions([]); }}
                       className={`flex-1 md:flex-none px-6 py-2 text-sm font-bold rounded-md transition-all ${validationTab === 'pending' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                       Pending Review ({pendingQuestions.length})
                     </button>
-                    <button 
-                      onClick={() => { setValidationTab('approved'); setSelectedQuestions([]); }} 
+                    <button
+                      onClick={() => { setValidationTab('approved'); setSelectedQuestions([]); }}
                       className={`flex-1 md:flex-none px-6 py-2 text-sm font-bold rounded-md transition-all ${validationTab === 'approved' ? 'bg-white shadow-sm text-emerald-700' : 'text-slate-500 hover:text-slate-700'}`}
                     >
                       Approved Items ({approvedQuestions.length})
@@ -745,8 +920,7 @@ useEffect(() => {
                     const isProcessing = regeneratingItems.includes(q.id);
                     return (
                       <div key={q.id} className={`relative p-6 border rounded-xl transition-colors ${selectedQuestions.includes(q.id) ? 'border-blue-400 bg-blue-50/50' : 'border-slate-200 bg-white'}`}>
-                        
-                        {/* Processing Overlay */}
+
                         {isProcessing && (
                           <div className="absolute inset-0 z-10 bg-white/80 backdrop-blur-[1px] flex flex-col items-center justify-center rounded-xl border border-blue-200">
                             <svg className="animate-spin h-8 w-8 text-blue-600 mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
@@ -759,8 +933,8 @@ useEffect(() => {
                         <div className="flex justify-between items-start mb-5 pb-4 border-b border-slate-100">
                           <div className="flex items-center gap-3">
                             {!isReadOnly && validationTab === 'pending' && (
-                              <input 
-                                type="checkbox" 
+                              <input
+                                type="checkbox"
                                 checked={selectedQuestions.includes(q.id)}
                                 onChange={() => toggleQuestionSelection(q.id)}
                                 className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
@@ -782,10 +956,10 @@ useEffect(() => {
                           <p className="text-lg font-bold text-slate-900 mb-4">{q.question}</p>
                           <div className="space-y-3 mb-6">
                             {q.options.map((opt, idx) => (
-                              <div key={idx} className={`p-4 border rounded-lg text-sm font-bold ${opt === q.answer ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-white border-slate-200 text-slate-600'}`}>
+                              <div key={idx} className={`p-4 border rounded-lg text-sm font-bold ${normalizeForComparison(opt) === normalizeForComparison(q.answer) ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-white border-slate-200 text-slate-600'}`}>
                                 <span className="mr-3 text-slate-400">{String.fromCharCode(65 + idx)}.</span>
-                                {opt} 
-                                {opt === q.answer && <span className="ml-2 text-xs font-bold text-emerald-600 uppercase tracking-wider">(Correct)</span>}
+                                {opt}
+                                {normalizeForComparison(opt) === normalizeForComparison(q.answer) && <span className="ml-2 text-xs font-bold text-emerald-600 uppercase tracking-wider">(Correct)</span>}
                               </div>
                             ))}
                           </div>
@@ -797,10 +971,11 @@ useEffect(() => {
                               <p className="text-sm text-blue-900 font-bold leading-relaxed">{q.rationale}</p>
                             </div>
                           </div>
-                          
+
+                          {/* Refactored Clean Citation View */}
                           <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg flex items-start gap-3">
                             <span className="text-lg shrink-0">📚</span>
-                            <p className="text-xs text-slate-600 font-bold leading-relaxed mt-0.5">{q.citation}</p>
+                            <p className="text-xs text-slate-700 font-bold leading-relaxed mt-0.5">{q.citation}</p>
                           </div>
                         </div>
 
@@ -841,76 +1016,169 @@ useEffect(() => {
             </div>
           )}
 
-          {/* STUDENT ANALYTICS TAB */}
+          {/* STUDENT ANALYTICS TAB (WITH INTEGRATED IN-TAB REVIEW DECK) */}
           {examTab === 'analytics' && (
             <div>
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-800">Student Analytics</h2>
-                  <p className="text-sm text-slate-500 font-bold mt-1">Review student progress and completion grades for this assessment.</p>
+              {isLoadingReview ? (
+                <div className="p-16 text-center text-slate-500 font-bold flex flex-col items-center justify-center gap-3">
+                  <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  <span>Loading student submission review...</span>
                 </div>
-                <button onClick={exportToCSV} className="px-4 py-2 border border-slate-300 text-slate-900 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-2">
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                  Export to CSV
-                </button>
-              </div>
+              ) : selectedStudentForReview ? (
+                /* In-Tab Student Review Deck (Matches Learner Review Page style, no rationale) */
+                <div className="space-y-6 animate-in fade-in duration-300">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+                    <button
+                      onClick={() => setSelectedStudentForReview(null)}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-2"
+                    >
+                      ← Back to Student List
+                    </button>
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      Student Assessment Review
+                    </span>
+                  </div>
 
-              <div className="bg-slate-50 p-4 border border-slate-200 border-b-0 rounded-t-lg flex flex-col md:flex-row gap-4">
-                <input 
-                  type="text" 
-                  placeholder="Search student name..." 
-                  value={studentSearch}
-                  onChange={handleStudentSearch}
-                  className="w-full md:w-64 px-3 py-2 border border-slate-300 rounded text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-                <select 
-                  value={studentStatusFilter}
-                  onChange={handleStudentStatusChange}
-                  className="px-3 py-2 border border-slate-300 rounded text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                >
-                  <option value="All">All Statuses</option>
-                  <option value="Completed">Completed</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Not Taken">Not Taken</option>
-                </select>
-              </div>
+                  <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-slate-800">{selectedStudentForReview.name}</h3>
+                      <p className="text-xs text-slate-500 font-bold mt-1">Submitted on {selectedStudentForReview.takenAt}</p>
+                    </div>
+                    <div className="bg-white border border-slate-200 px-6 py-3 rounded-lg text-center shadow-sm">
+                      <span className="text-3xl font-black text-blue-600 block">{selectedStudentForReview.grade}</span>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Score Achieved</span>
+                    </div>
+                  </div>
 
-              <div className="overflow-x-auto border border-slate-200 rounded-b-lg">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Student Name</th>
-                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Status</th>
-                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Date and Time Taken</th>
-                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Grade</th>
-                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
-                    {isFetchingAnalytics ? (
-                      <tr><td colSpan={5} className="p-8 text-center text-sm font-bold text-slate-500">Loading analytics...</td></tr>
-                    ) : currentStudents.length === 0 ? (
-                      <tr><td colSpan={5} className="p-8 text-center text-sm font-bold text-slate-500">No students match your filter criteria.</td></tr>
-                    ) : (
-                      currentStudents.map(student => (
-                        <tr key={student.id} className="hover:bg-slate-50 transition-colors bg-white">
-                          <td className="p-4 font-bold text-slate-800">{student.name}</td>
-                          <td className="p-4">
-                            <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${student.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' : student.status === 'In Progress' ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>
-                              {student.status}
-                            </span>
-                          </td>
-                          <td className="p-4 font-bold text-slate-500">{student.takenAt}</td>
-                          <td className="p-4 font-bold text-slate-700">{student.grade}</td>
-                          <td className="p-4 text-right flex gap-3 justify-end">
-                            <button onClick={() => handleViewAnswers(student.attemptId, student.name)} disabled={student.status !== 'Completed'} className={`text-xs font-bold ${student.status === 'Completed' ? 'text-blue-600 hover:underline' : 'text-slate-400 cursor-not-allowed'}`}>View Answers</button>
-                          </td>
+                  <div className="grid gap-6">
+                    {selectedStudentForReview.items.map((item) => (
+                      <div
+                        key={item.qNum}
+                        className={`p-6 border rounded-xl bg-white shadow-sm flex flex-col gap-3 border-l-4 transition-all ${
+                          item.isCorrect ? 'border-l-emerald-500' : 'border-l-rose-500'
+                        }`}
+                      >
+                        <div className="flex justify-between items-center text-xs font-bold text-slate-400 mb-1">
+                          <span className="uppercase tracking-wider">Question {item.qNum}</span>
+                          <span className={`px-2 py-1 rounded uppercase tracking-wider ${item.isCorrect ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                            {item.isCorrect ? '✓ Correct' : '✗ Incorrect'}
+                          </span>
+                        </div>
+
+                        <p className="text-base font-bold text-slate-800 leading-relaxed mb-2">
+                          {item.text}
+                        </p>
+
+                        <div className="space-y-2">
+                          {item.options.map((opt, i) => {
+                            const isSelected = normalizeForComparison(opt) === normalizeForComparison(item.studentAnswer);
+                            const isCorrect = normalizeForComparison(opt) === normalizeForComparison(item.correctAnswer);
+
+                            let baseStyle = 'p-3 border rounded-lg text-sm font-bold flex justify-between items-center transition-colors ';
+
+                            if (isSelected && isCorrect) {
+                              baseStyle += 'bg-emerald-100 border-emerald-300 text-emerald-900';
+                            } else if (isSelected && !isCorrect) {
+                              baseStyle += 'bg-rose-100 border-rose-300 text-rose-900';
+                            } else if (!isSelected && isCorrect) {
+                              baseStyle += 'bg-emerald-50/50 border-emerald-300 text-emerald-800 border-dashed';
+                            } else {
+                              baseStyle += 'bg-slate-50 border-slate-200 text-slate-600';
+                            }
+
+                            return (
+                              <div key={i} className={baseStyle}>
+                                <span>{opt}</span>
+                                <div className="flex gap-2 text-[10px] uppercase tracking-wider shrink-0">
+                                  {isSelected && <span>(Student's Answer)</span>}
+                                  {isCorrect && <span>(Correct Answer)</span>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                /* Regular Student Analytics Table */
+                <div>
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                    <div>
+                      <h2 className="text-xl font-bold text-slate-800">Student Analytics</h2>
+                      <p className="text-sm text-slate-500 font-bold mt-1">Review student progress and completion grades for this assessment.</p>
+                    </div>
+                    <button onClick={exportToCSV} className="px-4 py-2 border border-slate-300 text-slate-900 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-2">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                      Export to CSV
+                    </button>
+                  </div>
+
+                  <div className="bg-slate-50 p-4 border border-slate-200 border-b-0 rounded-t-lg flex flex-col md:flex-row gap-4">
+                    <input
+                      type="text"
+                      placeholder="Search student name..."
+                      value={studentSearch}
+                      onChange={handleStudentSearch}
+                      className="w-full md:w-64 px-3 py-2 border border-slate-300 rounded text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <select
+                      value={studentStatusFilter}
+                      onChange={handleStudentStatusChange}
+                      className="px-3 py-2 border border-slate-300 rounded text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                    >
+                      <option value="All">All Statuses</option>
+                      <option value="Completed">Completed</option>
+                      <option value="In Progress">In Progress</option>
+                      <option value="Not Taken">Not Taken</option>
+                    </select>
+                  </div>
+
+                  <div className="overflow-x-auto border border-slate-200 rounded-b-lg">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Student Name</th>
+                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Status</th>
+                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Date and Time Taken</th>
+                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Grade</th>
+                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Action</th>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-sm">
+                        {isFetchingAnalytics ? (
+                          <tr><td colSpan={5} className="p-8 text-center text-sm font-bold text-slate-500">Loading analytics...</td></tr>
+                        ) : currentStudents.length === 0 ? (
+                          <tr><td colSpan={5} className="p-8 text-center text-sm font-bold text-slate-500">No students match your filter criteria.</td></tr>
+                        ) : (
+                          currentStudents.map(student => (
+                            <tr key={student.id} className="hover:bg-slate-50 transition-colors bg-white">
+                              <td className="p-4 font-bold text-slate-800">{student.name}</td>
+                              <td className="p-4">
+                                <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${student.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' : student.status === 'In Progress' ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>
+                                  {student.status}
+                                </span>
+                              </td>
+                              <td className="p-4 font-bold text-slate-500">{student.takenAt}</td>
+                              <td className="p-4 font-bold text-slate-700">{student.grade}</td>
+                              <td className="p-4 text-right flex gap-3 justify-end">
+                                <button
+                                  onClick={() => handleViewAnswers(student)}
+                                  disabled={student.status !== 'Completed' || !student.attemptId}
+                                  className={`text-xs font-bold ${student.status === 'Completed' && student.attemptId ? 'text-blue-600 hover:underline cursor-pointer' : 'text-slate-400 cursor-not-allowed'}`}
+                                >
+                                  View Answers
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1015,13 +1283,13 @@ useEffect(() => {
                 </div>
                 <h3 className="text-xl font-bold text-slate-800">Edit Question Manually</h3>
               </div>
-              
+
               <form onSubmit={saveManualEdit} className="space-y-5">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">Question Text</label>
                   <textarea name="question" defaultValue={editingItem.question} required rows={3} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
                 </div>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {editingItem.options.map((opt, idx) => (
                     <div key={idx}>
@@ -1049,77 +1317,6 @@ useEffect(() => {
           </div>
         )}
 
-        {/* View Answers Modal */}
-        {showAnswersModal && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-            <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[85vh] flex flex-col border border-slate-200">
-              <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50 rounded-t-xl shrink-0">
-                <div>
-                  <h3 className="text-xl font-bold text-slate-800">Student Submission Review</h3>
-                  <p className="text-sm text-slate-500 font-bold mt-1">Viewing answers for <span className="text-blue-600">{selectedStudentName}</span></p>
-                </div>
-                <button onClick={() => setShowAnswersModal(false)} className="w-8 h-8 rounded-full bg-slate-200 hover:bg-slate-300 flex items-center justify-center text-slate-600 transition-colors">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-              </div>
-              
-              <div className="p-6 overflow-y-auto space-y-8 flex-1">
-                {studentAnswersData.length === 0 ? (
-                  <p className="text-center text-sm font-bold text-slate-500 py-8">No answer data found for this attempt.</p>
-                ) : (
-                  studentAnswersData.map((ans, idx) => {
-                    const mockItem = ans['Mock Exam Items'];
-                    if (!mockItem) return null;
-
-                    let optionsArray = [];
-                    try { optionsArray = typeof mockItem.options === 'string' ? JSON.parse(mockItem.options) : mockItem.options; } catch(e) { optionsArray = []; }
-
-                    return (
-                      <div key={idx} className={`p-5 border rounded-lg ${ans.is_correct ? 'border-emerald-200 bg-emerald-50/30' : 'border-red-200 bg-red-50/30'}`}>
-                        <div className="flex gap-3 mb-4">
-                          <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${ans.is_correct ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                            {idx + 1}
-                          </span>
-                          <p className="text-sm font-bold text-slate-900 mt-0.5">{mockItem.question}</p>
-                        </div>
-                        
-                        <div className="space-y-2 ml-9 mb-4">
-                          {optionsArray.map((opt: string, i: number) => {
-                            const isSelected = ans.selected_option === opt;
-                            const isCorrect = mockItem.correct_answer === opt;
-                            
-                            let style = 'bg-white border-slate-200 text-slate-600';
-                            if (isSelected && isCorrect) style = 'bg-emerald-100 border-emerald-300 text-emerald-900';
-                            else if (isSelected && !isCorrect) style = 'bg-red-100 border-red-300 text-red-900';
-                            else if (!isSelected && isCorrect) style = 'bg-emerald-50 border-emerald-200 text-emerald-700 border-dashed';
-
-                            return (
-                              <div key={i} className={`p-3 border rounded text-xs font-bold flex justify-between ${style}`}>
-                                <span>{opt}</span>
-                                <div className="flex gap-2">
-                                  {isSelected && <span>(Selected)</span>}
-                                  {isCorrect && <span>(Correct Answer)</span>}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        
-                        {ans.rag_feedback && (
-                           <div className="ml-9 bg-white border border-slate-200 p-3 rounded text-xs font-bold text-slate-600 flex gap-2">
-                             <span className="shrink-0 text-blue-500">💡 AI Note:</span>
-                             <p>{ans.rag_feedback}</p>
-                           </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
       </div>
     );
   }
@@ -1142,16 +1339,16 @@ useEffect(() => {
           <svg className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-          <input 
-            type="text" 
-            placeholder="Search by title or target subject" 
+          <input
+            type="text"
+            placeholder="Search by title or target subject"
             value={examSearchQuery}
             onChange={(e) => setExamSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
         </div>
         <div className="w-full sm:w-48">
-          <select 
+          <select
             value={examStatusFilter}
             onChange={(e) => setExamStatusFilter(e.target.value)}
             className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
@@ -1205,8 +1402,21 @@ useEffect(() => {
               </div>
 
               <div className="mt-6 pt-5 border-t border-slate-100">
-                <button onClick={() => handleExamClick(exam)} className={`w-full py-2.5 text-sm font-bold rounded-lg transition-colors shadow-sm ${exam.status === 'Pending' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200'}`}>
-                  {getActionLabel(exam.status)}
+                <button
+                  onClick={() => handleExamClick(exam)}
+                  disabled={exam.status === 'Generating'}
+                  className={`w-full py-2.5 text-sm font-bold rounded-lg transition-colors shadow-sm ${
+                    exam.status === 'Generating' ? 'bg-blue-50 text-blue-400 cursor-not-allowed border border-blue-100' :
+                    exam.status === 'Pending' ? 'bg-blue-600 text-white hover:bg-blue-700' :
+                    'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200'
+                  }`}
+                >
+                  {exam.status === 'Generating' ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                      Generating AI...
+                    </span>
+                  ) : getActionLabel(exam.status)}
                 </button>
               </div>
             </div>
