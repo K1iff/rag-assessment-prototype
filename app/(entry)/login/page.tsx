@@ -121,7 +121,7 @@ export default function LoginPage() {
       
       <div className="pt-10 pb-2 px-6 text-center flex flex-col items-center bg-white">
         <img 
-          src="/deepcore-prep.png" 
+          src="/logo.png" 
           alt="DeepCore Prep Logo" 
           className="h-28 w-auto object-contain mix-blend-multiply" 
         />
