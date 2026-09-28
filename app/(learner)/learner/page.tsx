@@ -19,6 +19,7 @@ export default function LearnerCalendarPage() {
 
   const [weeklySchedule, setWeeklySchedule] = useState<ScheduleItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([]);
 
   useEffect(() => {
     const fetchSchedule = async () => {
@@ -100,15 +101,57 @@ export default function LearnerCalendarPage() {
   const daysInMonth = new Date(currentYear, today.getMonth() + 1, 0).getDate();
   const firstDayOfMonth = new Date(currentYear, today.getMonth(), 1).getDay();
 
-  const examDaysThisMonth = weeklySchedule
+  const examDaysMap = new Map<number, string>();
+
+  weeklySchedule
     .filter(schedule => schedule.date.includes(currentMonthName))
-    .map(schedule => {
+    .forEach(schedule => {
       const match = schedule.date.match(/\d+/);
-      return match ? parseInt(match[0]) : null;
+      if (match) {
+        const day = parseInt(match[0]);
+        const existingStatus = examDaysMap.get(day);
+
+        // Priority Hierarchy: Missed (Red) > Pending/Upcoming (Blue) > Completed (Gray)
+        if (schedule.status === 'Closed') {
+          examDaysMap.set(day, 'Closed'); // Red
+        } else if ((schedule.status === 'Pending' || schedule.status === 'Upcoming') && existingStatus !== 'Closed') {
+          examDaysMap.set(day, 'Pending'); // Blue
+        } else if (!existingStatus) {
+          examDaysMap.set(day, 'Completed'); // Gray
+        }
+      }
     });
+
+  // Filter for the notification banners
+  const missedExams = weeklySchedule.filter(
+    (exam) => exam.status === 'Closed' && exam.id && !dismissedNotifications.includes(exam.id)
+  );
 
   return (
     <div className="space-y-6">
+
+      {missedExams.length > 0 && (
+        <div className="space-y-3 mb-6 animate-in fade-in slide-in-from-top-4 duration-300">
+          {missedExams.map((exam) => (
+            <div key={exam.id} className="bg-rose-50 border border-rose-200 text-rose-800 p-4 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-sm">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">⚠️</span>
+                <div>
+                  <p className="text-sm font-bold">You missed an exam: {exam.task}</p>
+                  <p className="text-xs text-rose-600 font-bold mt-0.5">This closed on {exam.day}, {exam.date} at {exam.time}.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => exam.id && setDismissedNotifications(prev => [...prev, exam.id!])} 
+                className="px-4 py-2 bg-white text-rose-600 text-xs font-bold rounded-lg border border-rose-200 hover:bg-rose-100 transition-colors whitespace-nowrap shadow-sm w-full md:w-auto"
+              >
+                Dismiss Alert
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <h1 className="text-2xl font-bold text-slate-800">Weekly Activity</h1>
       <p className="text-sm text-slate-500 mt-1 mb-6 font-bold">View your upcoming mock exams, mandatory simulations, and mapped source reference parameters.</p>
       
@@ -192,15 +235,23 @@ export default function LearnerCalendarPage() {
               ))}
               
               {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
-                const isExamDate = examDaysThisMonth.includes(day);
+                const dayStatus = examDaysMap.get(day);
+                
+                // Determine the highlight color based on the status
+                let highlightClass = 'hover:bg-slate-100 text-slate-700';
+                
+                if (dayStatus === 'Closed') {
+                  highlightClass = 'bg-rose-500 text-white shadow-sm ring-2 ring-rose-200 ring-offset-1';
+                } else if (dayStatus === 'Pending') {
+                  highlightClass = 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-200 ring-offset-1';
+                } else if (dayStatus === 'Completed') {
+                  highlightClass = 'bg-slate-400 text-white shadow-sm ring-2 ring-slate-200 ring-offset-1';
+                }
+
                 return (
                   <div 
                     key={day} 
-                    className={`p-1.5 rounded-md flex items-center justify-center h-8 w-8 mx-auto ${
-                      isExamDate 
-                        ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-200 ring-offset-1' 
-                        : 'hover:bg-slate-100'
-                    }`}
+                    className={`p-1.5 rounded-md flex items-center justify-center h-8 w-8 mx-auto font-bold transition-all ${highlightClass}`}
                   >
                     {day}
                   </div>
