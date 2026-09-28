@@ -7,11 +7,13 @@ import { supabase } from '@/lib/supabaseClient';
 
 export default function UnifiedPerformancePage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState('latest');
+  // Set default tab to history as requested
+  const [activeTab, setActiveTab] = useState('history');
   const [isLoading, setIsLoading] = useState(true);
 
   const [historicalAttempts, setHistoricalAttempts] = useState<any[]>([]);
   const [stats, setStats] = useState({ completed: 0, average: 0 });
+  const [cohortRank, setCohortRank] = useState<string>('Calculating...');
   const [latestExam, setLatestExam] = useState<any>(null);
 
   useEffect(() => {
@@ -19,42 +21,74 @@ export default function UnifiedPerformancePage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Fetch all completed attempts and join the associated Exam details
+      // 1. Fetch all completed attempts and join Exam details (including subject for radar chart)
       const { data: attempts, error } = await supabase
         .from('Student Attempts')
         .select(`
           attempt_id,
           final_score,
           completed_at,
-          exam:Exams ( exam_title )
+          exam:Exams ( exam_title, exam_subject )
         `)
         .eq('student_id', user.id)
         .eq('exam_status', 'completed')
-        .order('completed_at', { ascending: false }); // Newest first
+        .order('completed_at', { ascending: false }); 
 
       if (error || !attempts || attempts.length === 0) {
         setIsLoading(false);
+        setCohortRank("N/A");
         return;
       }
 
-      // 1. Map the History Matrix Data
+      // 2. Map the History Matrix Data (Removed Simulation ID)
       const formattedHistory = attempts.map((attempt: any) => {
         const dateObj = new Date(attempt.completed_at || Date.now());
         return {
-          id: attempt.attempt_id.substring(0, 8).toUpperCase(), // Shorten UUID for display
+          id: attempt.attempt_id,
           name: attempt.exam?.exam_title || 'Unknown Exam',
+          subject: attempt.exam?.exam_subject || 'General Assessment',
           score: `${attempt.final_score}%`,
           rawScore: attempt.final_score,
           date: dateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-          status: attempt.final_score >= 75 ? 'Passed' : 'Needs Review' // Dynamic pass/fail logic
+          status: attempt.final_score >= 75 ? 'Passed' : 'Needs Review'
         };
       });
 
-      // 2. Calculate the Top-Level Stats
+      // 3. Calculate Top-Level Stats
       const totalScore = formattedHistory.reduce((acc, curr) => acc + (curr.rawScore || 0), 0);
       const avg = Math.round(totalScore / formattedHistory.length);
 
-      // 3. Extract the Most Recent Exam for the "Latest Summary" tab
+      // 4. Dynamically build Radar Chart based on actual tested subjects
+      const subjectAverages: Record<string, { total: number; count: number }> = {};
+      formattedHistory.forEach((h) => {
+        if (!subjectAverages[h.subject]) subjectAverages[h.subject] = { total: 0, count: 0 };
+        subjectAverages[h.subject].total += h.rawScore;
+        subjectAverages[h.subject].count += 1;
+      });
+
+      const dynamicRadarData = Object.keys(subjectAverages).map(subj => ({
+        subject: subj.length > 12 ? subj.substring(0, 12) + '...' : subj,
+        score: Math.round(subjectAverages[subj].total / subjectAverages[subj].count),
+        fullMark: 100
+      }));
+
+      // Ensure radar has at least 3 points to render a polygon
+      if (dynamicRadarData.length === 1) {
+        dynamicRadarData.push({ subject: 'Logic', score: avg, fullMark: 100 }, { subject: 'Retention', score: avg, fullMark: 100 });
+      } else if (dynamicRadarData.length === 2) {
+        dynamicRadarData.push({ subject: 'Retention', score: avg, fullMark: 100 });
+      }
+
+      // 5. Dynamic AI Feedback based on actual average score
+      let dynamicFeedback = "";
+      if (avg >= 90) {
+        dynamicFeedback = "Outstanding performance! Your historical data indicates a mastery of the core competencies. Keep up the excellent retention strategies.";
+      } else if (avg >= 75) {
+        dynamicFeedback = "Solid performance. You have a good grasp of most concepts, but targeted review in your lower-scoring subjects will push you to mastery.";
+      } else {
+        dynamicFeedback = "Your performance indicates some fundamental gaps. It is highly recommended to review the core study materials and retake diagnostic exams.";
+      }
+
       const mostRecent = formattedHistory[0];
 
       setHistoricalAttempts(formattedHistory);
@@ -63,32 +97,67 @@ export default function UnifiedPerformancePage() {
         examName: mostRecent.name,
         completionDate: mostRecent.date,
         scoreBreakdown: { correct: mostRecent.rawScore, incorrect: 100 - mostRecent.rawScore, total: 100 },
-        // Hardcoded for now until ai_summary column and question-level tracking is added
-        aiRagFeedback: 'Data synchronization in progress. Your performance indicates an excellent grasp of clinical diagnostic criteria...',
-        radarData: [
-          { subject: 'Personality', score: 88, fullMark: 100 },
-          { subject: 'Abnormal Psych', score: 74, fullMark: 100 },
-          { subject: 'Industrial', score: 62, fullMark: 100 },
-          { subject: 'Assessment', score: 80, fullMark: 100 },
-        ]
+        aiRagFeedback: dynamicFeedback,
+        radarData: dynamicRadarData
       });
 
+      // 6. Calculate Cohort Standing
+      let calculatedRank = "N/A";
+      const { data: userData } = await supabase.from('Users').select('cohort_id').eq('user_id', user.id).single();
+      
+      if (userData?.cohort_id) {
+        const { data: cohortUsers } = await supabase.from('Users').select('user_id').eq('cohort_id', userData.cohort_id);
+        const cohortUserIds = cohortUsers?.map(u => u.user_id) || [];
+
+        if (cohortUserIds.length > 0) {
+          const { data: cohortAttempts } = await supabase
+            .from('Student Attempts')
+            .select('student_id, final_score')
+            .in('student_id', cohortUserIds)
+            .eq('exam_status', 'completed');
+
+          if (cohortAttempts && cohortAttempts.length > 0) {
+            const studentAverages: Record<string, { total: number; count: number }> = {};
+            
+            cohortAttempts.forEach(ca => {
+              if (!studentAverages[ca.student_id]) studentAverages[ca.student_id] = { total: 0, count: 0 };
+              studentAverages[ca.student_id].total += (ca.final_score || 0);
+              studentAverages[ca.student_id].count += 1;
+            });
+
+            // Calculate averages and sort descending
+            const rankList = Object.keys(studentAverages).map(sid => ({
+              id: sid,
+              avg: studentAverages[sid].total / studentAverages[sid].count
+            })).sort((a, b) => b.avg - a.avg);
+
+            const myRankIndex = rankList.findIndex(r => r.id === user.id);
+            if (myRankIndex !== -1) {
+              const myRank = myRankIndex + 1;
+              const totalStudents = rankList.length;
+              
+              if (totalStudents > 1) {
+                // Calculate percentile (e.g. Top 20%)
+                const percentile = Math.ceil((myRank / totalStudents) * 100);
+                // Snap to clean tiers for display
+                if (percentile <= 10) calculatedRank = "Top 10%";
+                else if (percentile <= 25) calculatedRank = "Top 25%";
+                else if (percentile <= 50) calculatedRank = "Top 50%";
+                else calculatedRank = `Rank ${myRank} of ${totalStudents}`;
+              } else {
+                calculatedRank = "Top 1%"; // Only student in cohort
+              }
+            }
+          }
+        }
+      }
+      
+      setCohortRank(calculatedRank);
       setIsLoading(false);
     };
 
     fetchPerformanceData();
   }, []);
-
-  const performanceStats = {
-    examsCompleted: 8,
-    averageScore: '76.5%',
-    globalRank: 'Top 12%',
-    recentExams: [
-      { id: 'EX902', name: 'Comprehensive Mock Exam Area A', score: '82%', date: 'July 8, 2026', status: 'Passed' },
-      { id: 'EX884', name: 'Abnormal Psychology Specialized Drill', score: '71%', date: 'July 2, 2026', status: 'Passed' },
-      { id: 'EX851', name: 'Theories of Personality Diagnostic', score: '64%', date: 'June 25, 2026', status: 'Needs Review' },
-    ]
-  };
 
   return (
     <div className="space-y-6">
@@ -99,16 +168,16 @@ export default function UnifiedPerformancePage() {
         </div>
         <div className="flex bg-slate-200 p-1 rounded-lg">
           <button 
-            onClick={() => setActiveTab('latest')}
-            className={`px-4 py-2 text-sm font-bold rounded-md transition-colors ${activeTab === 'latest' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
-          >
-            Latest Summary
-          </button>
-          <button 
             onClick={() => setActiveTab('history')}
             className={`px-4 py-2 text-sm font-bold rounded-md transition-colors ${activeTab === 'history' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
           >
             Historical History
+          </button>
+          <button 
+            onClick={() => setActiveTab('latest')}
+            className={`px-4 py-2 text-sm font-bold rounded-md transition-colors ${activeTab === 'latest' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
+          >
+            Latest Summary
           </button>
         </div>
       </div>
@@ -124,8 +193,6 @@ export default function UnifiedPerformancePage() {
               No exam history found. Complete a simulation to generate your AI analytics.
             </div>
           ) : (
-            
-            /* 2. Your existing dashboard, safely using the ? operator */
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
               <div className="lg:col-span-2 space-y-6">
                 <div className="bg-white p-8 rounded-xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -189,11 +256,11 @@ export default function UnifiedPerformancePage() {
             </div>
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Average Score</span>
-              <p className="text-4xl font-bold text-blue-600 mt-2">{stats.average}</p>
+              <p className="text-4xl font-bold text-blue-600 mt-2">{stats.average}%</p>
             </div>
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estimated Standing</span>
-              <p className="text-4xl font-bold text-emerald-600 mt-2">{performanceStats.globalRank}</p>
+              <p className="text-4xl font-bold text-emerald-600 mt-2">{cohortRank}</p>
             </div>
           </div>
 
@@ -205,7 +272,6 @@ export default function UnifiedPerformancePage() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold uppercase text-slate-500 tracking-wider">
-                    <th className="p-4">Simulation ID</th>
                     <th className="p-4">Exam Title</th>
                     <th className="p-4">Score</th>
                     <th className="p-4">Date Completed</th>
@@ -215,7 +281,6 @@ export default function UnifiedPerformancePage() {
                 <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                   {historicalAttempts.map((exam) => (
                     <tr key={exam.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-4 font-mono text-xs text-slate-400">{exam.id}</td>
                       <td className="p-4 font-bold text-slate-800">{exam.name}</td>
                       <td className="p-4 font-bold text-slate-700">{exam.score}</td>
                       <td className="p-4 text-slate-500 font-bold">{exam.date}</td>

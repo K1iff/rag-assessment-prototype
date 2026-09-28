@@ -1,168 +1,75 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
+import { supabase } from '@/lib/supabaseClient';
 
-interface GenerationDetails {
-  step?: string;
-  attempt?: number;
-  details?: string;
-  message?: string;
-  progress?: { completed: number; total: number };
-}
-
-interface UseExamGenerationProps {
-  onSuccess?: () => void;
-}
-
-export function useExamGeneration({ onSuccess }: UseExamGenerationProps = {}) {
-  const [taskIds, setTaskIds] = useState<string[]>([]);
-  const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set());
-  const [status, setStatus] = useState<'IDLE' | 'PENDING' | 'PROCESSING' | 'SUCCESS' | 'FAILURE'>('IDLE');
-  const [progressDetails, setProgressDetails] = useState<GenerationDetails | null>(null);
+export function useExamGeneration() {
+  const [status, setStatus] = useState<'IDLE' | 'PROCESSING' | 'SUCCESS' | 'FAILURE'>('IDLE');
+  const [message, setMessage] = useState<string>('');
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
-  const onSuccessRef = useRef(onSuccess);
-  useEffect(() => {
-    onSuccessRef.current = onSuccess;
-  }, [onSuccess]);
-
-  // 1. Generate Custom Batch (Loops through the teacher's custom blocks)
-  const generateCustomBatch = useCallback(async (
-    subject: string, 
-    blocks: { competency: string, bloom: string, count: number }[], 
-    selectedPdfs: string[], 
+  const triggerGeneration = useCallback(async (
+    generationType: 'blueprint' | 'custom_batch',
+    payload: any,
     examSessionId: string
   ) => {
     try {
-      setStatus('PENDING');
-      setProgressDetails({ message: 'Compiling custom diagnostic specifications...' });
-      
-      let allTaskIds: string[] = [];
+      setStatus('PROCESSING');
+      setMessage('Sending requirements to AI workers...');
 
-      // Fire off requests for each block the teacher created
-      for (const block of blocks) {
-        const response = await fetch(`${API_BASE_URL}/api/generate/custom`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            subject,
-            competency: block.competency,
-            bloom: block.bloom,
-            count: block.count,
-            selected_pdfs: selectedPdfs,
-            exam_session_id: examSessionId
-          }),
-        });
-        const data = await response.json();
-        if (data.task_ids) {
-          allTaskIds = [...allTaskIds, ...data.task_ids];
-        }
-      }
+      const endpoint = generationType === 'blueprint' 
+        ? `${API_BASE_URL}/api/v1/generate/blueprint` 
+        : `${API_BASE_URL}/api/v1/generate/custom_batch`;
 
-      if (allTaskIds.length > 0) {
-        setTaskIds(allTaskIds);
-      } else {
-        setStatus('FAILURE');
-        setProgressDetails({ message: 'Backend failed to queue the generation tasks.' });
-      }
-    } catch (error) {
-      setStatus('FAILURE');
-      setProgressDetails({ message: 'Failed to connect to the generation server.' });
-      console.error(error);
-    }
-  }, [API_BASE_URL]);
+      // Directly pass the exact shape including exam_session_id without renaming keys
+      const requestBody = {
+        ...payload,
+        exam_session_id: examSessionId
+      };
 
-  // 2. Generate Blueprint (Strict Board Exam Mode)
-  const generateBlueprint = useCallback(async (
-    blueprintId: string, 
-    selectedPdfs: string[], 
-    examSessionId: string
-  ) => {
-    try {
-      setStatus('PENDING');
-      setProgressDetails({ message: 'Initializing strict Board Exam blueprint...' });
-      
-      const response = await fetch(`${API_BASE_URL}/api/generate/blueprint`, {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          blueprint_id: blueprintId,
-          selected_pdfs: selectedPdfs,
-          exam_session_id: examSessionId
-        }),
+        body: JSON.stringify(requestBody),
       });
 
-      const data = await response.json();
-      if (data.task_ids && data.task_ids.length > 0) {
-        setTaskIds(data.task_ids);
-      } else {
-        setStatus('FAILURE');
-        setProgressDetails({ message: 'Backend failed to queue blueprint tasks.' });
+      if (!response.ok) {
+        throw new Error('Failed to dispatch generation task to backend.');
       }
+
+      setMessage('Generation in progress. You can safely close this window or wait for completion.');
+
+      const channel = supabase
+        .channel(`exam-status-${examSessionId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'Exams',
+            filter: `exam_id=eq.${examSessionId}`
+          },
+          (payload) => {
+            const newStatus = payload.new.global_status;
+            
+            if (newStatus === 'Pending') {
+              setStatus('SUCCESS');
+              setMessage('Generation complete! Exam is ready for validation.');
+              supabase.removeChannel(channel);
+            } else if (newStatus === 'Failed') {
+              setStatus('FAILURE');
+              setMessage('A critical error occurred during batch generation.');
+              supabase.removeChannel(channel);
+            }
+          }
+        )
+        .subscribe();
+
     } catch (error) {
+      console.error("Generation dispatch error:", error);
       setStatus('FAILURE');
-      setProgressDetails({ message: 'Failed to connect to the generation server.' });
-      console.error(error);
+      setMessage('Could not communicate with the generation server.');
     }
   }, [API_BASE_URL]);
 
-  // 3. Batch Polling Effect
-  useEffect(() => {
-    if (taskIds.length === 0) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const pendingTasks = taskIds.filter(id => !completedTasks.has(id));
-        
-        if (pendingTasks.length === 0) {
-          setStatus('SUCCESS');
-          setProgressDetails({ message: 'All items successfully generated and saved.' });
-          clearInterval(interval);
-          setTaskIds([]);
-          setCompletedTasks(new Set());
-          if (onSuccessRef.current) onSuccessRef.current();
-          return;
-        }
-
-        // Poll a batch of pending tasks (up to 5 at a time to prevent UI stutter)
-        const tasksToPoll = pendingTasks.slice(0, 5);
-        const results = await Promise.all(
-          tasksToPoll.map(id => fetch(`${API_BASE_URL}/api/v1/task/${id}`).then(res => res.json()))
-        );
-
-        let newCompleted = new Set(completedTasks);
-        let activeDetails = null;
-
-        for (const data of results) {
-          if (data.status === 'SUCCESS' || data.status === 'FAILURE') {
-            newCompleted.add(data.task_id);
-          } else if (data.status === 'PROCESSING') {
-            activeDetails = data.details; // Grab the live trace (e.g. "Evaluating Faithfulness")
-          }
-        }
-
-        setCompletedTasks(newCompleted);
-
-        if (activeDetails) {
-          setStatus('PROCESSING');
-          setProgressDetails({ 
-            ...activeDetails, 
-            progress: { completed: newCompleted.size, total: taskIds.length } 
-          });
-        } else if (newCompleted.size < taskIds.length) {
-          setStatus('PENDING');
-          setProgressDetails({ 
-            message: 'Waiting for Celery worker hardware resources...',
-            progress: { completed: newCompleted.size, total: taskIds.length }
-          });
-        }
-
-      } catch (error) {
-        console.error("Polling error:", error);
-      }
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [taskIds, completedTasks, API_BASE_URL]);
-
-  return { generateCustomBatch, generateBlueprint, status, progressDetails };
+  return { triggerGeneration, status, message };
 }
