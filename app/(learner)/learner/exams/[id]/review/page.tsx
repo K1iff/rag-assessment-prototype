@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { useToast } from "@/components/ui/ToastContext";
 
 interface ReviewItem {
   qNum: number;
@@ -31,12 +32,17 @@ const normalizeForComparison = (str: string) => {
 export default function ExamReviewPage() {
   const router = useRouter();
   const params = useParams();
+  const { addToast } = useToast();
   
   const [activeAttemptIndex, setActiveAttemptIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   
   const [examTitle, setExamTitle] = useState("");
   const [attempts, setAttempts] = useState<AttemptRecord[]>([]);
+
+  // Retake State Logic
+  const [canRetake, setCanRetake] = useState(false);
+  const [retakeMessage, setRetakeMessage] = useState("");
 
   useEffect(() => {
     const fetchExamAndResults = async () => {
@@ -49,14 +55,29 @@ export default function ExamReviewPage() {
         return;
       }
 
-      const { data: examData } = await supabase
+      // 1. Fetch Exam Details & Rules
+      const { data: examData, error: examError } = await supabase
         .from("Exams")
-        .select("exam_title")
+        .select("exam_title, global_status, max_attempts, close_after_deadline, schedule_end")
         .eq("exam_id", examId)
         .single();
         
-      if (examData) setExamTitle(examData.exam_title);
+      if (examError || !examData) {
+        addToast("Failed to load exam details.", "error");
+        router.push('/learner/performance');
+        return;
+      }
 
+      // GRAVEYARD LOCKOUT: Reject access if the exam is Hidden
+      if (examData.global_status === 'Hidden') {
+        addToast("This exam's records are currently unavailable.", "error");
+        router.push('/learner/performance');
+        return;
+      }
+
+      setExamTitle(examData.exam_title);
+
+      // 2. Fetch Attempts
       const { data: attemptsData, error: attemptsError } = await supabase
         .from("Student Attempts")
         .select(`
@@ -74,6 +95,30 @@ export default function ExamReviewPage() {
         return;
       }
 
+      // 3. Evaluate Retake Eligibility based on new rules
+      let allowRetake = true;
+      let blockReason = "";
+
+      if (examData.global_status !== 'Active') {
+        allowRetake = false;
+        blockReason = "Exam is no longer active";
+      } else if (examData.close_after_deadline && examData.schedule_end) {
+        const deadline = new Date(examData.schedule_end).getTime();
+        if (Date.now() > deadline) {
+          allowRetake = false;
+          blockReason = "Deadline has passed";
+        }
+      }
+
+      if (attemptsData.length >= (examData.max_attempts || 1)) {
+        allowRetake = false;
+        blockReason = "Max attempts reached";
+      }
+
+      setCanRetake(allowRetake);
+      setRetakeMessage(blockReason);
+
+      // 4. Load Review Data
       const formattedAttempts: AttemptRecord[] = await Promise.all(
         attemptsData.map(async (attempt) => {
           const { data: answersData } = await supabase
@@ -91,7 +136,6 @@ export default function ExamReviewPage() {
             const mockItem = Array.isArray(rawMockItem) ? rawMockItem[0] : rawMockItem;
             
             let parsedOptions: string[] = [];
-            // Grab the raw letter from the DB (e.g., "B")
             let mappedCorrectAnswer = String(mockItem?.correct_answer || "N/A").trim();
             
             try {
@@ -101,16 +145,12 @@ export default function ExamReviewPage() {
               }
               
               if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
-                // Handle the dictionary format {"A": "Text", "B": "Text"}
                 parsedOptions = Object.values(raw).map(opt => String(opt));
-                // Map the letter "B" to the actual string text
                 if (raw[mappedCorrectAnswer.toUpperCase()]) {
                   mappedCorrectAnswer = String(raw[mappedCorrectAnswer.toUpperCase()]);
                 }
               } else if (Array.isArray(raw)) {
-                // Handle standard array format
                 parsedOptions = raw.map(opt => String(opt));
-                // If correct_answer is just "B", map it to index 1
                 if (mappedCorrectAnswer.length === 1 && /^[A-Z]$/i.test(mappedCorrectAnswer)) {
                   const charIdx = mappedCorrectAnswer.toUpperCase().charCodeAt(0) - 65;
                   if (parsedOptions[charIdx]) mappedCorrectAnswer = parsedOptions[charIdx];
@@ -149,7 +189,7 @@ export default function ExamReviewPage() {
     };
 
     fetchExamAndResults();
-  }, [params]);
+  }, [params, router, addToast]);
 
   if (isLoading) {
     return (
@@ -196,12 +236,20 @@ export default function ExamReviewPage() {
           </p>
         </div>
         <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
-          <button
-            onClick={() => router.push(`/learner/exams/${params?.id}/take`)}
-            className="w-full md:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm whitespace-nowrap"
-          >
-            Start New Attempt
-          </button>
+          {canRetake ? (
+            <button
+              onClick={() => router.push(`/learner/exams/${params?.id}/take`)}
+              className="w-full md:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm whitespace-nowrap"
+            >
+              Start New Attempt
+            </button>
+          ) : (
+            <div 
+              className="w-full md:w-auto px-6 py-3 bg-slate-100 text-slate-500 text-sm font-bold rounded-lg border border-slate-200 shadow-sm whitespace-nowrap cursor-not-allowed text-center"
+            >
+              Cannot Retake ({retakeMessage})
+            </div>
+          )}
           
           <div className="w-full md:w-auto bg-slate-50 border border-slate-200 p-4 rounded-lg text-center min-w-[140px]">
             <span className="text-3xl font-black text-blue-600 block">

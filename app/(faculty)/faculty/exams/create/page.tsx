@@ -64,6 +64,11 @@ export default function CreateExamPage() {
   const [passingScorePercent, setPassingScorePercent] = useState(75);
   const [timeLimit, setTimeLimit] = useState(60);
   
+  // NEW Form State - Step 1 (Attempt & Grading Rules)
+  const [maxAttempts, setMaxAttempts] = useState<number>(1);
+  const [gradingLogic, setGradingLogic] = useState<'highest' | 'latest' | 'average'>('highest');
+  const [closeAfterDeadline, setCloseAfterDeadline] = useState<boolean>(true);
+
   // Form State - Step 2 (Parameters)
   const [subject, setSubject] = useState('Abnormal Psychology');
   const [generationMode, setGenerationMode] = useState<'strict' | 'custom'>('strict');
@@ -153,6 +158,7 @@ export default function CreateExamPage() {
       if (!scheduleStart) newErrors.start = true;
       if (!scheduleEnd) newErrors.end = true;
       if (!timeLimit || timeLimit <= 0) newErrors.time = true;
+      if (!maxAttempts || maxAttempts <= 0) newErrors.attempts = true;
       
       if (Object.keys(newErrors).length > 0) {
         setErrors(newErrors);
@@ -197,7 +203,7 @@ export default function CreateExamPage() {
       : customBlocks.reduce((acc, block) => acc + block.count, 0);
     const exactPassingScore = Math.round(totalItems * (passingScorePercent / 100));
 
-    // 1. Insert parent record with status 'Generating'
+    // 1. Insert parent record with status 'Generating' AND new settings
     const { error: dbError } = await supabase.from('Exams').insert({
       exam_id: sessionUUID,
       exam_title: examTitle,
@@ -207,7 +213,10 @@ export default function CreateExamPage() {
       passing_score: exactPassingScore,
       references: selectedMaterials, 
       time_limit_mins: timeLimit,
-      global_status: 'Generating' 
+      global_status: 'Generating',
+      max_attempts: maxAttempts,
+      close_after_deadline: closeAfterDeadline,
+      grading_logic: gradingLogic
     });
 
     if (dbError) {
@@ -231,7 +240,6 @@ export default function CreateExamPage() {
     }
 
     // 3. Trigger the asynchronous generation hook
-    // (Sending the simple payload, since the hook now handles Pydantic formatting)
     if (generationMode === 'strict') {
       const blueprintMap: Record<string, string> = {
         "Abnormal Psychology": "1",
@@ -444,6 +452,47 @@ export default function CreateExamPage() {
                     disabled={isFormLocked}
                     className={`w-full px-4 py-3 border rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 transition-colors disabled:bg-slate-50 disabled:text-slate-500 ${errors.time ? 'border-red-400 focus:border-red-500 focus:ring-red-500 bg-red-50' : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'}`} 
                   />
+                </div>
+              </div>
+
+              {/* NEW SETTINGS: Attempts & Grading Logic */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-100">
+                <div>
+                  <label className={`block text-sm font-bold mb-2 transition-colors ${errors.attempts ? 'text-red-600' : 'text-slate-700'}`}>Max Attempts Allowed</label>
+                  <input 
+                    type="number" min="1" max="10"
+                    value={maxAttempts}
+                    onChange={(e) => { setMaxAttempts(Number(e.target.value)); setErrors({...errors, attempts: false}); }}
+                    disabled={isFormLocked}
+                    className={`w-full px-4 py-3 border rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 transition-colors disabled:bg-slate-50 disabled:text-slate-500 ${errors.attempts ? 'border-red-400 focus:border-red-500 focus:ring-red-500 bg-red-50' : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'}`} 
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Final Score Grading Logic</label>
+                  <select 
+                    value={gradingLogic}
+                    onChange={(e) => setGradingLogic(e.target.value as any)}
+                    disabled={isFormLocked}
+                    className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white disabled:bg-slate-50 disabled:text-slate-500"
+                  >
+                    <option value="highest">Highest Attempt Score</option>
+                    <option value="latest">Latest Attempt Score</option>
+                    <option value="average">Average of All Attempts</option>
+                  </select>
+                </div>
+                
+                <div className="flex items-center mt-8">
+                  <label className={`flex items-center gap-3 ${isFormLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                    <input 
+                      type="checkbox" 
+                      checked={closeAfterDeadline}
+                      onChange={(e) => setCloseAfterDeadline(e.target.checked)}
+                      disabled={isFormLocked}
+                      className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed" 
+                    />
+                    <span className="text-sm font-bold text-slate-700">Close After Deadline</span>
+                  </label>
                 </div>
               </div>
 
