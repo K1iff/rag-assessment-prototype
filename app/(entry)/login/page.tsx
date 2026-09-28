@@ -123,7 +123,7 @@ export default function LoginPage() {
         <img 
           src="/logo.png" 
           alt="DeepCore Prep Logo" 
-          className="h-28 w-auto object-contain mix-blend-multiply brightness-110 contrast-125" 
+          className="h-40 w-auto object-contain mix-blend-multiply brightness-110 contrast-125" 
         />
         <p className="text-sm font-bold text-slate-500 mt-2">Sign in to your account</p>
       </div>
