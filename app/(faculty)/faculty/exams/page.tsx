@@ -23,6 +23,9 @@ interface FacultyExam {
   scheduleEnd: string;
   passingScore: number;
   timeLimit: number;
+  maxAttempts: number;
+  closeAfterDeadline: boolean;
+  gradingLogic: string;
 }
 
 interface ValidationItem {
@@ -76,7 +79,6 @@ const formatCitations = (rawCitations: any): string => {
   parsed.forEach((item: any) => {
     if (!item) return;
     let src = item.source || item.document || item.doc || 'Unknown Document';
-    // Remove leading ID/timestamp numbers and separators (e.g., "1790343250140_TOS..." -> "TOS...")
     src = src.replace(/^\d+[-_]/, '').trim();
 
     if (!docMap[src]) {
@@ -143,7 +145,12 @@ export default function FacultyExamsPage() {
   const [showActivationModal, setShowActivationModal] = useState(false);
   const [pendingApprovalAction, setPendingApprovalAction] = useState<(() => void) | null>(null);
 
-  // Student Review Sub-View (In-tab)
+  // MAINTENANCE MODE WARNING STATE
+  const [hasAcknowledgedVoidWarning, setHasAcknowledgedVoidWarning] = useState(false);
+  const [showVoidWarningModal, setShowVoidWarningModal] = useState(false);
+  const [pendingMaintenanceAction, setPendingMaintenanceAction] = useState<(() => void) | null>(null);
+
+  // Student Review Sub-View
   const [selectedStudentForReview, setSelectedStudentForReview] = useState<SelectedStudentReview | null>(null);
   const [isLoadingReview, setIsLoadingReview] = useState(false);
 
@@ -193,6 +200,7 @@ export default function FacultyExamsPage() {
         .from('Exams')
         .select(`
           exam_id, exam_title, exam_subject, schedule_start, schedule_end, passing_score, time_limit_mins, global_status, references,
+          max_attempts, close_after_deadline, grading_logic,
           Exam_Cohorts ( Cohorts ( cohort_name ) ),
           "Mock Exam Items" ( id )
         `)
@@ -219,6 +227,9 @@ export default function FacultyExamsPage() {
             scheduleEnd: exam.schedule_end ? new Date(exam.schedule_end).toISOString().slice(0, 16) : '',
             passingScore: exam.passing_score || 0,
             timeLimit: exam.time_limit_mins || 60,
+            maxAttempts: exam.max_attempts || 1,
+            closeAfterDeadline: exam.close_after_deadline ?? true,
+            gradingLogic: exam.grading_logic || 'highest',
             color: accentColors[index % accentColors.length]
           };
         });
@@ -408,19 +419,28 @@ export default function FacultyExamsPage() {
 
   // --- Derived States ---
   const currentExam = exams.find(e => e.id === selectedExam);
-  const isReadOnly = currentExam?.status !== 'Pending';
+  
+  // Logic states
+  const isValidationMode = currentExam?.status === 'Pending';
+  const isMaintenanceMode = currentExam?.status === 'Hidden';
+  const isReadOnly = currentExam?.status === 'Active' || currentExam?.status === 'Inactive';
+
   const pendingQuestions = aiQuestions.filter(q => q.status === 'PASSED' || q.status === 'FLAGGED_FOR_MANUAL_REVIEW');
   const approvedQuestions = aiQuestions.filter(q => q.status === 'APPROVED');
-  const visibleQuestions = isReadOnly ? aiQuestions : (validationTab === 'pending' ? pendingQuestions : approvedQuestions);
+  
+  const visibleQuestions = isValidationMode 
+    ? (validationTab === 'pending' ? pendingQuestions : approvedQuestions) 
+    : aiQuestions;
 
   // --- Handlers ---
   const handleExamClick = (exam: FacultyExam) => {
     if (exam.status === 'Generating') return;
     setSelectedExam(exam.id);
     setSelectedStudentForReview(null);
+    setHasAcknowledgedVoidWarning(false); // Reset warning cache for new exam
     if (exam.status === 'Pending') setExamTab('questions');
     else if (exam.status === 'Inactive') setExamTab('analytics');
-    else setExamTab('settings');
+    else setExamTab('settings'); // Hidden and Active default to settings
   };
 
   const handleSaveSettings = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -433,6 +453,10 @@ export default function FacultyExamsPage() {
     const scheduleEnd = formData.get('scheduleEnd') as string;
     const timeLimit = Number(formData.get('timeLimit'));
     const status = formData.get('status') as string;
+    
+    const maxAttempts = Number(formData.get('maxAttempts'));
+    const gradingLogic = formData.get('gradingLogic') as string;
+    const closeAfterDeadline = formData.get('closeAfterDeadline') === 'on';
 
     const { error } = await supabase
       .from('Exams')
@@ -441,7 +465,10 @@ export default function FacultyExamsPage() {
         schedule_start: scheduleStart,
         schedule_end: scheduleEnd,
         time_limit_mins: timeLimit,
-        global_status: status
+        global_status: status,
+        max_attempts: maxAttempts,
+        grading_logic: gradingLogic,
+        close_after_deadline: closeAfterDeadline
       })
       .eq('exam_id', selectedExam);
 
@@ -452,7 +479,7 @@ export default function FacultyExamsPage() {
       const newEndDateStr = scheduleEnd ? new Date(scheduleEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date';
 
       setExams(prev => prev.map(ex => ex.id === selectedExam ? {
-        ...ex, title, scheduleStart, scheduleEnd, timeLimit, status, startDateStr: newStartDateStr, endDateStr: newEndDateStr
+        ...ex, title, scheduleStart, scheduleEnd, timeLimit, status, startDateStr: newStartDateStr, endDateStr: newEndDateStr, maxAttempts, gradingLogic, closeAfterDeadline
       } : ex));
       addToast('Exam settings successfully updated.', 'success');
     }
@@ -478,7 +505,6 @@ export default function FacultyExamsPage() {
     link.click();
   };
 
-  // --- View Student Answers Handler (Integrated In-Tab) ---
   const handleViewAnswers = async (student: any) => {
     if (!student.attemptId) {
       addToast('No attempt record found for this student.', 'error');
@@ -552,13 +578,14 @@ export default function FacultyExamsPage() {
     if (status === 'Generating') return <span className="shrink-0 px-2 py-1 bg-blue-100 text-blue-800 rounded text-[10px] font-bold uppercase tracking-wider animate-pulse border border-blue-200 shadow-sm">Generating AI...</span>;
     if (status === 'Active') return <span className="shrink-0 px-2 py-1 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
     if (status === 'Pending') return <span className="shrink-0 px-2 py-1 bg-amber-100 text-amber-800 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
+    if (status === 'Hidden') return <span className="shrink-0 px-2 py-1 bg-slate-200 text-slate-700 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
     return <span className="shrink-0 px-2 py-1 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
   };
 
   const getActionLabel = (status: string) => {
     if (status === 'Pending') return 'Review Questions';
     if (status === 'Inactive') return 'View Results';
-    return 'Manage Exam';
+    return 'Manage Exam'; // Active and Hidden
   };
 
   const getAIStatusStyle = (status: string) => {
@@ -571,6 +598,16 @@ export default function FacultyExamsPage() {
     if (status === 'PASSED') return 'High Confidence';
     if (status === 'FLAGGED_FOR_MANUAL_REVIEW') return 'Needs Manual Review';
     return 'Approved';
+  };
+
+  // --- Maintenance Mode Action Protector ---
+  const executeProtectedAction = (action: () => void) => {
+    if (isMaintenanceMode && !hasAcknowledgedVoidWarning) {
+      setPendingMaintenanceAction(() => action);
+      setShowVoidWarningModal(true);
+    } else {
+      action();
+    }
   };
 
   // --- Validation Actions ---
@@ -654,13 +691,13 @@ export default function FacultyExamsPage() {
 
     setShowEditModal(false);
     setEditingItem(null);
-    addToast('Question manually edited and approved.', 'success');
+    addToast('Question manually edited and updated.', 'success');
   };
 
   const saveManualEdit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const isLast = pendingQuestions.length === 1 && pendingQuestions[0].id === editingItem?.id;
+    const isLast = isValidationMode && pendingQuestions.length === 1 && pendingQuestions[0].id === editingItem?.id;
     if (isLast) {
       setPendingApprovalAction(() => () => executeManualEdit(formData, true));
       setShowActivationModal(true);
@@ -721,7 +758,7 @@ export default function FacultyExamsPage() {
         correct_answer: vaultItem.correct_answer,
         rationale: vaultItem.rationale || 'Pulled from an archived validated exam.',
         citations: JSON.stringify(`Historical Exam Resource (Vault Item: ${vaultItem.id.slice(0,8)})`),
-        status: 'PASSED'
+        status: isValidationMode ? 'PASSED' : 'APPROVED' // Keep it approved if we are in maintenance mode
     }).eq('id', itemToReplace.id);
 
     setAiQuestions(prev => prev.map(q => q.id === itemToReplace.id ? {
@@ -731,17 +768,11 @@ export default function FacultyExamsPage() {
       answer: vaultItem.correct_answer,
       rationale: vaultItem.rationale || 'Pulled from an archived validated exam.',
       citation: `Historical Exam Resource (Vault Item: ${vaultItem.id.slice(0,8)})`,
-      status: 'PASSED'
+      status: isValidationMode ? 'PASSED' : 'APPROVED'
     } : q));
 
     setRegeneratingItems(prev => prev.filter(i => i !== itemToReplace.id));
-    addToast('Vault question loaded. Please review and approve.', 'success');
-  };
-
-  const revertToPending = async (id: string) => {
-    await supabase.from('Mock Exam Items').update({ status: 'FLAGGED_FOR_MANUAL_REVIEW' }).eq('id', id);
-    setAiQuestions(prev => prev.map(q => q.id === id ? { ...q, status: 'FLAGGED_FOR_MANUAL_REVIEW' } : q));
-    addToast('Question reverted to pending.', 'info');
+    addToast('Vault question loaded successfully.', 'success');
   };
 
   // --- Filtering & Pagination ---
@@ -774,7 +805,7 @@ export default function FacultyExamsPage() {
     return (
       <div className="space-y-6 relative pb-24">
         <div className="flex items-center gap-2 text-sm mb-4">
-          <button onClick={() => { setSelectedExam(null); setSelectedQuestions([]); setSelectedStudentForReview(null); }} className="text-blue-600 hover:underline font-bold">Exams</button>
+          <button onClick={() => { setSelectedExam(null); setSelectedQuestions([]); setSelectedStudentForReview(null); setHasAcknowledgedVoidWarning(false); }} className="text-blue-600 hover:underline font-bold">Exams</button>
           <span className="text-slate-400">/</span>
           <span className="text-slate-600 font-bold">{currentExam.title}</span>
         </div>
@@ -793,16 +824,16 @@ export default function FacultyExamsPage() {
               onClick={() => { setExamTab('questions'); setSelectedStudentForReview(null); }}
               className={`pb-4 border-b-2 text-sm font-bold flex items-center gap-2 whitespace-nowrap ${examTab === 'questions' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
             >
-              {currentExam.status === 'Pending' ? 'Question Validation' : 'View Questions'}
+              {isValidationMode ? 'Question Validation' : 'View Questions'}
             </button>
           )}
 
           <button
-            onClick={() => { if (currentExam.status !== 'Pending') { setExamTab('analytics'); resetPage(); setSelectedStudentForReview(null); } }}
-            className={`pb-4 border-b-2 text-sm font-bold flex items-center gap-2 whitespace-nowrap ${examTab === 'analytics' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'} ${currentExam.status === 'Pending' ? 'opacity-50 cursor-not-allowed' : ''}`}
+            onClick={() => { if (!isValidationMode) { setExamTab('analytics'); resetPage(); setSelectedStudentForReview(null); } }}
+            className={`pb-4 border-b-2 text-sm font-bold flex items-center gap-2 whitespace-nowrap ${examTab === 'analytics' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'} ${isValidationMode ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            {currentExam.status === 'Pending' && <span>🔒</span>}
-            Student Attempts
+            {isValidationMode && <span>🔒</span>}
+            Student Analytics
           </button>
         </div>
 
@@ -849,12 +880,37 @@ export default function FacultyExamsPage() {
                    </div>
                  </div>
 
+                 {/* NEW EXAM SETTINGS */}
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-100">
+                   <div>
+                     <label className="block text-sm font-bold text-slate-700 mb-2">Max Attempts Allowed</label>
+                     <input type="number" name="maxAttempts" min="1" max="10" defaultValue={currentExam.maxAttempts} className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                   </div>
+                   
+                   <div>
+                     <label className="block text-sm font-bold text-slate-700 mb-2">Final Score Grading Logic</label>
+                     <select name="gradingLogic" defaultValue={currentExam.gradingLogic} className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white">
+                       <option value="highest">Highest Attempt Score</option>
+                       <option value="latest">Latest Attempt Score</option>
+                       <option value="average">Average of All Attempts</option>
+                     </select>
+                   </div>
+                   
+                   <div className="flex items-center mt-8">
+                     <label className="flex items-center gap-3 cursor-pointer">
+                       <input type="checkbox" name="closeAfterDeadline" defaultChecked={currentExam.closeAfterDeadline} className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                       <span className="text-sm font-bold text-slate-700">Close After Deadline</span>
+                     </label>
+                   </div>
+                 </div>
+
                  <div>
                    <label className="block text-sm font-bold text-slate-700 mb-2">Exam Status</label>
                    <select name="status" defaultValue={currentExam.status} className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white">
-                     <option value="Pending">Pending (Questions need checking and validation)</option>
+                     {currentExam.status === 'Pending' && <option value="Pending">Pending (Questions need checking and validation)</option>}
                      <option value="Active">Active (Available for learners to take)</option>
                      <option value="Inactive">Inactive / Finished (Deadline passed)</option>
+                     <option value="Hidden">Hidden (Maintenance mode, invisible to students)</option>
                    </select>
                  </div>
 
@@ -867,18 +923,24 @@ export default function FacultyExamsPage() {
              </form>
           )}
 
-          {/* QUESTION VALIDATION TAB */}
+          {/* QUESTION VALIDATION / MAINTENANCE TAB */}
           {examTab === 'questions' && (
             <div>
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-800">{isReadOnly ? 'Exam Questions' : 'Question Validation'}</h2>
+                  <h2 className="text-xl font-bold text-slate-800">
+                    {isReadOnly ? 'Exam Questions' : isMaintenanceMode ? 'Maintenance Mode: Exam Questions' : 'Question Validation'}
+                  </h2>
                   <p className="text-sm text-slate-500 font-bold mt-1">
-                    {isReadOnly ? 'Review the items currently deployed in this active assessment.' : 'Review AI generated items and lock them into the final exam.'}
+                    {isReadOnly 
+                      ? 'Review the items currently deployed in this active assessment.' 
+                      : isMaintenanceMode 
+                      ? 'Edit questions directly. Warning: Modifying items will affect existing student attempts.' 
+                      : 'Review AI generated items and lock them into the final exam.'}
                   </p>
                 </div>
 
-                {!isReadOnly && (
+                {isValidationMode && (
                   <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 w-full md:w-auto">
                     <button
                       onClick={() => { setValidationTab('pending'); setSelectedQuestions([]); }}
@@ -896,7 +958,7 @@ export default function FacultyExamsPage() {
                 )}
               </div>
 
-              {!isReadOnly && validationTab === 'pending' && pendingQuestions.length > 0 && (
+              {isValidationMode && validationTab === 'pending' && pendingQuestions.length > 0 && (
                 <div className="flex flex-wrap gap-3 mb-6 bg-slate-50 p-3 border border-slate-200 rounded-lg">
                   <button onClick={() => selectGroup('PASSED')} className="px-4 py-2 border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-white transition-colors shadow-sm">
                     Select High Confidence
@@ -932,7 +994,7 @@ export default function FacultyExamsPage() {
 
                         <div className="flex justify-between items-start mb-5 pb-4 border-b border-slate-100">
                           <div className="flex items-center gap-3">
-                            {!isReadOnly && validationTab === 'pending' && (
+                            {isValidationMode && validationTab === 'pending' && (
                               <input
                                 type="checkbox"
                                 checked={selectedQuestions.includes(q.id)}
@@ -943,9 +1005,9 @@ export default function FacultyExamsPage() {
                             <span className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-sm font-bold border border-slate-200">
                               {index + 1}
                             </span>
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{q.topic}</span>
+                            <span className="text-sm font-bold text-slate-900">{q.topic}</span>
                           </div>
-                          {!isReadOnly && (
+                          {isValidationMode && (
                             <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${getAIStatusStyle(q.status)} border-current`}>
                               {getAIStatusLabel(q.status)}
                             </span>
@@ -953,7 +1015,7 @@ export default function FacultyExamsPage() {
                         </div>
 
                         <div className="mb-6 md:ml-11">
-                          <p className="text-lg font-bold text-slate-900 mb-4">{q.question}</p>
+                          <p className="text-sm font-bold text-slate-900 mb-4">{q.question}</p>
                           <div className="space-y-3 mb-6">
                             {q.options.map((opt, idx) => (
                               <div key={idx} className={`p-4 border rounded-lg text-sm font-bold ${normalizeForComparison(opt) === normalizeForComparison(q.answer) ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-white border-slate-200 text-slate-600'}`}>
@@ -964,24 +1026,20 @@ export default function FacultyExamsPage() {
                             ))}
                           </div>
 
-                          <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-lg flex items-start gap-3 mb-3">
-                            <span className="text-xl shrink-0 mt-0.5">🧠</span>
-                            <div>
-                              <p className="text-xs text-blue-800 uppercase tracking-wider font-bold mb-1">AI Rationale</p>
-                              <p className="text-sm text-blue-900 font-bold leading-relaxed">{q.rationale}</p>
-                            </div>
+                          <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg flex flex-col gap-1 mb-3">
+                            <span className="text-sm font-bold text-slate-900">Rationale</span>
+                            <p className="text-sm font-bold text-slate-900 leading-relaxed">{q.rationale}</p>
                           </div>
 
-                          {/* Refactored Clean Citation View */}
-                          <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg flex items-start gap-3">
-                            <span className="text-lg shrink-0">📚</span>
-                            <p className="text-xs text-slate-700 font-bold leading-relaxed mt-0.5">{q.citation}</p>
+                          <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg flex flex-col gap-1">
+                            <span className="text-sm font-bold text-slate-900">Sources:</span>
+                            <p className="text-sm font-bold text-slate-900 leading-relaxed">{q.citation}</p>
                           </div>
                         </div>
 
                         {!isReadOnly && (
                           <div className="flex flex-wrap gap-3 pt-5 border-t border-slate-100 md:ml-11">
-                            {validationTab === 'pending' ? (
+                            {isValidationMode && validationTab === 'pending' ? (
                               <>
                                 <button onClick={() => handleSingleApprove(q.id)} className="px-5 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors shadow-sm">
                                   Approve
@@ -1000,12 +1058,21 @@ export default function FacultyExamsPage() {
                                   </button>
                                 </div>
                               </>
-                            ) : (
-                              <button onClick={() => revertToPending(q.id)} className="px-5 py-2.5 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-100 transition-colors shadow-sm flex items-center gap-2">
-                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-                                Revert to Pending
-                              </button>
-                            )}
+                            ) : isMaintenanceMode ? (
+                              <div className="flex gap-3 w-full justify-end">
+                                <button onClick={() => executeProtectedAction(() => { setEditingItem(q); setShowEditModal(true); })} className="px-5 py-2.5 bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-200 transition-colors shadow-sm">
+                                  Edit Manually
+                                </button>
+                                <button onClick={() => executeProtectedAction(() => handlePullFromVault(q))} className="px-5 py-2.5 border border-indigo-200 text-indigo-700 text-xs font-bold rounded-lg hover:bg-indigo-50 transition-colors shadow-sm flex items-center gap-1.5">
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                  Pull from Vault
+                                </button>
+                                <button onClick={() => executeProtectedAction(() => confirmRegeneration(q.id))} className="px-5 py-2.5 bg-purple-100 text-purple-800 text-xs font-bold rounded-lg hover:bg-purple-200 transition-colors shadow-sm flex items-center gap-1.5">
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                                  Regenerate AI
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
                         )}
                       </div>
@@ -1016,7 +1083,7 @@ export default function FacultyExamsPage() {
             </div>
           )}
 
-          {/* STUDENT ANALYTICS TAB (WITH INTEGRATED IN-TAB REVIEW DECK) */}
+          {/* STUDENT ANALYTICS TAB */}
           {examTab === 'analytics' && (
             <div>
               {isLoadingReview ? (
@@ -1025,7 +1092,6 @@ export default function FacultyExamsPage() {
                   <span>Loading student submission review...</span>
                 </div>
               ) : selectedStudentForReview ? (
-                /* In-Tab Student Review Deck (Matches Learner Review Page style, no rationale) */
                 <div className="space-y-6 animate-in fade-in duration-300">
                   <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                     <button
@@ -1102,7 +1168,6 @@ export default function FacultyExamsPage() {
                   </div>
                 </div>
               ) : (
-                /* Regular Student Analytics Table */
                 <div>
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                     <div>
@@ -1248,6 +1313,33 @@ export default function FacultyExamsPage() {
           </div>
         )}
 
+        {/* Maintenance Void Warning Modal */}
+        {showVoidWarningModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 border border-rose-200">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                </div>
+                <h3 className="text-xl font-bold text-rose-800">Modify Deployed Exam?</h3>
+              </div>
+              <p className="text-sm text-slate-700 font-bold mb-6 pl-13 leading-relaxed">
+                You are entering maintenance mode. If any students have already completed this exam, altering questions will <span className="text-rose-600">void their attempts</span> and require them to retake it. 
+                <br/><br/>
+                Are you sure you want to proceed?
+              </p>
+              <div className="flex justify-end gap-3 pt-2">
+                <button onClick={() => { setShowVoidWarningModal(false); setPendingMaintenanceAction(null); }} className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors">
+                  Cancel
+                </button>
+                <button onClick={() => { setHasAcknowledgedVoidWarning(true); setShowVoidWarningModal(false); if (pendingMaintenanceAction) pendingMaintenanceAction(); setPendingMaintenanceAction(null); }} className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm">
+                  Acknowledge & Proceed
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Regenerate Modal */}
         {showRegenerateModal && (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
@@ -1357,6 +1449,7 @@ export default function FacultyExamsPage() {
             <option value="Active">Active</option>
             <option value="Pending">Pending</option>
             <option value="Inactive">Inactive</option>
+            <option value="Hidden">Hidden</option>
           </select>
         </div>
       </div>

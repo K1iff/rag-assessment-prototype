@@ -7,7 +7,6 @@ import { supabase } from '@/lib/supabaseClient';
 
 export default function UnifiedPerformancePage() {
   const router = useRouter();
-  // Set default tab to history as requested
   const [activeTab, setActiveTab] = useState('history');
   const [isLoading, setIsLoading] = useState(true);
 
@@ -21,17 +20,19 @@ export default function UnifiedPerformancePage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 1. Fetch all completed attempts and join Exam details (including subject for radar chart)
+      // 1. Fetch all completed attempts and strictly filter out "Hidden" graveyard exams
       const { data: attempts, error } = await supabase
         .from('Student Attempts')
         .select(`
           attempt_id,
           final_score,
           completed_at,
-          exam:Exams ( exam_title, exam_subject )
+          exam_id,
+          exam:Exams!inner ( exam_title, exam_subject, global_status, grading_logic )
         `)
         .eq('student_id', user.id)
         .eq('exam_status', 'completed')
+        .neq('exam.global_status', 'Hidden') // <-- The Graveyard Enforcer
         .order('completed_at', { ascending: false }); 
 
       if (error || !attempts || attempts.length === 0) {
@@ -40,27 +41,56 @@ export default function UnifiedPerformancePage() {
         return;
       }
 
-      // 2. Map the History Matrix Data (Removed Simulation ID)
-      const formattedHistory = attempts.map((attempt: any) => {
-        const dateObj = new Date(attempt.completed_at || Date.now());
+      // 2. Consolidate attempts by exam_id applying the teacher's grading logic
+      const groupedAttempts = attempts.reduce((acc, curr) => {
+        if (!acc[curr.exam_id]) acc[curr.exam_id] = [];
+        acc[curr.exam_id].push(curr);
+        return acc;
+      }, {} as Record<string, any[]>);
+
+      const consolidatedHistory = Object.keys(groupedAttempts).map(examId => {
+        const group = groupedAttempts[examId];
+        // Since attempts are ordered by completed_at desc, group[0] is always the latest attempt
+        const latestAttempt = group[0]; 
+        const logic = latestAttempt.exam?.grading_logic || 'highest';
+
+        let finalCalculatedScore = 0;
+        if (logic === 'highest') {
+          finalCalculatedScore = Math.max(...group.map(a => a.final_score || 0));
+        } else if (logic === 'average') {
+          const sum = group.reduce((acc, a) => acc + (a.final_score || 0), 0);
+          finalCalculatedScore = Math.round(sum / group.length);
+        } else {
+          // 'latest'
+          finalCalculatedScore = latestAttempt.final_score || 0;
+        }
+
+        const dateObj = new Date(latestAttempt.completed_at || Date.now());
+        
         return {
-          id: attempt.attempt_id,
-          name: attempt.exam?.exam_title || 'Unknown Exam',
-          subject: attempt.exam?.exam_subject || 'General Assessment',
-          score: `${attempt.final_score}%`,
-          rawScore: attempt.final_score,
+          id: latestAttempt.attempt_id,
+          examId: examId,
+          name: latestAttempt.exam?.exam_title || 'Unknown Exam',
+          subject: latestAttempt.exam?.exam_subject || 'General Assessment',
+          score: `${finalCalculatedScore}%`,
+          rawScore: finalCalculatedScore,
           date: dateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-          status: attempt.final_score >= 75 ? 'Passed' : 'Needs Review'
+          status: finalCalculatedScore >= 75 ? 'Passed' : 'Needs Review',
+          attemptsCount: group.length,
+          gradingLogic: logic
         };
       });
 
+      // Sort consolidated history by date descending
+      consolidatedHistory.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
       // 3. Calculate Top-Level Stats
-      const totalScore = formattedHistory.reduce((acc, curr) => acc + (curr.rawScore || 0), 0);
-      const avg = Math.round(totalScore / formattedHistory.length);
+      const totalScore = consolidatedHistory.reduce((acc, curr) => acc + (curr.rawScore || 0), 0);
+      const avg = Math.round(totalScore / consolidatedHistory.length);
 
       // 4. Dynamically build Radar Chart based on actual tested subjects
       const subjectAverages: Record<string, { total: number; count: number }> = {};
-      formattedHistory.forEach((h) => {
+      consolidatedHistory.forEach((h) => {
         if (!subjectAverages[h.subject]) subjectAverages[h.subject] = { total: 0, count: 0 };
         subjectAverages[h.subject].total += h.rawScore;
         subjectAverages[h.subject].count += 1;
@@ -72,14 +102,13 @@ export default function UnifiedPerformancePage() {
         fullMark: 100
       }));
 
-      // Ensure radar has at least 3 points to render a polygon
       if (dynamicRadarData.length === 1) {
         dynamicRadarData.push({ subject: 'Logic', score: avg, fullMark: 100 }, { subject: 'Retention', score: avg, fullMark: 100 });
       } else if (dynamicRadarData.length === 2) {
         dynamicRadarData.push({ subject: 'Retention', score: avg, fullMark: 100 });
       }
 
-      // 5. Dynamic AI Feedback based on actual average score
+      // 5. Dynamic AI Feedback
       let dynamicFeedback = "";
       if (avg >= 90) {
         dynamicFeedback = "Outstanding performance! Your historical data indicates a mastery of the core competencies. Keep up the excellent retention strategies.";
@@ -89,10 +118,10 @@ export default function UnifiedPerformancePage() {
         dynamicFeedback = "Your performance indicates some fundamental gaps. It is highly recommended to review the core study materials and retake diagnostic exams.";
       }
 
-      const mostRecent = formattedHistory[0];
+      const mostRecent = consolidatedHistory[0];
 
-      setHistoricalAttempts(formattedHistory);
-      setStats({ completed: formattedHistory.length, average: avg });
+      setHistoricalAttempts(consolidatedHistory);
+      setStats({ completed: consolidatedHistory.length, average: avg });
       setLatestExam({
         examName: mostRecent.name,
         completionDate: mostRecent.date,
@@ -101,7 +130,7 @@ export default function UnifiedPerformancePage() {
         radarData: dynamicRadarData
       });
 
-      // 6. Calculate Cohort Standing
+      // 6. Calculate Cohort Standing securely applying grading logic across all students
       let calculatedRank = "N/A";
       const { data: userData } = await supabase.from('Users').select('cohort_id').eq('user_id', user.id).single();
       
@@ -112,20 +141,47 @@ export default function UnifiedPerformancePage() {
         if (cohortUserIds.length > 0) {
           const { data: cohortAttempts } = await supabase
             .from('Student Attempts')
-            .select('student_id, final_score')
+            .select('student_id, final_score, exam_id, completed_at, exam:Exams!inner (global_status, grading_logic)')
             .in('student_id', cohortUserIds)
-            .eq('exam_status', 'completed');
+            .eq('exam_status', 'completed')
+            .neq('exam.global_status', 'Hidden') // Graveyard enforcer for the entire cohort
+            .order('completed_at', { ascending: false });
 
           if (cohortAttempts && cohortAttempts.length > 0) {
-            const studentAverages: Record<string, { total: number; count: number }> = {};
+            // Group: student_id -> exam_id -> array of attempts
+            const studentExamGroups: Record<string, Record<string, any[]>> = {};
             
             cohortAttempts.forEach(ca => {
-              if (!studentAverages[ca.student_id]) studentAverages[ca.student_id] = { total: 0, count: 0 };
-              studentAverages[ca.student_id].total += (ca.final_score || 0);
-              studentAverages[ca.student_id].count += 1;
+              if (!studentExamGroups[ca.student_id]) studentExamGroups[ca.student_id] = {};
+              if (!studentExamGroups[ca.student_id][ca.exam_id]) studentExamGroups[ca.student_id][ca.exam_id] = [];
+              studentExamGroups[ca.student_id][ca.exam_id].push(ca);
             });
 
-            // Calculate averages and sort descending
+            const studentAverages: Record<string, { total: number; count: number }> = {};
+
+            Object.keys(studentExamGroups).forEach(studentId => {
+              studentAverages[studentId] = { total: 0, count: 0 };
+              const examsForStudent = studentExamGroups[studentId];
+              
+              Object.keys(examsForStudent).forEach(examId => {
+                const attemptsForExam = examsForStudent[examId];
+                const logic = attemptsForExam[0].exam?.grading_logic || 'highest';
+                
+                let score = 0;
+                if (logic === 'highest') {
+                  score = Math.max(...attemptsForExam.map(a => a.final_score || 0));
+                } else if (logic === 'average') {
+                  const sum = attemptsForExam.reduce((s, a) => s + (a.final_score || 0), 0);
+                  score = sum / attemptsForExam.length;
+                } else {
+                  score = attemptsForExam[0].final_score || 0; // 'latest'
+                }
+
+                studentAverages[studentId].total += score;
+                studentAverages[studentId].count += 1;
+              });
+            });
+
             const rankList = Object.keys(studentAverages).map(sid => ({
               id: sid,
               avg: studentAverages[sid].total / studentAverages[sid].count
@@ -137,15 +193,13 @@ export default function UnifiedPerformancePage() {
               const totalStudents = rankList.length;
               
               if (totalStudents > 1) {
-                // Calculate percentile (e.g. Top 20%)
                 const percentile = Math.ceil((myRank / totalStudents) * 100);
-                // Snap to clean tiers for display
                 if (percentile <= 10) calculatedRank = "Top 10%";
                 else if (percentile <= 25) calculatedRank = "Top 25%";
                 else if (percentile <= 50) calculatedRank = "Top 50%";
                 else calculatedRank = `Rank ${myRank} of ${totalStudents}`;
               } else {
-                calculatedRank = "Top 1%"; // Only student in cohort
+                calculatedRank = "Top 1%"; 
               }
             }
           }
@@ -251,11 +305,11 @@ export default function UnifiedPerformancePage() {
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Simulations Completed</span>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Unique Exams Completed</span>
               <p className="text-4xl font-bold text-slate-800 mt-2">{stats.completed}</p>
             </div>
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Average Score</span>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Overall Average</span>
               <p className="text-4xl font-bold text-blue-600 mt-2">{stats.average}%</p>
             </div>
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
@@ -273,15 +327,18 @@ export default function UnifiedPerformancePage() {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold uppercase text-slate-500 tracking-wider">
                     <th className="p-4">Exam Title</th>
-                    <th className="p-4">Score</th>
-                    <th className="p-4">Date Completed</th>
+                    <th className="p-4">Final Score</th>
+                    <th className="p-4">Date Evaluated</th>
                     <th className="p-4">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                   {historicalAttempts.map((exam) => (
                     <tr key={exam.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-4 font-bold text-slate-800">{exam.name}</td>
+                      <td className="p-4 font-bold text-slate-800">
+                        {exam.name}
+                        {exam.attemptsCount > 1 && <span className="ml-2 text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold uppercase tracking-wider">{exam.attemptsCount} Attempts ({exam.gradingLogic})</span>}
+                      </td>
                       <td className="p-4 font-bold text-slate-700">{exam.score}</td>
                       <td className="p-4 text-slate-500 font-bold">{exam.date}</td>
                       <td className="p-4">

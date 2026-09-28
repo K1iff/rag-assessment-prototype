@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { useToast } from '@/components/ui/ToastContext';
 
 interface Question {
   id: string;
@@ -14,6 +15,7 @@ interface Question {
 export default function LearnerActiveExamPage() {
   const router = useRouter();
   const params = useParams();
+  const { addToast } = useToast();
   
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -29,15 +31,23 @@ export default function LearnerActiveExamPage() {
   // New state to hold the start time for the database
   const [examStartTime, setExamStartTime] = useState<string>('');
 
-  // 1. Fetch Exam Details, Questions, and Initialize Timers
+  // 1. Fetch Exam Details, Validate Access, and Initialize Timers
   useEffect(() => {
     const fetchExamAndQuestions = async () => {
       const examId = params?.id as string; 
       if (!examId) return;
 
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        addToast("Authentication required.", "error");
+        router.push('/login');
+        return;
+      }
+
+      // Step A: Fetch Exam Configurations
       const { data: exam, error: examError } = await supabase
         .from('Exams')
-        .select('exam_title, time_limit_mins')
+        .select('exam_title, time_limit_mins, global_status, schedule_end, close_after_deadline, max_attempts')
         .eq('exam_id', examId)
         .single();
 
@@ -48,8 +58,39 @@ export default function LearnerActiveExamPage() {
         return;
       }
 
+      // Strict Access Control 1: Is the exam active?
+      if (exam.global_status !== 'Active') {
+        addToast("This exam is currently unavailable.", "error");
+        router.push('/learner/exams');
+        return;
+      }
+
+      // Strict Access Control 2: Has the deadline passed?
+      if (exam.close_after_deadline && exam.schedule_end) {
+        const deadline = new Date(exam.schedule_end).getTime();
+        if (Date.now() > deadline) {
+          addToast("The deadline for this exam has passed.", "error");
+          router.push('/learner/exams');
+          return;
+        }
+      }
+
+      // Strict Access Control 3: Has the student exceeded max attempts?
+      const { count: attemptCount, error: countError } = await supabase
+        .from('Student Attempts')
+        .select('attempt_id', { count: 'exact', head: true })
+        .eq('exam_id', examId)
+        .eq('student_id', user.id);
+
+      if (!countError && attemptCount !== null && attemptCount >= (exam.max_attempts || 1)) {
+        addToast(`You have reached the maximum allowed attempts (${exam.max_attempts}) for this exam.`, "error");
+        router.push('/learner/performance');
+        return;
+      }
+
       setExamTitle(exam.exam_title);
 
+      // Step B: Load Questions
       const { data: dbQuestions, error: qError } = await supabase
         .from('Mock Exam Items')
         .select('id, question, options, correct_answer')
@@ -93,7 +134,7 @@ export default function LearnerActiveExamPage() {
 
       setQuestions(formattedQuestions);
       
-      // Timer setup & Start Time Capture
+      // Step C: Timer setup & Start Time Capture
       const endTimeKey = `exam_endtime_${examId}`;
       const startTimeKey = `exam_starttime_${examId}`;
       
@@ -121,7 +162,7 @@ export default function LearnerActiveExamPage() {
     };
 
     fetchExamAndQuestions();
-  }, [params]);
+  }, [params, router, addToast]);
 
   // 2. Countdown Timer Interval
   useEffect(() => {
@@ -255,9 +296,11 @@ export default function LearnerActiveExamPage() {
         console.error("Failed to save individual answers:", answersError.message);
       }
 
+      addToast("Exam submitted successfully!", "success");
       router.push('/learner/performance');
     } catch (error) {
       console.error('Failed to submit exam:', error);
+      addToast("Failed to submit exam. Please try again.", "error");
       setIsSubmitting(false); // Unlock button if an error occurs so they can try again
     }
   };
