@@ -97,8 +97,8 @@ export default function LoginPage() {
       const userRoleString = roleMap[profileData.role_id] || 'Unknown';
 
       await supabase.from('AuditLogs').insert([{
-        user_email: email, // This is the email they just typed into the form
-        role: userRoleString, // Now perfectly accurate!
+        user_email: email, 
+        role: userRoleString, 
         action: 'Successful user login',
         type: 'User Activity',
         severity: 'Info',
@@ -119,9 +119,13 @@ export default function LoginPage() {
   return (
     <div className="max-w-md w-full bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
       
-      <div className="p-6 bg-slate-900 text-center">
-        <h1 className="text-2xl font-bold text-blue-400">RPLE Platform</h1>
-        <p className="text-sm text-slate-300 mt-1">Sign in to your account</p>
+      <div className="p-6 bg-slate-900 text-center flex flex-col items-center">
+        <img 
+          src="/logo.png" 
+          alt="Platform Logo" 
+          className="h-10 w-auto object-contain mb-1" 
+        />
+        <p className="text-sm text-slate-300 mt-2">Sign in to your account</p>
       </div>
 
       <div className="p-6">
