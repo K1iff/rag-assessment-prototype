@@ -117,15 +117,15 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="max-w-md w-full bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
+    <div className="max-w-md w-full bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden">
       
-      <div className="p-6 bg-slate-900 text-center flex flex-col items-center">
+      <div className="pt-10 pb-2 px-6 text-center flex flex-col items-center bg-white">
         <img 
-          src="/logo.png" 
-          alt="Platform Logo" 
-          className="h-10 w-auto object-contain mb-1" 
+          src="/deepcore-prep.png" 
+          alt="DeepCore Prep Logo" 
+          className="h-28 w-auto object-contain mix-blend-multiply" 
         />
-        <p className="text-sm text-slate-300 mt-2">Sign in to your account</p>
+        <p className="text-sm font-bold text-slate-500 mt-4">Sign in to your account</p>
       </div>
 
       <div className="p-6">
