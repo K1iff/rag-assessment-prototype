@@ -8,6 +8,9 @@ interface ScheduleItem {
   time: string;
   status: string;
   references: string[];
+  passingScore: number;         
+  highestScore: number | null;  
+  goalMet: boolean | null; 
 }
 
 import React, { useState, useEffect } from 'react';
@@ -39,7 +42,8 @@ export default function LearnerCalendarPage() {
           max_attempts,
           close_after_deadline,
           global_status,
-          attempts:"Student Attempts" ( attempt_id )
+          passing_score,
+          attempts:"Student Attempts" ( attempt_id, final_score )
         `)
         .neq('global_status', 'Hidden')
         .order('schedule_start', { ascending: true });
@@ -57,8 +61,16 @@ export default function LearnerCalendarPage() {
         const now = new Date();
         
         // Count existing attempts (RLS guarantees these belong to the current user)
+        const attempts = exam.attempts || [];
         const attemptCount = exam.attempts?.length || 0;
         const maxAttempts = exam.max_attempts || 1;
+        const targetScore = exam.passing_score || 75; // Default to 75 if not set in DB
+
+        // Find their best score out of all attempts
+        let highestScore = null;
+        if (attemptCount > 0) {
+          highestScore = Math.max(...attempts.map((a: any) => a.final_score || 0));
+        }
         
         // Determine the dynamic status based on new attempt/deadline rules
         let currentStatus = 'Upcoming';
@@ -69,6 +81,14 @@ export default function LearnerCalendarPage() {
           currentStatus = 'Closed';
         } else if (now >= examDate) {
           currentStatus = 'Pending';
+        }
+
+        // Evaluate if the goal was met
+        let goalMet: boolean | null = null;
+        if (currentStatus === 'Completed') {
+          goalMet = highestScore !== null && highestScore >= targetScore;
+        } else if (currentStatus === 'Closed') {
+          goalMet = false; // Missed exams automatically fail the goal
         }
 
         let parsedRefs = ['Standard Syllabus Guide'];
@@ -83,7 +103,10 @@ export default function LearnerCalendarPage() {
           date: examDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
           time: examDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
           status: currentStatus,
-          references: parsedRefs
+          references: parsedRefs,
+          passingScore: targetScore,
+          highestScore,
+          goalMet
         };
       });
 
@@ -270,24 +293,18 @@ export default function LearnerCalendarPage() {
                 weeklySchedule.map((exam, idx) => (
                   <li key={idx} className="flex items-start gap-3">
                     
-                    {/* Dynamic Icon */}
-                    {exam.status === 'Completed' ? (
+                    {/* Dynamic Goal Icon */}
+                    {exam.goalMet === true ? (
                       <span className="text-emerald-500 mt-0.5">✓</span>
-                    ) : exam.status === 'Pending' ? (
-                      <span className="text-blue-500 mt-0.5">○</span>
-                    ) : exam.status === 'Closed' ? (
+                    ) : exam.goalMet === false ? (
                       <span className="text-rose-400 mt-0.5">✗</span>
                     ) : (
-                      <span className="text-slate-300 mt-0.5">○</span>
+                      <span className="text-blue-500 mt-0.5">○</span>
                     )}
                     
-                    {/* Dynamic Text with strikethrough for completed/closed items */}
-                    <span className={exam.status === 'Completed' || exam.status === 'Closed' ? 'line-through text-slate-400' : 'text-slate-600'}>
-                      {exam.status === 'Completed' 
-                        ? `Completed: ${exam.task}` 
-                        : exam.status === 'Closed'
-                        ? `Missed: ${exam.task}`
-                        : `Prepare for the upcoming ${exam.task}.`}
+                    {/* Goal-Oriented Text (Strikethrough if resolved either way) */}
+                    <span className={exam.goalMet !== null ? 'line-through text-slate-400' : 'text-slate-600'}>
+                      Score {exam.passingScore}% or higher on {exam.task}
                     </span>
                   </li>
                 ))
