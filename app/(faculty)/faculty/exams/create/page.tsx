@@ -44,6 +44,19 @@ type Cohort = { id: string; name: string };
 
 const getSourceFromPath = (path: string) => path.split('/').pop() || path;
 
+// Converts Local HTML input format -> Strict UTC string for the database
+const localToUTC = (localString: string | null | undefined): string | null => {
+  if (!localString) return null;
+  // Manually split the string to avoid browser guessing games
+  const [datePart, timePart] = localString.split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hours, minutes] = timePart.split(':').map(Number);
+  
+  // This constructor explicitly forces the computer's local timezone
+  const d = new Date(year, month - 1, day, hours, minutes);
+  return d.toISOString();
+};
+
 export default function CreateExamPage() {
   const router = useRouter();
   const { addToast } = useToast();
@@ -203,13 +216,17 @@ export default function CreateExamPage() {
       : customBlocks.reduce((acc, block) => acc + block.count, 0);
     const exactPassingScore = Math.round(totalItems * (passingScorePercent / 100));
 
+    // Convert Local inputs -> strict UTC before inserting into the database
+    const scheduleStartUTC = localToUTC(scheduleStart);
+    const scheduleEndUTC = localToUTC(scheduleEnd);
+
     // 1. Insert parent record with status 'Generating' AND new settings
     const { error: dbError } = await supabase.from('Exams').insert({
       exam_id: sessionUUID,
       exam_title: examTitle,
       exam_subject: subject,
-      schedule_start: scheduleStart,
-      schedule_end: scheduleEnd,
+      schedule_start: scheduleStartUTC, 
+      schedule_end: scheduleEndUTC,
       passing_score: exactPassingScore,
       references: selectedMaterials, 
       time_limit_mins: timeLimit,
