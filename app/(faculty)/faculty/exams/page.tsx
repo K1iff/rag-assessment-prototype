@@ -7,6 +7,7 @@ import { usePagination } from '@/hooks/usePagination';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/components/ui/ToastContext';
 import { useRegeneration } from '@/hooks/useRegeneration';
+import { useSearchParams } from 'next/navigation';
 
 // --- Types ---
 interface FacultyExam {
@@ -139,6 +140,7 @@ const localToUTC = (localString: string | null | undefined): string | null => {
 export default function FacultyExamsPage() {
   const router = useRouter();
   const { addToast } = useToast();
+  const searchParams = useSearchParams();
 
   const { regenerateItem, status: regenStatus, progressDetails: regenProgress } = useRegeneration();
 
@@ -188,6 +190,25 @@ export default function FacultyExamsPage() {
   const [isFetchingAnalytics, setIsFetchingAnalytics] = useState(false);
 
   const [questionAnalytics, setQuestionAnalytics] = useState<any[]>([]);
+
+  useEffect(() => {
+    const passedExamId = searchParams.get('examId');
+    const passedView = searchParams.get('view');
+
+    if (passedExamId) {
+      // Open the exam
+      setSelectedExam(passedExamId);
+
+      // Route to the correct tab based on the URL parameter
+      if (passedView === 'review') {
+        setExamTab('questions');
+      } else if (passedView === 'results') {
+        setExamTab('question_analytics'); 
+      } else if (passedView === 'edit') {
+        setExamTab('settings');
+      }
+    }
+  }, [searchParams]);
 
   // --- Fetch Exams ---
   useEffect(() => {
