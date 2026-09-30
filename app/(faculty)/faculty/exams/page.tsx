@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDebounce } from '@/hooks/useDebounce';
 import { usePagination } from '@/hooks/usePagination';
@@ -137,7 +137,7 @@ const localToUTC = (localString: string | null | undefined): string | null => {
   return d.toISOString();
 };
 
-export default function FacultyExamsPage() {
+function FacultyExamsContent() {
   const router = useRouter();
   const { addToast } = useToast();
   const searchParams = useSearchParams();
@@ -1583,5 +1583,19 @@ export default function FacultyExamsPage() {
       </div>
       )}
     </div>
+  );
+}
+
+export default function FacultyExamsPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
+          Loading exam data...
+        </div>
+      </div>
+    }>
+      <FacultyExamsContent />
+    </Suspense>
   );
 }
