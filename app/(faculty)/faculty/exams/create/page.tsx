@@ -228,6 +228,7 @@ export default function CreateExamPage() {
       schedule_start: scheduleStartUTC, 
       schedule_end: scheduleEndUTC,
       passing_score: exactPassingScore,
+      passing_percentage: passingScorePercent,
       references: selectedMaterials, 
       time_limit_mins: timeLimit,
       global_status: 'Generating',
@@ -254,6 +255,41 @@ export default function CreateExamPage() {
       setErrors({ database: `Failed to assign cohorts: ${junctionError.message}` });
       setIsSubmitting(false);
       return;
+    }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: userData } = await supabase
+        .from('Users')
+        .select(`
+          email,
+          Roles ( role_name )
+        `)
+        .eq('user_id', user.id)
+        .single();
+
+      const userEmail = userData?.email || user.email || 'System';
+      
+      let roleName = 'Teacher';
+      if (userData?.Roles) {
+        if (Array.isArray(userData.Roles) && userData.Roles.length > 0) {
+          roleName = (userData.Roles[0] as any).role_name || 'Teacher';
+        } else if (!Array.isArray(userData.Roles)) {
+          roleName = (userData.Roles as any).role_name || 'Teacher';
+        }
+      }
+
+      await supabase.from('AuditLogs').insert([
+        {
+          user_email: userEmail,
+          role: roleName,
+          action: `Created new exam: "${examTitle}" (${subject})`,
+          type: 'AI Engine',
+          severity: 'Info',
+          ip_address: 'Internal',
+          user_agent: navigator.userAgent
+        }
+      ]);
     }
 
     // 3. Trigger the asynchronous generation hook

@@ -29,8 +29,7 @@ export default function LearnerCalendarPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Query Exams and join the logged-in user's attempts
-      // Graveyard Enforcer: Filter out 'Hidden' exams
+      // Query Exams and join attempts, including passing_percentage
       const { data: exams, error } = await supabase
         .from('Exams')
         .select(`
@@ -43,6 +42,7 @@ export default function LearnerCalendarPage() {
           close_after_deadline,
           global_status,
           passing_score,
+          passing_percentage,
           attempts:"Student Attempts" ( attempt_id, final_score )
         `)
         .neq('global_status', 'Hidden')
@@ -60,11 +60,12 @@ export default function LearnerCalendarPage() {
         const examEndDate = exam.schedule_end ? new Date(exam.schedule_end) : null;
         const now = new Date();
         
-        // Count existing attempts (RLS guarantees these belong to the current user)
         const attempts = exam.attempts || [];
         const attemptCount = exam.attempts?.length || 0;
         const maxAttempts = exam.max_attempts || 1;
-        const targetScore = exam.passing_score || 75; // Default to 75 if not set in DB
+        
+        // Use passing_percentage if available, otherwise fallback to passing_score or 75
+        const targetPercentage = exam.passing_percentage || exam.passing_score || 75;
 
         // Find their best score out of all attempts
         let highestScore = null;
@@ -72,7 +73,7 @@ export default function LearnerCalendarPage() {
           highestScore = Math.max(...attempts.map((a: any) => a.final_score || 0));
         }
         
-        // Determine the dynamic status based on new attempt/deadline rules
+        // Determine the dynamic status based on attempt/deadline rules
         let currentStatus = 'Upcoming';
         
         if (attemptCount >= maxAttempts) {
@@ -83,12 +84,12 @@ export default function LearnerCalendarPage() {
           currentStatus = 'Pending';
         }
 
-        // Evaluate if the goal was met
+        // Evaluate if the goal was met (comparing score percentage against target percentage)
         let goalMet: boolean | null = null;
         if (currentStatus === 'Completed') {
-          goalMet = highestScore !== null && highestScore >= targetScore;
+          goalMet = highestScore !== null && highestScore >= targetPercentage;
         } else if (currentStatus === 'Closed') {
-          goalMet = false; // Missed exams automatically fail the goal
+          goalMet = false; 
         }
 
         let parsedRefs = ['Standard Syllabus Guide'];
@@ -104,7 +105,7 @@ export default function LearnerCalendarPage() {
           time: examDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
           status: currentStatus,
           references: parsedRefs,
-          passingScore: targetScore,
+          passingScore: targetPercentage,
           highestScore,
           goalMet
         };
@@ -134,18 +135,16 @@ export default function LearnerCalendarPage() {
         const day = parseInt(match[0]);
         const existingStatus = examDaysMap.get(day);
 
-        // Priority Hierarchy: Missed (Red) > Pending/Upcoming (Blue) > Completed (Gray)
         if (schedule.status === 'Closed') {
-          examDaysMap.set(day, 'Closed'); // Red
+          examDaysMap.set(day, 'Closed'); 
         } else if ((schedule.status === 'Pending' || schedule.status === 'Upcoming') && existingStatus !== 'Closed') {
-          examDaysMap.set(day, 'Pending'); // Blue
+          examDaysMap.set(day, 'Pending'); 
         } else if (!existingStatus) {
-          examDaysMap.set(day, 'Completed'); // Gray
+          examDaysMap.set(day, 'Completed'); 
         }
       }
     });
 
-  // Filter for the notification banners
   const missedExams = weeklySchedule.filter(
     (exam) => exam.status === 'Closed' && exam.id && !dismissedNotifications.includes(exam.id)
   );
@@ -245,22 +244,17 @@ export default function LearnerCalendarPage() {
         </div>
 
         <div className="lg:col-span-1 space-y-6">
-          
           <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
             <h3 className="font-bold text-slate-800 mb-4">{currentMonthName} {currentYear} Schedule</h3>
             <div className="grid grid-cols-7 gap-1 text-center text-xs font-bold text-slate-400 mb-2">
               <div>Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div>
             </div>
             <div className="grid grid-cols-7 gap-1 text-center text-sm font-bold text-slate-700">
-              
               {Array.from({ length: firstDayOfMonth }).map((_, i) => (
                 <div key={`empty-${i}`} className="p-1.5"></div>
               ))}
-              
               {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                 const dayStatus = examDaysMap.get(day);
-                
-                // Determine the highlight color based on the status
                 let highlightClass = 'hover:bg-slate-100 text-slate-700';
                 
                 if (dayStatus === 'Closed') {
@@ -286,14 +280,11 @@ export default function LearnerCalendarPage() {
           <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
             <h3 className="font-bold text-slate-800 mb-4">Weekly Goals Tracker</h3>
             <ul className="space-y-3 text-sm text-slate-600 font-bold">
-              
               {weeklySchedule.length === 0 && !isLoading ? (
                 <li className="text-slate-400 text-xs italic">No scheduled exams this week.</li>
               ) : (
                 weeklySchedule.map((exam, idx) => (
                   <li key={idx} className="flex items-start gap-3">
-                    
-                    {/* Dynamic Goal Icon */}
                     {exam.goalMet === true ? (
                       <span className="text-emerald-500 mt-0.5">✓</span>
                     ) : exam.goalMet === false ? (
@@ -301,15 +292,12 @@ export default function LearnerCalendarPage() {
                     ) : (
                       <span className="text-blue-500 mt-0.5">○</span>
                     )}
-                    
-                    {/* Goal-Oriented Text (Strikethrough if resolved either way) */}
                     <span className={exam.goalMet !== null ? 'line-through text-slate-400' : 'text-slate-600'}>
                       Score {exam.passingScore}% or higher on {exam.task}
                     </span>
                   </li>
                 ))
               )}
-              
             </ul>
           </div>
 
