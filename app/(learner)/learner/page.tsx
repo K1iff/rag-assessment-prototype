@@ -29,8 +29,33 @@ export default function LearnerCalendarPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Query Exams and join the logged-in user's attempts
-      // Graveyard Enforcer: Filter out 'Hidden' exams
+      // 1. Explicitly fetch the student's cohort_id
+      const { data: userData } = await supabase
+        .from('Users')
+        .select('cohort_id')
+        .eq('user_id', user.id)
+        .single();
+
+      if (!userData?.cohort_id) {
+        setIsLoading(false);
+        return;
+      }
+
+      // 2. Fetch Exam IDs strictly linked to this student's cohort
+      const { data: cohortExams } = await supabase
+        .from('Exam_Cohorts')
+        .select('exam_id')
+        .eq('cohort_id', userData.cohort_id);
+
+      const examIds = cohortExams?.map(ce => ce.exam_id) || [];
+
+      if (examIds.length === 0) {
+        setWeeklySchedule([]);
+        setIsLoading(false);
+        return;
+      }
+
+      // 3. Safely fetch ONLY the exams for this cohort that are or were available to students
       const { data: exams, error } = await supabase
         .from('Exams')
         .select(`
@@ -45,7 +70,8 @@ export default function LearnerCalendarPage() {
           passing_score,
           attempts:"Student Attempts" ( attempt_id, final_score )
         `)
-        .neq('global_status', 'Hidden')
+        .in('exam_id', examIds)
+        .in('global_status', ['Active', 'Inactive']) // <--- FIXED: Explicitly allows only deployed exams
         .order('schedule_start', { ascending: true });
 
       if (error) {
@@ -60,11 +86,11 @@ export default function LearnerCalendarPage() {
         const examEndDate = exam.schedule_end ? new Date(exam.schedule_end) : null;
         const now = new Date();
         
-        // Count existing attempts (RLS guarantees these belong to the current user)
+        // Count existing attempts
         const attempts = exam.attempts || [];
         const attemptCount = exam.attempts?.length || 0;
         const maxAttempts = exam.max_attempts || 1;
-        const targetScore = exam.passing_score || 75; // Default to 75 if not set in DB
+        const targetScore = exam.passing_score || 75;
 
         // Find their best score out of all attempts
         let highestScore = null;
@@ -72,15 +98,19 @@ export default function LearnerCalendarPage() {
           highestScore = Math.max(...attempts.map((a: any) => a.final_score || 0));
         }
         
-        // Determine the dynamic status based on new attempt/deadline rules
+        // Determine the dynamic status based on attempt limits and time
         let currentStatus = 'Upcoming';
         
         if (attemptCount >= maxAttempts) {
           currentStatus = 'Completed';
-        } else if (examEndDate && exam.close_after_deadline && now > examEndDate) {
+        } else if (exam.global_status === 'Inactive' || (examEndDate && exam.close_after_deadline && now > examEndDate)) {
           currentStatus = 'Closed';
         } else if (now >= examDate) {
-          currentStatus = 'Pending';
+          if (exam.global_status === 'Active') {
+            currentStatus = 'Available';
+          } else {
+            currentStatus = 'Awaiting Teacher Activation';
+          }
         }
 
         // Evaluate if the goal was met
@@ -88,7 +118,7 @@ export default function LearnerCalendarPage() {
         if (currentStatus === 'Completed') {
           goalMet = highestScore !== null && highestScore >= targetScore;
         } else if (currentStatus === 'Closed') {
-          goalMet = false; // Missed exams automatically fail the goal
+          goalMet = false; 
         }
 
         let parsedRefs = ['Standard Syllabus Guide'];
@@ -134,24 +164,23 @@ export default function LearnerCalendarPage() {
         const day = parseInt(match[0]);
         const existingStatus = examDaysMap.get(day);
 
-        // Priority Hierarchy: Missed (Red) > Pending/Upcoming (Blue) > Completed (Gray)
+        // Priority Hierarchy
         if (schedule.status === 'Closed') {
-          examDaysMap.set(day, 'Closed'); // Red
-        } else if ((schedule.status === 'Pending' || schedule.status === 'Upcoming') && existingStatus !== 'Closed') {
-          examDaysMap.set(day, 'Pending'); // Blue
+          examDaysMap.set(day, 'Closed'); 
+        } else if ((schedule.status === 'Available' || schedule.status === 'Upcoming' || schedule.status === 'Awaiting Teacher Activation') && existingStatus !== 'Closed') {
+          examDaysMap.set(day, 'Available'); 
         } else if (!existingStatus) {
-          examDaysMap.set(day, 'Completed'); // Gray
+          examDaysMap.set(day, 'Completed'); 
         }
       }
     });
 
-  // Filter for the notification banners
   const missedExams = weeklySchedule.filter(
     (exam) => exam.status === 'Closed' && exam.id && !dismissedNotifications.includes(exam.id)
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24">
 
       {missedExams.length > 0 && (
         <div className="space-y-3 mb-6 animate-in fade-in slide-in-from-top-4 duration-300">
@@ -198,8 +227,9 @@ export default function LearnerCalendarPage() {
                   </div>
                   <span className={`px-3 py-1.5 rounded-full text-xs font-bold shrink-0 ${
                     schedule.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' : 
-                    schedule.status === 'Pending' ? 'bg-blue-100 text-blue-800' : 
+                    schedule.status === 'Available' ? 'bg-blue-100 text-blue-800' : 
                     schedule.status === 'Closed' ? 'bg-rose-100 text-rose-800' :
+                    schedule.status === 'Awaiting Teacher Activation' ? 'bg-amber-100 text-amber-800' :
                     'bg-slate-100 text-slate-600'
                   }`}>
                     {schedule.status}
@@ -223,9 +253,14 @@ export default function LearnerCalendarPage() {
                       View Performance Dashboard
                     </button>
                   )}
-                  {schedule.status === 'Pending' && (
-                    <button onClick={() => router.push('/learner/exams')} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm">
-                      Open Exam Selection
+                  {schedule.status === 'Available' && (
+                    <button onClick={() => router.push(`/learner/exams/${schedule.id}`)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm">
+                      Start Exam
+                    </button>
+                  )}
+                  {schedule.status === 'Awaiting Teacher Activation' && (
+                    <button disabled className="px-4 py-2 bg-amber-50 text-amber-500 border border-amber-200 text-xs font-bold rounded-lg cursor-not-allowed">
+                      Pending Teacher Approval
                     </button>
                   )}
                   {schedule.status === 'Closed' && (
@@ -260,12 +295,11 @@ export default function LearnerCalendarPage() {
               {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                 const dayStatus = examDaysMap.get(day);
                 
-                // Determine the highlight color based on the status
                 let highlightClass = 'hover:bg-slate-100 text-slate-700';
                 
                 if (dayStatus === 'Closed') {
                   highlightClass = 'bg-rose-500 text-white shadow-sm ring-2 ring-rose-200 ring-offset-1';
-                } else if (dayStatus === 'Pending') {
+                } else if (dayStatus === 'Available') {
                   highlightClass = 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-200 ring-offset-1';
                 } else if (dayStatus === 'Completed') {
                   highlightClass = 'bg-slate-400 text-white shadow-sm ring-2 ring-slate-200 ring-offset-1';
@@ -293,7 +327,6 @@ export default function LearnerCalendarPage() {
                 weeklySchedule.map((exam, idx) => (
                   <li key={idx} className="flex items-start gap-3">
                     
-                    {/* Dynamic Goal Icon */}
                     {exam.goalMet === true ? (
                       <span className="text-emerald-500 mt-0.5">✓</span>
                     ) : exam.goalMet === false ? (
@@ -302,7 +335,6 @@ export default function LearnerCalendarPage() {
                       <span className="text-blue-500 mt-0.5">○</span>
                     )}
                     
-                    {/* Goal-Oriented Text (Strikethrough if resolved either way) */}
                     <span className={exam.goalMet !== null ? 'line-through text-slate-400' : 'text-slate-600'}>
                       Score {exam.passingScore}% or higher on {exam.task}
                     </span>

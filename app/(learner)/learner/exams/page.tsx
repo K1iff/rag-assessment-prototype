@@ -10,6 +10,7 @@ interface ScheduledExam {
   title: string;
   subject: string;
   deadline: string;
+  schedule_start: string;
   duration: string;
   status: string;
   score: string | null;
@@ -72,24 +73,25 @@ export default function ScheduledExamsPage() {
         return;
       }
 
-      // 3. Fetch ONLY Active exams before the deadline (Pending and Inactive are hidden completely)
-      const nowIso = new Date().toISOString();
-
+      // 3. Fetch all deployed exams (Active/Inactive) - exactly like the Calendar page
+      // We removed .gt("schedule_end") so the JS logic can handle deadlines properly
       const { data: exams, error: examsError } = await supabase
         .from("Exams")
         .select(`
           exam_id,
           exam_title,
           exam_subject,
+          schedule_start,
           schedule_end,
           time_limit_mins,
           global_status,
+          close_after_deadline,
+          max_attempts,
           attempts:"Student Attempts" ( exam_status, final_score, student_id )
         `)
         .in("exam_id", examIds)
-        .eq("global_status", "Active") // Ensures Pending/Inactive are ignored
-        .gt("schedule_end", nowIso) // Ensures the deadline has not passed
-        .order("schedule_end", { ascending: true });
+        .in("global_status", ["Active", "Inactive"]) 
+        .order("schedule_start", { ascending: true });
 
       if (examsError) {
         console.error("Error fetching exams:", examsError.message);
@@ -105,31 +107,42 @@ export default function ScheduledExamsPage() {
       ];
 
       const formattedExams = exams.map((exam: any, index: number) => {
-        const studentAttempt = exam.attempts?.find(
-          (att: any) => att.student_id === user.id
-        );
-        const deadlineDate = new Date(exam.schedule_end);
+        const myAttempts = exam.attempts?.filter((att: any) => att.student_id === user.id) || [];
+        const attemptCount = myAttempts.length;
+        const maxAttempts = exam.max_attempts || 1;
+
+        const startDate = new Date(exam.schedule_start);
+        const endDate = exam.schedule_end ? new Date(exam.schedule_end) : null;
+        const now = new Date();
 
         let currentStatus = "Available";
-        let displayScore = null;
+        let displayScore = "N/A";
 
-        if (studentAttempt?.exam_status === "completed") {
+        // Extract the highest score if they have multiple attempts
+        if (attemptCount > 0) {
+          const scores = myAttempts.map((a: any) => a.final_score).filter((s: any) => s !== null);
+          if (scores.length > 0) displayScore = `${Math.max(...scores)}%`;
+        }
+
+        // Apply identical Status Logic as the Calendar Page
+        if (attemptCount >= maxAttempts) {
           currentStatus = "Finished";
-          displayScore = studentAttempt.final_score !== null && studentAttempt.final_score !== undefined
-            ? `${studentAttempt.final_score}%`
-            : "N/A";
-        } else if (studentAttempt?.exam_status === "in_progress") {
-          currentStatus = "In Progress";
-          displayScore = studentAttempt.final_score !== null && studentAttempt.final_score !== undefined
-            ? `${studentAttempt.final_score}%`
-            : "N/A";
+        } else if (exam.global_status === "Inactive" || (endDate && exam.close_after_deadline && now > endDate)) {
+          currentStatus = "Closed";
+        } else if (now < startDate) {
+          currentStatus = "Upcoming";
+        } else if (attemptCount > 0 && attemptCount < maxAttempts) {
+          currentStatus = "Retake Available";
         }
 
         return {
           id: exam.exam_id,
           title: exam.exam_title,
           subject: exam.exam_subject || "General Comprehensive",
-          deadline: `${deadlineDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} at ${deadlineDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
+          schedule_start: exam.schedule_start,
+          deadline: endDate 
+            ? `${endDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} at ${endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
+            : "No Closing Deadline",
           duration: `${exam.time_limit_mins || 60} minutes`,
           status: currentStatus,
           score: displayScore,
@@ -298,7 +311,7 @@ export default function ScheduledExamsPage() {
           ))}
         </div>
       ) : scheduledExamsList.length === 0 ? (
-        <div className="p-8 text-center text-slate-500 font-bold">
+        <div className="p-8 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
           No active exams are currently available for your account.
         </div>
       ) : (
@@ -318,12 +331,16 @@ export default function ScheduledExamsPage() {
                     </h3>
                     <span
                       className={`shrink-0 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider ${
-                        exam.status === "Available"
+                        exam.status === "Available" || exam.status === "Retake Available"
                           ? "bg-blue-100 text-blue-800"
-                          : "bg-slate-100 text-slate-600"
+                          : exam.status === "Upcoming"
+                          ? "bg-slate-100 text-slate-600"
+                          : exam.status === "Closed"
+                          ? "bg-rose-100 text-rose-800"
+                          : "bg-emerald-100 text-emerald-800"
                       }`}
                     >
-                      {exam.status === "Finished" || exam.status === "In Progress"
+                      {exam.status === "Finished" || exam.status === "Retake Available"
                         ? `Score: ${exam.score}`
                         : exam.status}
                     </span>
@@ -352,17 +369,36 @@ export default function ScheduledExamsPage() {
                     >
                       Take Exam
                     </button>
-                  ) : exam.status === "In Progress" ? (
+                  ) : exam.status === "Retake Available" ? (
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => router.push(`/learner/exams/${exam.id}/review`)}
+                        className="flex-1 py-2.5 bg-amber-50 text-amber-700 border border-amber-200 text-sm font-bold rounded-lg hover:bg-amber-100 transition-colors shadow-sm"
+                      >
+                        Review
+                      </button>
+                      <button
+                        onClick={() => setSelectedExam(exam.id)}
+                        className="flex-1 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                      >
+                        Retake
+                      </button>
+                    </div>
+                  ) : exam.status === "Upcoming" ? (
                     <button
-                      onClick={() => router.push(`/learner/exams/${exam.id}/review`)}
-                      className="w-full py-2.5 bg-amber-50 text-amber-700 border border-amber-200 text-sm font-bold rounded-lg hover:bg-amber-100 transition-colors shadow-sm"
+                      disabled
+                      className="w-full py-2.5 bg-slate-50 text-slate-400 border border-slate-200 text-sm font-bold rounded-lg cursor-not-allowed"
                     >
-                      Review & Retake
+                      Starts {new Date(exam.schedule_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </button>
                   ) : (
                     <button
                       onClick={() => router.push(`/learner/exams/${exam.id}/review`)}
-                      className="w-full py-2.5 bg-slate-100 text-slate-700 border border-slate-200 text-sm font-bold rounded-lg hover:bg-slate-200 transition-colors shadow-sm"
+                      className={`w-full py-2.5 text-sm font-bold rounded-lg transition-colors shadow-sm ${
+                        exam.status === "Closed" 
+                          ? "bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100"
+                          : "bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200"
+                      }`}
                     >
                       View Performance Summary
                     </button>
@@ -375,4 +411,4 @@ export default function ScheduledExamsPage() {
       )}
     </div>
   );
-} 
+}
