@@ -2,8 +2,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { usePermissions } from '@/hooks/usePermissions'; // Import the new security hook
 
 export default function FacultyMaterialsPage() {
+  // Security Hook
+  const { uploadDocs, isLoading: isPermissionsLoading } = usePermissions();
+
   const [activeTab, setActiveTab] = useState<'action' | 'active' | 'archive'>('action');
   
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -76,7 +80,7 @@ export default function FacultyMaterialsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile) return;
+    if (!selectedFile || !uploadDocs) return; // Extra check to prevent submission
     setIsUploading(true);
     
     const { data: { user } } = await supabase.auth.getUser();
@@ -130,9 +134,13 @@ export default function FacultyMaterialsPage() {
           <h1 className="text-2xl font-bold text-slate-800">Reference Materials Request</h1>
           <p className="text-sm text-slate-500 mt-1 font-bold">Request syllabus, reading materials, and rubrics to be added to the AI knowledge base.</p>
         </div>
-        <button onClick={() => setShowUploadModal(true)} className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap">
-          Request File Upload
-        </button>
+        
+        {/* Security Gate: Only show button if user has uploadDocs permission */}
+        {!isPermissionsLoading && uploadDocs && (
+          <button onClick={() => setShowUploadModal(true)} className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap">
+            Request File Upload
+          </button>
+        )}
       </div>
 
       <div className="flex gap-4 border-b border-slate-200">
@@ -208,8 +216,8 @@ export default function FacultyMaterialsPage() {
         </div>
       </div>
 
-      {/* Upload Modal */}
-      {showUploadModal && (
+      {/* Upload Modal - Only renders if they somehow trigger it while missing permissions */}
+      {showUploadModal && uploadDocs && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200">
             <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
