@@ -56,6 +56,7 @@ export default function LearnerCalendarPage() {
       }
 
       // 3. Safely fetch ONLY the exams for this cohort that are or were available to students
+      // Merged: Included passing_percentage from incoming branch
       const { data: exams, error } = await supabase
         .from('Exams')
         .select(`
@@ -68,10 +69,11 @@ export default function LearnerCalendarPage() {
           close_after_deadline,
           global_status,
           passing_score,
+          passing_percentage,
           attempts:"Student Attempts" ( attempt_id, final_score )
         `)
         .in('exam_id', examIds)
-        .in('global_status', ['Active', 'Inactive']) // <--- FIXED: Explicitly allows only deployed exams
+        .in('global_status', ['Active', 'Inactive']) 
         .order('schedule_start', { ascending: true });
 
       if (error) {
@@ -86,11 +88,12 @@ export default function LearnerCalendarPage() {
         const examEndDate = exam.schedule_end ? new Date(exam.schedule_end) : null;
         const now = new Date();
         
-        // Count existing attempts
         const attempts = exam.attempts || [];
         const attemptCount = exam.attempts?.length || 0;
         const maxAttempts = exam.max_attempts || 1;
-        const targetScore = exam.passing_score || 75;
+        
+        // Merged: Use passing_percentage if available, otherwise fallback to passing_score or 75
+        const targetPercentage = exam.passing_percentage || exam.passing_score || 75;
 
         // Find their best score out of all attempts
         let highestScore = null;
@@ -113,10 +116,10 @@ export default function LearnerCalendarPage() {
           }
         }
 
-        // Evaluate if the goal was met
+        // Evaluate if the goal was met (comparing score percentage against target percentage)
         let goalMet: boolean | null = null;
         if (currentStatus === 'Completed') {
-          goalMet = highestScore !== null && highestScore >= targetScore;
+          goalMet = highestScore !== null && highestScore >= targetPercentage;
         } else if (currentStatus === 'Closed') {
           goalMet = false; 
         }
@@ -134,7 +137,7 @@ export default function LearnerCalendarPage() {
           time: examDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
           status: currentStatus,
           references: parsedRefs,
-          passingScore: targetScore,
+          passingScore: targetPercentage,
           highestScore,
           goalMet
         };
@@ -320,13 +323,11 @@ export default function LearnerCalendarPage() {
           <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
             <h3 className="font-bold text-slate-800 mb-4">Weekly Goals Tracker</h3>
             <ul className="space-y-3 text-sm text-slate-600 font-bold">
-              
               {weeklySchedule.length === 0 && !isLoading ? (
                 <li className="text-slate-400 text-xs italic">No scheduled exams this week.</li>
               ) : (
                 weeklySchedule.map((exam, idx) => (
                   <li key={idx} className="flex items-start gap-3">
-                    
                     {exam.goalMet === true ? (
                       <span className="text-emerald-500 mt-0.5">✓</span>
                     ) : exam.goalMet === false ? (
@@ -334,14 +335,12 @@ export default function LearnerCalendarPage() {
                     ) : (
                       <span className="text-blue-500 mt-0.5">○</span>
                     )}
-                    
                     <span className={exam.goalMet !== null ? 'line-through text-slate-400' : 'text-slate-600'}>
                       Score {exam.passingScore}% or higher on {exam.task}
                     </span>
                   </li>
                 ))
               )}
-              
             </ul>
           </div>
 
