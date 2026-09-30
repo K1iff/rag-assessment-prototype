@@ -228,6 +228,7 @@ export default function CreateExamPage() {
       schedule_start: scheduleStartUTC, 
       schedule_end: scheduleEndUTC,
       passing_score: exactPassingScore,
+      passing_percentage: passingScorePercent,
       references: selectedMaterials, 
       time_limit_mins: timeLimit,
       global_status: 'Generating',
