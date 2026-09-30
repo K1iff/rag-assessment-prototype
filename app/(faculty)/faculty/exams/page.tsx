@@ -15,6 +15,7 @@ interface FacultyExam {
   title: string;
   target: string;
   cohorts: string[];
+  cohortIds: string[]; // ADDED to track raw IDs for editing
   items: number;
   status: string;
   startDateStr: string;
@@ -162,6 +163,11 @@ function FacultyExamsContent() {
   const [selectedQuestions, setSelectedQuestions] = useState<string[]>([]);
   const [regeneratingItems, setRegeneratingItems] = useState<string[]>([]);
 
+  // Cohort Editing State
+  const [teacherCohorts, setTeacherCohorts] = useState<{id: string, name: string}[]>([]);
+  const [editSelectedCohorts, setEditSelectedCohorts] = useState<string[]>([]);
+  const [isCohortDropdownOpen, setIsCohortDropdownOpen] = useState(false);
+
   // Modals & Sub-views
   const [showRegenerateModal, setShowRegenerateModal] = useState(false);
   const [questionToRegenerate, setQuestionToRegenerate] = useState<null | string>(null);
@@ -210,18 +216,25 @@ function FacultyExamsContent() {
     }
   }, [searchParams]);
 
-  // --- Fetch Exams ---
+  // --- Fetch Exams & Cohorts ---
   useEffect(() => {
     const fetchFacultyExams = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // Fetch teacher's cohorts and map names for the editor
       const { data: userCohorts } = await supabase
         .from('Cohort Teachers')
-        .select('cohort_id')
+        .select('cohort_id, Cohorts(cohort_name)')
         .eq('teacher_id', user.id);
 
       const cohortIds = userCohorts?.map(c => c.cohort_id) || [];
+      const fetchedTeacherCohorts = userCohorts?.map(c => ({
+        id: c.cohort_id,
+        name: (c.Cohorts as any)?.cohort_name || 'Unknown Cohort'
+      })) || [];
+      
+      setTeacherCohorts(fetchedTeacherCohorts);
 
       if (cohortIds.length === 0) {
         setExams([]);
@@ -245,9 +258,9 @@ function FacultyExamsContent() {
       const { data: dbExams, error } = await supabase
         .from('Exams')
         .select(`
-          exam_id, exam_title, exam_subject, schedule_start, schedule_end, passing_score, time_limit_mins, global_status, references,
+          exam_id, exam_title, exam_subject, schedule_start, schedule_end, passing_score, passing_percentage, time_limit_mins, global_status, references,
           max_attempts, close_after_deadline, grading_logic,
-          Exam_Cohorts ( Cohorts ( cohort_name ) ),
+          Exam_Cohorts ( cohort_id, Cohorts ( cohort_name ) ),
           "Mock Exam Items" ( id )
         `)
         .in('exam_id', examIds)
@@ -258,20 +271,25 @@ function FacultyExamsContent() {
 
         const formattedExams = dbExams.map((exam: any, index: number) => {
           const cohortsList = exam.Exam_Cohorts?.map((ec: any) => ec.Cohorts?.cohort_name).filter(Boolean) || [];
+          const cohortIdList = exam.Exam_Cohorts?.map((ec: any) => ec.cohort_id).filter(Boolean) || [];
           const itemCount = exam['Mock Exam Items'] ? exam['Mock Exam Items'].length : 0;
+          
+          // Safely grab passing percentage, fallback to passing score if percentage is missing
+          const targetPassingScore = exam.passing_percentage || exam.passing_score || 0;
 
           return {
             id: exam.exam_id,
             title: exam.exam_title,
             target: exam.exam_subject || 'Comprehensive',
             cohorts: cohortsList,
+            cohortIds: cohortIdList,
             items: itemCount,
             status: exam.global_status || 'Pending',
             startDateStr: exam.schedule_start ? new Date(exam.schedule_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date',
             endDateStr: exam.schedule_end ? new Date(exam.schedule_end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date',
             scheduleStart: formatForInput(exam.schedule_start),
             scheduleEnd: formatForInput(exam.schedule_end),
-            passingScore: exam.passing_score || 0,
+            passingScore: targetPassingScore, 
             timeLimit: exam.time_limit_mins || 60,
             maxAttempts: exam.max_attempts || 1,
             closeAfterDeadline: exam.close_after_deadline ?? true,
@@ -484,6 +502,11 @@ function FacultyExamsContent() {
     setSelectedExam(exam.id);
     setSelectedStudentForReview(null);
     setHasAcknowledgedVoidWarning(false);
+    
+    // Setup cohorts for the edit view
+    setEditSelectedCohorts(exam.cohortIds || []);
+    setIsCohortDropdownOpen(false);
+
     if (exam.status === 'Pending') setExamTab('questions');
     else if (exam.status === 'Inactive') setExamTab('question_analytics');
     else setExamTab('settings');
@@ -492,6 +515,11 @@ function FacultyExamsContent() {
   const handleSaveSettings = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedExam) return;
+
+    if (editSelectedCohorts.length === 0) {
+      addToast('You must assign at least one cohort to this exam.', 'error');
+      return;
+    }
 
     const formData = new FormData(e.currentTarget);
     const title = formData.get('title') as string;
@@ -508,6 +536,7 @@ function FacultyExamsContent() {
     const scheduleStartUTC = localToUTC(rawScheduleStart);
     const scheduleEndUTC = localToUTC(rawScheduleEnd);
 
+    // 1. Update Core Exam settings
     const { error } = await supabase
       .from('Exams')
       .update({
@@ -524,25 +553,37 @@ function FacultyExamsContent() {
 
     if (error) {
       addToast(`Error saving settings: ${error.message}`, 'error');
-    } else {
-      const newStartDateStr = scheduleStartUTC ? new Date(scheduleStartUTC).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date';
-      const newEndDateStr = scheduleEndUTC ? new Date(scheduleEndUTC).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date';
-
-      setExams(prev => prev.map(ex => ex.id === selectedExam ? {
-        ...ex,
-        title,
-        scheduleStart: rawScheduleStart,
-        scheduleEnd: rawScheduleEnd,
-        timeLimit,
-        status,
-        startDateStr: newStartDateStr,
-        endDateStr: newEndDateStr,
-        maxAttempts,
-        gradingLogic,
-        closeAfterDeadline
-      } : ex));
-      addToast('Exam settings successfully updated.', 'success');
+      return;
     }
+
+    // 2. Synchronize Cohort assignments
+    const { error: deleteError } = await supabase.from('Exam_Cohorts').delete().eq('exam_id', selectedExam);
+    if (!deleteError) {
+      const cohortPayload = editSelectedCohorts.map(id => ({ exam_id: selectedExam, cohort_id: id }));
+      await supabase.from('Exam_Cohorts').insert(cohortPayload);
+    }
+
+    const newStartDateStr = scheduleStartUTC ? new Date(scheduleStartUTC).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date';
+    const newEndDateStr = scheduleEndUTC ? new Date(scheduleEndUTC).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date';
+    const mappedCohortNames = teacherCohorts.filter(c => editSelectedCohorts.includes(c.id)).map(c => c.name);
+
+    setExams(prev => prev.map(ex => ex.id === selectedExam ? {
+      ...ex,
+      title,
+      scheduleStart: rawScheduleStart,
+      scheduleEnd: rawScheduleEnd,
+      timeLimit,
+      status,
+      startDateStr: newStartDateStr,
+      endDateStr: newEndDateStr,
+      maxAttempts,
+      gradingLogic,
+      closeAfterDeadline,
+      cohortIds: editSelectedCohorts,
+      cohorts: mappedCohortNames
+    } : ex));
+    
+    addToast('Exam settings & cohorts successfully updated.', 'success');
   };
 
   const exportToCSV = () => {
@@ -917,6 +958,72 @@ function FacultyExamsContent() {
                    </div>
                  </div>
 
+                 {/* Editable Cohort Field */}
+                 <div className="grid grid-cols-1 gap-6">
+                   <div className="relative md:col-span-2">
+                     <label className="block text-sm font-bold text-slate-700 mb-2">Target Cohort(s)</label>
+                     <div 
+                       onClick={() => setIsCohortDropdownOpen(!isCohortDropdownOpen)}
+                       className="min-h-[46px] w-full px-3 py-2 border rounded-lg flex flex-wrap gap-2 items-center cursor-pointer bg-white transition-colors border-slate-300 hover:border-blue-400"
+                     >
+                       {editSelectedCohorts.length === 0 ? (
+                         <span className="text-sm font-bold text-slate-400 px-1">Select assigned cohorts...</span>
+                       ) : (
+                         editSelectedCohorts.map(id => {
+                           const cohort = teacherCohorts.find(c => c.id === id);
+                           return (
+                             <span key={id} className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 border border-blue-200 text-blue-900 text-xs font-bold rounded-md z-10">
+                               {cohort?.name || 'Unknown Cohort'}
+                               <button 
+                                 type="button" 
+                                 onClick={(e) => { 
+                                   e.stopPropagation(); 
+                                   setEditSelectedCohorts(prev => prev.filter(cId => cId !== id)); 
+                                 }}
+                                 className="text-blue-500 hover:text-blue-800 bg-white rounded-full p-0.5 transition-colors"
+                               >
+                                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                               </button>
+                             </span>
+                           );
+                         })
+                       )}
+                       <div className="ml-auto px-1">
+                         <svg className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isCohortDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                       </div>
+                     </div>
+
+                     {isCohortDropdownOpen && (
+                       <>
+                         <div className="fixed inset-0 z-10" onClick={() => setIsCohortDropdownOpen(false)}></div>
+                         <div className="absolute z-20 w-full mt-2 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-auto py-1 animate-in fade-in slide-in-from-top-2">
+                           {teacherCohorts.length === 0 ? (
+                             <div className="p-4 text-sm text-slate-500 font-bold text-center">No active cohorts assigned to you.</div>
+                           ) : (
+                             teacherCohorts.map(c => {
+                               const isSelected = editSelectedCohorts.includes(c.id);
+                               return (
+                                 <div 
+                                   key={c.id} 
+                                   onClick={() => {
+                                     setEditSelectedCohorts(prev => prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id]);
+                                   }}
+                                   className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
+                                 >
+                                   <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 bg-white'}`}>
+                                     {isSelected && <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                                   </div>
+                                   <span className={`text-sm font-bold ${isSelected ? 'text-blue-900' : 'text-slate-700'}`}>{c.name}</span>
+                                 </div>
+                               );
+                             })
+                           )}
+                         </div>
+                       </>
+                     )}
+                   </div>
+                 </div>
+
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                    <div>
                      <label className="block text-sm font-bold text-slate-700 mb-2">Schedule Start</label>
@@ -1109,7 +1216,7 @@ function FacultyExamsContent() {
                                 </button>
                                 <div className="ml-auto flex gap-3">
                                   <button onClick={() => handlePullFromVault(q)} className="px-5 py-2.5 border border-indigo-200 text-indigo-700 text-xs font-bold rounded-lg hover:bg-indigo-50 transition-colors shadow-sm flex items-center gap-1.5">
-                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                                     Pull from Vault
                                   </button>
                                   <button onClick={() => confirmRegeneration(q.id)} className="px-5 py-2.5 bg-purple-100 text-purple-800 text-xs font-bold rounded-lg hover:bg-purple-200 transition-colors shadow-sm flex items-center gap-1.5">
