@@ -38,7 +38,7 @@ export default function RoadmapPage() {
 
       let dbPhase = roadmapData?.current_phase || 1;
 
-      // 2. Fetch real student attempts with Title and Subject for the Progress Engine
+      // 2. Fetch real student attempts with Title, Subject, and PASSING SCORE for the Progress Engine
       const { data: attempts, error: attemptsError } = await supabase
         .from('Student Attempts')
         .select(`
@@ -46,7 +46,7 @@ export default function RoadmapPage() {
           final_score,
           completed_at,
           exam_id,
-          exam:Exams!inner ( exam_title, exam_subject, global_status, grading_logic )
+          exam:Exams!inner ( exam_title, exam_subject, global_status, grading_logic, passing_score )
         `)
         .eq('student_id', user.id)
         .eq('exam_status', 'completed')
@@ -76,13 +76,16 @@ export default function RoadmapPage() {
           const title = (examData?.exam_title || '').toLowerCase();
           const subject = examData?.exam_subject || '';
           
+          // Pull the dynamic passing score set by the teacher (fallback to 60 if missing)
+          const passingTarget = examData?.passing_score || 60;
+          
           let calculatedScore = 0;
           if (logic === 'highest') calculatedScore = Math.max(...group.map(a => a.final_score || 0));
           else if (logic === 'average') calculatedScore = group.reduce((s, a) => s + (a.final_score || 0), 0) / group.length;
           else calculatedScore = group[0].final_score || 0; // 'latest'
 
-          // The Progress Engine Evaluator (Requires 75% to count as a pass)
-          if (calculatedScore >= 75) {
+          // The Progress Engine Evaluator (Uses the specific exam's passing score)
+          if (calculatedScore >= passingTarget) {
             if (title.includes('diagnostic')) {
               stats.diagnosticPassed = true;
             } else if (title.includes('full length') || title.includes('board simulation')) {
@@ -116,7 +119,6 @@ export default function RoadmapPage() {
       else if (dbPhase === 4 && stats.fullLengthPassed) updatedPhase = 5;
 
       if (updatedPhase > dbPhase) {
-        // ---> NEW: Use UPSERT so it creates the row for brand new students
         await supabase
           .from('Roadmap Progress')
           .upsert({ 
@@ -141,7 +143,7 @@ export default function RoadmapPage() {
   const baseSteps = [
     { step: 1, title: 'Diagnostic Baseline', description: 'Establish foundational knowledge metrics.', content: 'Your first objective is to take and pass the initial Diagnostic Assessment to map your starting knowledge.' },
     { step: 2, title: 'Core Subject Drills', description: 'Complete dedicated modules for all major board topics.', content: 'Focus on individual subjects. You must pass one assessment in each of the 4 core domains.' },
-    { step: 3, title: 'Adaptive Simulation', description: 'Surpass a passing threshold on dynamic exams.', content: `Active Goal requires you to score 75% or higher on three dynamic exams. Current progress is ${progressStats.adaptivePassedCount} out of 3 completed.` },
+    { step: 3, title: 'Adaptive Simulation', description: 'Surpass the passing threshold on dynamic exams.', content: `Active Goal requires you to pass three dynamic exams. Current progress is ${progressStats.adaptivePassedCount} out of 3 completed.` },
     { step: 4, title: 'Full Length Board Simulation', description: 'Simulate the exact timing and constraints of the actual PRC exam.', content: 'You are ready for the final test. Take and pass the Full Length Board Simulation to get certified.' },
     { step: 5, title: 'PRC Board Readiness Certified', description: 'Final clearance badge achieved.', content: 'Congratulations. You have completed the entire roadmap and are certified ready for the PRC Board Exam.' },
   ];
@@ -275,7 +277,7 @@ export default function RoadmapPage() {
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-blue-500 mt-0.5">●</span> 
-                    Secure a score of 75 percent or higher on each assessment.
+                    Achieve the designated passing score on each assessment.
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="text-blue-500 mt-0.5">●</span> 
