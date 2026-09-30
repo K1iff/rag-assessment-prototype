@@ -166,6 +166,12 @@ export default function FacultyDashboardPage() {
     return 'Edit Settings';
   };
 
+  const getActionRoute = (status: string, examId: string) => {
+    if (status === 'Pending') return `/faculty/exams?examId=${examId}&view=review`;
+    if (status === 'Inactive') return `/faculty/exams?examId=${examId}&view=results`;
+    return `/faculty/exams?examId=${examId}&view=edit`; // Default for Active
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -264,7 +270,7 @@ export default function FacultyDashboardPage() {
                     <td className="p-6 font-bold text-slate-600">{exam.dueDate}</td>
                     <td className="p-6">
                       <button 
-                        onClick={() => router.push('/faculty/exams')}
+                        onClick={() => router.push(getActionRoute(exam.status, exam.id))}
                         className="text-xs font-bold text-blue-600 hover:underline"
                       >
                         {getActionLabel(exam.status)}

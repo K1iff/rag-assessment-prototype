@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDebounce } from '@/hooks/useDebounce';
 import { usePagination } from '@/hooks/usePagination';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/components/ui/ToastContext';
 import { useRegeneration } from '@/hooks/useRegeneration';
+import { useSearchParams } from 'next/navigation';
 
 // --- Types ---
 interface FacultyExam {
@@ -136,9 +137,10 @@ const localToUTC = (localString: string | null | undefined): string | null => {
   return d.toISOString();
 };
 
-export default function FacultyExamsPage() {
+function FacultyExamsContent() {
   const router = useRouter();
   const { addToast } = useToast();
+  const searchParams = useSearchParams();
 
   const { regenerateItem, status: regenStatus, progressDetails: regenProgress } = useRegeneration();
 
@@ -188,6 +190,25 @@ export default function FacultyExamsPage() {
   const [isFetchingAnalytics, setIsFetchingAnalytics] = useState(false);
 
   const [questionAnalytics, setQuestionAnalytics] = useState<any[]>([]);
+
+  useEffect(() => {
+    const passedExamId = searchParams.get('examId');
+    const passedView = searchParams.get('view');
+
+    if (passedExamId) {
+      // Open the exam
+      setSelectedExam(passedExamId);
+
+      // Route to the correct tab based on the URL parameter
+      if (passedView === 'review') {
+        setExamTab('questions');
+      } else if (passedView === 'results') {
+        setExamTab('question_analytics'); 
+      } else if (passedView === 'edit') {
+        setExamTab('settings');
+      }
+    }
+  }, [searchParams]);
 
   // --- Fetch Exams ---
   useEffect(() => {
@@ -1562,5 +1583,19 @@ export default function FacultyExamsPage() {
       </div>
       )}
     </div>
+  );
+}
+
+export default function FacultyExamsPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
+          Loading exam data...
+        </div>
+      </div>
+    }>
+      <FacultyExamsContent />
+    </Suspense>
   );
 }
