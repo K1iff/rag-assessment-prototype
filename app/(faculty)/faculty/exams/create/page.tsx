@@ -257,6 +257,41 @@ export default function CreateExamPage() {
       return;
     }
 
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: userData } = await supabase
+        .from('Users')
+        .select(`
+          email,
+          Roles ( role_name )
+        `)
+        .eq('user_id', user.id)
+        .single();
+
+      const userEmail = userData?.email || user.email || 'System';
+      
+      let roleName = 'Teacher';
+      if (userData?.Roles) {
+        if (Array.isArray(userData.Roles) && userData.Roles.length > 0) {
+          roleName = (userData.Roles[0] as any).role_name || 'Teacher';
+        } else if (!Array.isArray(userData.Roles)) {
+          roleName = (userData.Roles as any).role_name || 'Teacher';
+        }
+      }
+
+      await supabase.from('AuditLogs').insert([
+        {
+          user_email: userEmail,
+          role: roleName,
+          action: `Created new exam: "${examTitle}" (${subject})`,
+          type: 'AI Engine',
+          severity: 'Info',
+          ip_address: 'Internal',
+          user_agent: navigator.userAgent
+        }
+      ]);
+    }
+
     // 3. Trigger the asynchronous generation hook
     if (generationMode === 'strict') {
       const blueprintMap: Record<string, string> = {

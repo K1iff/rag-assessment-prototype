@@ -109,6 +109,40 @@ export default function FacultyMaterialsPage() {
       status: 'Pending Admin Approval'
     });
 
+    if (user) {
+      const { data: userData } = await supabase
+        .from('Users')
+        .select(`
+          email,
+          Roles ( role_name )
+        `)
+        .eq('user_id', user.id)
+        .single();
+
+      const userEmail = userData?.email || user.email || 'System';
+      
+      let roleName = 'Teacher';
+      if (userData?.Roles) {
+        if (Array.isArray(userData.Roles) && userData.Roles.length > 0) {
+          roleName = (userData.Roles[0] as any).role_name || 'Teacher';
+        } else if (!Array.isArray(userData.Roles)) {
+          roleName = (userData.Roles as any).role_name || 'Teacher';
+        }
+      }
+
+      await supabase.from('AuditLogs').insert([
+        {
+          user_email: userEmail,
+          role: roleName,
+          action: `Requested RAG material upload: "${selectedFile.name}" (${fileSizeMB} MB)`,
+          type: 'Document Uploads',
+          severity: 'Info',
+          ip_address: 'Internal',
+          user_agent: navigator.userAgent
+        }
+      ]);
+    }
+
     fetchRequests(); 
     setIsUploading(false);
     setShowUploadModal(false);
