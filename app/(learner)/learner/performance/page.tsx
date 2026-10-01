@@ -22,11 +22,9 @@ export default function UnifiedPerformancePage() {
 
       const now = new Date();
 
-      // 1. Fetch ALL visible exams (to know what was required)
-      const { data: allExams, error: examsError } = await supabase
-        .from('Exams')
-        .select('exam_id, exam_title, exam_subject, schedule_start, schedule_end, close_after_deadline, global_status, grading_logic')
-        .neq('global_status', 'Hidden');
+      // 1. Fetch the student's cohort
+      const { data: userData } = await supabase.from('Users').select('cohort_id').eq('user_id', user.id).single();
+      const studentCohortId = userData?.cohort_id;
 
       // 2. Fetch ONLY the current student's completed attempts
       const { data: attempts, error: attemptsError } = await supabase
@@ -36,11 +34,36 @@ export default function UnifiedPerformancePage() {
         .eq('exam_status', 'completed')
         .order('completed_at', { ascending: false });
 
-      if (examsError) {
+      if (attemptsError) {
         setIsLoading(false);
         setCohortRank("N/A");
         return;
       }
+
+      const attemptedExamIds = attempts?.map(a => a.exam_id) || [];
+
+      // 3. Fetch exams assigned to their current cohort
+      let cohortExamIds: string[] = [];
+      if (studentCohortId) {
+        const { data: cohortExams } = await supabase.from('Exam_Cohorts').select('exam_id').eq('cohort_id', studentCohortId);
+        cohortExamIds = cohortExams?.map(ce => ce.exam_id) || [];
+      }
+
+      // 4. MERGE: Combine exams they took historically + exams currently assigned to them
+      const relevantExamIds = [...new Set([...attemptedExamIds, ...cohortExamIds])];
+
+      if (relevantExamIds.length === 0) {
+        setIsLoading(false);
+        setCohortRank("N/A");
+        return;
+      }
+
+      // 5. Fetch ONLY relevant exams (prevents getting penalized for other cohorts' exams)
+      const { data: allExams } = await supabase
+        .from('Exams')
+        .select('exam_id, exam_title, exam_subject, schedule_start, schedule_end, close_after_deadline, global_status, grading_logic')
+        .in('exam_id', relevantExamIds)
+        .neq('global_status', 'Hidden');
 
       // Group student's attempts by exam_id
       const groupedAttempts: Record<string, any[]> = {};
@@ -51,9 +74,13 @@ export default function UnifiedPerformancePage() {
         });
       }
 
-      // 3. Build the consolidated history (including missed exams)
+      // 6. Build the consolidated history
       const consolidatedHistory: any[] = [];
-      const requiredExams = (allExams || []).filter(e => e.schedule_end && e.close_after_deadline && now > new Date(e.schedule_end));
+      
+      // An exam is only "required" (penalized if missed) if it is actively assigned to their current cohort
+      const requiredExams = (allExams || []).filter(e => 
+        cohortExamIds.includes(e.exam_id) && e.schedule_end && e.close_after_deadline && now > new Date(e.schedule_end)
+      );
 
       (allExams || []).forEach(exam => {
         const group = groupedAttempts[exam.exam_id];
@@ -99,7 +126,7 @@ export default function UnifiedPerformancePage() {
               name: exam.exam_title || 'Unknown Exam',
               subject: exam.exam_subject || 'General Assessment',
               score: '0%',
-              rawScore: 0, // Zero score actively ruins their average
+              rawScore: 0, 
               date: examEndDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
               status: 'Missed',
               attemptsCount: 0,
@@ -109,7 +136,6 @@ export default function UnifiedPerformancePage() {
         }
       });
 
-      // Sort consolidated history by date descending
       consolidatedHistory.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
       if (consolidatedHistory.length === 0) {
@@ -118,11 +144,11 @@ export default function UnifiedPerformancePage() {
         return;
       }
 
-      // 4. Calculate Top-Level Stats (Now factoring in the 0s)
+      // 7. Calculate Top-Level Stats
       const totalScore = consolidatedHistory.reduce((acc, curr) => acc + (curr.rawScore || 0), 0);
       const avg = Math.round(totalScore / consolidatedHistory.length);
 
-      // 5. Dynamically build Radar Chart (Now tracking missed subjects as 0)
+      // 8. Dynamically build Radar Chart
       const subjectAverages: Record<string, { total: number; count: number }> = {};
       consolidatedHistory.forEach((h) => {
         if (!subjectAverages[h.subject]) subjectAverages[h.subject] = { total: 0, count: 0 };
@@ -142,7 +168,7 @@ export default function UnifiedPerformancePage() {
         dynamicRadarData.push({ subject: 'Retention', score: avg, fullMark: 100 });
       }
 
-      // 6. Dynamic AI Feedback
+      // 9. Dynamic AI Feedback
       let dynamicFeedback = "";
       if (avg >= 90) {
         dynamicFeedback = "Outstanding performance! Your historical data indicates a mastery of the core competencies. Keep up the excellent retention strategies.";
@@ -164,12 +190,11 @@ export default function UnifiedPerformancePage() {
         radarData: dynamicRadarData
       });
 
-      // 7. Calculate Cohort Standing securely applying grading logic AND penalizing the cohort for their missed exams too
+      // 10. Calculate Cohort Standing securely applying grading logic
       let calculatedRank = "N/A";
-      const { data: userData } = await supabase.from('Users').select('cohort_id').eq('user_id', user.id).single();
       
-      if (userData?.cohort_id) {
-        const { data: cohortUsers } = await supabase.from('Users').select('user_id').eq('cohort_id', userData.cohort_id);
+      if (studentCohortId) {
+        const { data: cohortUsers } = await supabase.from('Users').select('user_id').eq('cohort_id', studentCohortId);
         const cohortUserIds = cohortUsers?.map(u => u.user_id) || [];
 
         if (cohortUserIds.length > 0) {
@@ -181,11 +206,9 @@ export default function UnifiedPerformancePage() {
             .neq('exam.global_status', 'Hidden')
             .order('completed_at', { ascending: false });
 
-          // Initialize all students in the cohort so they don't escape zeroes
           const studentAverages: Record<string, { total: number; count: number }> = {};
           cohortUserIds.forEach(id => studentAverages[id] = { total: 0, count: 0 });
 
-          // Group existing attempts
           const studentExamGroups: Record<string, Record<string, any[]>> = {};
           if (cohortAttempts) {
             cohortAttempts.forEach(ca => {
@@ -195,7 +218,6 @@ export default function UnifiedPerformancePage() {
             });
           }
 
-          // Calculate scores based on grading logic
           Object.keys(studentExamGroups).forEach(studentId => {
             const examsForStudent = studentExamGroups[studentId];
             Object.keys(examsForStudent).forEach(examId => {
@@ -207,14 +229,13 @@ export default function UnifiedPerformancePage() {
               else if (logic === 'average') {
                 const sum = attemptsForExam.reduce((s, a) => s + (a.final_score || 0), 0);
                 score = sum / attemptsForExam.length;
-              } else score = attemptsForExam[0].final_score || 0; // 'latest'
+              } else score = attemptsForExam[0].final_score || 0; 
 
               studentAverages[studentId].total += score;
               studentAverages[studentId].count += 1;
             });
           });
 
-          // Enforce zeroes for missed exams across the whole cohort
           cohortUserIds.forEach(studentId => {
             const examsForStudent = studentExamGroups[studentId] || {};
             requiredExams.forEach(reqExam => {
