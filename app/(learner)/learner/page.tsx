@@ -24,6 +24,18 @@ export default function LearnerCalendarPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([]);
 
+  // Load dismissed notifications from localStorage on initial render
+  useEffect(() => {
+    const savedDismissals = localStorage.getItem('dismissedMissedExams');
+    if (savedDismissals) {
+      try {
+        setDismissedNotifications(JSON.parse(savedDismissals));
+      } catch (e) {
+        console.error("Could not parse dismissed notifications from local storage");
+      }
+    }
+  }, []);
+
   useEffect(() => {
     const fetchSchedule = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -56,7 +68,6 @@ export default function LearnerCalendarPage() {
       }
 
       // 3. Safely fetch ONLY the exams for this cohort that are or were available to students
-      // Merged: Included passing_percentage from incoming branch
       const { data: exams, error } = await supabase
         .from('Exams')
         .select(`
@@ -92,7 +103,7 @@ export default function LearnerCalendarPage() {
         const attemptCount = exam.attempts?.length || 0;
         const maxAttempts = exam.max_attempts || 1;
         
-        // Merged: Use passing_percentage if available, otherwise fallback to passing_score or 75
+        // Use passing_percentage if available, otherwise fallback to passing_score or 75
         const targetPercentage = exam.passing_percentage || exam.passing_score || 75;
 
         // Find their best score out of all attempts
@@ -150,6 +161,15 @@ export default function LearnerCalendarPage() {
     fetchSchedule();
   }, []);
 
+  const handleDismissNotification = (examId: string) => {
+    setDismissedNotifications(prev => {
+      const updatedList = [...prev, examId];
+      // Save the updated list permanently to the browser
+      localStorage.setItem('dismissedMissedExams', JSON.stringify(updatedList));
+      return updatedList;
+    });
+  };
+
   const today = new Date();
   const currentMonthName = today.toLocaleString('en-US', { month: 'long' });
   const currentYear = today.getFullYear();
@@ -197,7 +217,7 @@ export default function LearnerCalendarPage() {
                 </div>
               </div>
               <button 
-                onClick={() => exam.id && setDismissedNotifications(prev => [...prev, exam.id!])} 
+                onClick={() => exam.id && handleDismissNotification(exam.id)} 
                 className="px-4 py-2 bg-white text-rose-600 text-xs font-bold rounded-lg border border-rose-200 hover:bg-rose-100 transition-colors whitespace-nowrap shadow-sm w-full md:w-auto"
               >
                 Dismiss Alert
