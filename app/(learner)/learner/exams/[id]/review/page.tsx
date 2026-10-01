@@ -18,7 +18,10 @@ interface ReviewItem {
 interface AttemptRecord {
   attemptId: string;
   score: number;
+  rawScore: number;
+  maxScore: number;
   status: string;
+  takenAt: string;
   items: ReviewItem[];
 }
 
@@ -27,6 +30,14 @@ const normalizeForComparison = (str: string) => {
     .replace(/^[\\"'“”\[\]]+|[\\"'“”\[\]]+$/g, '')
     .trim()
     .toLowerCase();
+};
+
+const formatAttemptDate = (isoString: string) => {
+  if (!isoString) return 'Pending';
+  const d = new Date(isoString);
+  const dateStr = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear().toString().slice(-2)}`;
+  const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return `${dateStr}, ${timeStr}`;
 };
 
 export default function ExamReviewPage() {
@@ -39,10 +50,15 @@ export default function ExamReviewPage() {
   
   const [examTitle, setExamTitle] = useState("");
   const [attempts, setAttempts] = useState<AttemptRecord[]>([]);
+  const [maxAttempts, setMaxAttempts] = useState(1);
+  const [gradingLogic, setGradingLogic] = useState("highest");
+  const [passingScoreTarget, setPassingScoreTarget] = useState(75);
 
   // Retake State Logic
   const [canRetake, setCanRetake] = useState(false);
-  const [retakeMessage, setRetakeMessage] = useState("");
+
+  // Custom Dropdown State
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   useEffect(() => {
     const fetchExamAndResults = async () => {
@@ -58,7 +74,7 @@ export default function ExamReviewPage() {
       // 1. Fetch Exam Details & Rules
       const { data: examData, error: examError } = await supabase
         .from("Exams")
-        .select("exam_title, global_status, max_attempts, close_after_deadline, schedule_end")
+        .select("exam_title, global_status, max_attempts, close_after_deadline, schedule_end, grading_logic, passing_percentage, passing_score")
         .eq("exam_id", examId)
         .single();
         
@@ -76,6 +92,9 @@ export default function ExamReviewPage() {
       }
 
       setExamTitle(examData.exam_title);
+      setMaxAttempts(examData.max_attempts || 1);
+      setGradingLogic(examData.grading_logic || "highest");
+      setPassingScoreTarget(examData.passing_percentage || examData.passing_score || 75);
 
       // 2. Fetch Attempts
       const { data: attemptsData, error: attemptsError } = await supabase
@@ -95,28 +114,23 @@ export default function ExamReviewPage() {
         return;
       }
 
-      // 3. Evaluate Retake Eligibility based on new rules
+      // 3. Evaluate Retake Eligibility
       let allowRetake = true;
-      let blockReason = "";
 
       if (examData.global_status !== 'Active') {
         allowRetake = false;
-        blockReason = "Exam is no longer active";
       } else if (examData.close_after_deadline && examData.schedule_end) {
         const deadline = new Date(examData.schedule_end).getTime();
         if (Date.now() > deadline) {
           allowRetake = false;
-          blockReason = "Deadline has passed";
         }
       }
 
       if (attemptsData.length >= (examData.max_attempts || 1)) {
         allowRetake = false;
-        blockReason = "Max attempts reached";
       }
 
       setCanRetake(allowRetake);
-      setRetakeMessage(blockReason);
 
       // 4. Load Review Data
       const formattedAttempts: AttemptRecord[] = await Promise.all(
@@ -140,9 +154,7 @@ export default function ExamReviewPage() {
             
             try {
               let raw = mockItem?.options;
-              while (typeof raw === 'string') {
-                raw = JSON.parse(raw);
-              }
+              while (typeof raw === 'string') raw = JSON.parse(raw);
               
               if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
                 parsedOptions = Object.values(raw).map(opt => String(opt));
@@ -177,7 +189,10 @@ export default function ExamReviewPage() {
           return {
             attemptId: attempt.attempt_id,
             score: attempt.final_score || 0,
+            rawScore: items.filter(i => i.isCorrect).length,
+            maxScore: items.length,
             status: attempt.exam_status,
+            takenAt: attempt.completed_at,
             items: items,
           };
         })
@@ -198,96 +213,151 @@ export default function ExamReviewPage() {
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
-        <p className="text-slate-500 font-bold">Loading review dashboard...</p>
+        <p className="text-sm text-slate-500 font-bold">Loading review dashboard...</p>
       </div>
     );
   }
 
   if (attempts.length === 0) {
     return (
-      <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
+      <div className="p-12 text-center text-sm text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
         No completed attempts found for this exam.
       </div>
     );
   }
 
+  // Final Grade Calculation based on Grading Logic
+  let calculatedFinalGrade = 0;
+  let finalRawScore = 0;
+  let finalMaxScore = 0;
+
+  if (attempts.length > 0) {
+    if (gradingLogic === 'highest') {
+      const bestAttempt = attempts.reduce((prev, current) => (prev.score > current.score) ? prev : current);
+      calculatedFinalGrade = bestAttempt.score;
+      finalRawScore = bestAttempt.rawScore;
+      finalMaxScore = bestAttempt.maxScore;
+    } else if (gradingLogic === 'latest') {
+      const latestAttempt = attempts[attempts.length - 1];
+      calculatedFinalGrade = latestAttempt.score;
+      finalRawScore = latestAttempt.rawScore;
+      finalMaxScore = latestAttempt.maxScore;
+    } else if (gradingLogic === 'average') {
+      calculatedFinalGrade = Math.round(attempts.reduce((sum, att) => sum + att.score, 0) / attempts.length);
+      finalRawScore = Math.round(attempts.reduce((sum, att) => sum + att.rawScore, 0) / attempts.length);
+      finalMaxScore = attempts[0]?.maxScore || 0; // Assuming max score doesn't fluctuate between attempts
+    }
+  }
+
+  const isPassing = calculatedFinalGrade >= passingScoreTarget;
+  const scoreBgClass = isPassing ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200';
+  const scoreTextClass = isPassing ? 'text-emerald-700' : 'text-rose-700';
+  const scoreDividerClass = isPassing ? 'border-emerald-200 text-emerald-600' : 'border-rose-200 text-rose-600';
+
+  const gradingLogicLabel = gradingLogic === 'highest' ? 'Highest Score' : gradingLogic === 'latest' ? 'Latest Score' : 'Average Score';
   const currentAttempt = attempts[activeAttemptIndex];
+  const attemptsLeft = Math.max(0, maxAttempts - attempts.length);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
       <div className="flex items-center gap-2 text-sm mb-4">
-        <button
-          onClick={() => router.push('/learner/exams')}
-          className="text-blue-600 hover:underline font-bold"
-        >
-          Scheduled Mock Exams
-        </button>
+        <button onClick={() => router.push('/learner/exams')} className="text-blue-600 hover:underline font-bold">Scheduled Mock Exams</button>
         <span className="text-slate-400">/</span>
         <span className="text-slate-600 font-bold">Post-Exam Analytics</span>
       </div>
 
-      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+      {/* Compact Top Header */}
+      <div className="bg-white p-4 md:p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">
+          <h2 className="text-xl font-bold text-slate-800">
             {examTitle} Results
           </h2>
-          <p className="text-sm text-slate-500 font-bold mt-1">
-            Review your absolute response accuracy metrics below.
+          <p className="text-xs text-slate-500 font-bold mt-1">
+            Grading Rule: <span className="text-blue-600 capitalize">{gradingLogicLabel}</span>
           </p>
         </div>
-        <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
-          {canRetake ? (
-            <button
-              onClick={() => router.push(`/learner/exams/${params?.id}/take`)}
-              className="w-full md:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm whitespace-nowrap"
-            >
-              Start New Attempt
-            </button>
-          ) : (
-            <div 
-              className="w-full md:w-auto px-6 py-3 bg-slate-100 text-slate-500 text-sm font-bold rounded-lg border border-slate-200 shadow-sm whitespace-nowrap cursor-not-allowed text-center"
-            >
-              Cannot Retake ({retakeMessage})
-            </div>
-          )}
-          
-          <div className="w-full md:w-auto bg-slate-50 border border-slate-200 p-4 rounded-lg text-center min-w-[140px]">
-            <span className="text-3xl font-black text-blue-600 block">
-              {currentAttempt.score}%
+        
+        <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+          <div className="flex flex-col items-center sm:items-end w-full sm:w-auto">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+              Attempts Remaining: {attemptsLeft}
             </span>
-            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-              Achieved Mark
+            {canRetake ? (
+              <button
+                onClick={() => router.push(`/learner/exams/${params?.id}`)}
+                className="w-full sm:w-44 px-0 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm text-center whitespace-nowrap"
+              >
+                Start Attempt {attempts.length + 1}
+              </button>
+            ) : (
+              <div className="w-full sm:w-44 px-0 py-2.5 bg-slate-100 text-slate-500 text-xs font-bold rounded-lg border border-slate-200 shadow-sm text-center whitespace-nowrap cursor-not-allowed">
+                Cannot Retake
+              </div>
+            )}
+          </div>
+          <div className={`w-full sm:w-auto border px-4 py-1.5 rounded-md text-center min-w-[100px] shadow-sm ${scoreBgClass}`}>
+            <span className={`text-xl font-black leading-none block ${scoreTextClass}`}>
+              {finalRawScore} / {finalMaxScore}
+            </span>
+            <span className={`text-[8px] uppercase font-bold tracking-wider mt-1 block border-t pt-1 ${scoreDividerClass}`}>
+              Final Exam Grade
             </span>
           </div>
         </div>
       </div>
 
       <div className="space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3 mt-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 pb-3 mt-8 gap-4">
           <h3 className="font-bold text-slate-800 text-lg">
             Review Deck
           </h3>
-          {attempts.length > 1 && (
-            <div className="flex gap-2 bg-slate-100 p-1 rounded-lg border border-slate-200">
-              {attempts.map((_, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setActiveAttemptIndex(idx)}
-                  className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${
-                    activeAttemptIndex === idx 
-                      ? "bg-white text-blue-700 shadow-sm" 
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  Attempt {idx + 1}
-                </button>
-              ))}
+          
+          {/* Custom Attempt Dropdown */}
+          {attempts.length > 0 && (
+            <div className="relative min-w-[280px]">
+              <button
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 bg-white flex justify-between items-center transition-colors hover:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-sm"
+              >
+                <span className="uppercase text-xs tracking-wider">
+                  ATTEMPT {activeAttemptIndex + 1}/{maxAttempts} (SUBMITTED {formatAttemptDate(currentAttempt.takenAt).toUpperCase()})
+                </span>
+                <svg className={`w-4 h-4 ml-2 transition-transform duration-200 text-slate-500 ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              
+              {isDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setIsDropdownOpen(false)}></div>
+                  <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden py-1.5 animate-in fade-in slide-in-from-top-2">
+                    {attempts.map((att, idx) => {
+                      const isSelected = activeAttemptIndex === idx;
+                      return (
+                        <div 
+                          key={idx}
+                          onClick={() => { setActiveAttemptIndex(idx); setIsDropdownOpen(false); }}
+                          className={`flex justify-between items-center px-4 py-3 cursor-pointer transition-colors border-l-4 ${isSelected ? 'bg-blue-50 border-blue-600' : 'hover:bg-slate-50 border-transparent'}`}
+                        >
+                          <div>
+                            <div className={`text-sm font-bold ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>Attempt {idx + 1}</div>
+                            <div className={`text-xs font-bold mt-0.5 ${isSelected ? 'text-blue-600' : 'text-slate-500'}`}>Submitted {formatAttemptDate(att.takenAt)}</div>
+                          </div>
+                          <div className={`px-2.5 py-1 rounded text-xs font-bold shrink-0 border ${isSelected ? 'bg-emerald-500 border-emerald-600 text-white' : 'bg-emerald-100 border-emerald-200 text-emerald-800'}`}>
+                            {att.rawScore} / {att.maxScore}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
 
         {currentAttempt.items.length === 0 ? (
-          <div className="p-8 text-center text-slate-500 font-bold bg-white border border-slate-200 rounded-xl">
+          <div className="p-8 text-center text-sm font-bold text-slate-500 bg-white border border-slate-200 rounded-xl">
             No answer data could be loaded for this attempt.
           </div>
         ) : (
@@ -302,7 +372,7 @@ export default function ExamReviewPage() {
                 <div className="flex justify-between items-center text-xs font-bold text-slate-400 mb-1">
                   <span className="uppercase tracking-wider">Question {item.qNum}</span>
                   <span
-                    className={`px-2 py-1 rounded uppercase tracking-wider ${
+                    className={`px-2 py-1 rounded-md text-[10px] uppercase tracking-wider font-bold ${
                       item.isCorrect ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
                     }`}
                   >
@@ -334,7 +404,7 @@ export default function ExamReviewPage() {
                     return (
                       <div key={i} className={baseStyle}>
                         <span>{opt}</span>
-                        <div className="flex gap-2 text-[10px] uppercase tracking-wider shrink-0">
+                        <div className="flex gap-2 text-[10px] uppercase tracking-wider font-bold shrink-0">
                           {isSelected && <span>(Your Answer)</span>}
                           {isCorrect && <span>(Correct Answer)</span>}
                         </div>
