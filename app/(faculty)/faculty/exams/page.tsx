@@ -362,7 +362,6 @@ function FacultyExamsContent() {
     const fetchAnalytics = async () => {
       if (!selectedExam || examTab !== 'gradebook') return;
       setIsFetchingAnalytics(true);
-      // BUG FIX: Removed setSelectedStudentForReview(null) here so polling doesn't kick the user out
 
       const currentExamConfig = exams.find(e => e.id === selectedExam);
       const gradingRule = currentExamConfig?.gradingLogic || 'highest';
@@ -560,6 +559,39 @@ function FacultyExamsContent() {
       await supabase.from('Exam_Cohorts').insert(cohortPayload);
     }
 
+    // ---> NEW: Log the exam update to AuditLogs
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: userData } = await supabase
+        .from('Users')
+        .select(`email, Roles ( role_name )`)
+        .eq('user_id', user.id)
+        .single();
+
+      const userEmail = userData?.email || user.email || 'System';
+      
+      let roleName = 'Teacher';
+      if (userData?.Roles) {
+        if (Array.isArray(userData.Roles) && userData.Roles.length > 0) {
+          roleName = (userData.Roles[0] as any).role_name || 'Teacher';
+        } else if (!Array.isArray(userData.Roles)) {
+          roleName = (userData.Roles as any).role_name || 'Teacher';
+        }
+      }
+
+      await supabase.from('AuditLogs').insert([
+        {
+          user_email: userEmail,
+          role: roleName,
+          action: `Updated settings and assigned cohorts for exam: "${title}"`,
+          type: 'User Activity',
+          severity: 'Info',
+          ip_address: 'Internal',
+          user_agent: navigator.userAgent
+        }
+      ]);
+    }
+
     const newStartDateStr = scheduleStartUTC ? new Date(scheduleStartUTC).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date';
     const newEndDateStr = scheduleEndUTC ? new Date(scheduleEndUTC).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No Date';
     const mappedCohortNames = teacherCohorts.filter(c => editSelectedCohorts.includes(c.id)).map(c => c.name);
@@ -607,7 +639,6 @@ function FacultyExamsContent() {
     link.click();
   };
 
-  // NEW: Fetch all attempts for a specific student to support the dropdown
   const handleViewStudent = async (student: any) => {
     setIsLoadingReview(true);
 
@@ -1225,7 +1256,7 @@ function FacultyExamsContent() {
                                 </button>
                                 <div className="ml-auto flex gap-3">
                                   <button onClick={() => handlePullFromVault(q)} className="px-5 py-2.5 border border-indigo-200 text-indigo-700 text-xs font-bold rounded-lg hover:bg-indigo-50 transition-colors shadow-sm flex items-center gap-1.5">
-                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                                     Pull from Vault
                                   </button>
                                   <button onClick={() => confirmRegeneration(q.id)} className="px-5 py-2.5 bg-purple-100 text-purple-800 text-xs font-bold rounded-lg hover:bg-purple-200 transition-colors shadow-sm flex items-center gap-1.5">
