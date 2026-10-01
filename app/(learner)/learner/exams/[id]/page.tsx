@@ -31,7 +31,7 @@ export default function LearnerExamDetailsPage() {
       // Fetch Exam Rules
       const { data: exam, error } = await supabase
         .from('Exams')
-        .select('exam_title, exam_subject, schedule_end, time_limit_mins, max_attempts, grading_logic, global_status, close_after_deadline')
+        .select('exam_id, exam_title, exam_subject, schedule_end, time_limit_mins, max_attempts, grading_logic, global_status, close_after_deadline')
         .eq('exam_id', examId)
         .single();
 
@@ -207,7 +207,7 @@ export default function LearnerExamDetailsPage() {
                 Cancel
               </button>
               <button
-                onClick={() => router.push(`/learner/exams/${params?.id}/take`)}
+                onClick={() => router.push(`/learner/exams/${examData.exam_id}/take`)}
                 className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm"
               >
                 Confirm and Start

@@ -32,10 +32,10 @@ export default function FacultyAnalyticsPage() {
   const [cohortStudents, setCohortStudents] = useState<any[]>([]);
 
   const [sortKey, setSortKey] = useState<'cohort' | 'averageScoreNum' | 'completionRateNum'>('averageScoreNum');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [sortDirection, setSortDirection] = useState<'desc' | 'asc'>('desc');
   
   const [expandedCohort, setExpandedCohort] = useState<string | null>(null);
-  const [expandedTopic, setExpandedTopic] = useState<string | null>(null); // State for new Topic Drilldown
+  const [expandedTopic, setExpandedTopic] = useState<string | null>(null);
 
   const [rosterSearch, setRosterSearch] = useState('');
   const [rosterPage, setRosterPage] = useState(1);
@@ -92,7 +92,6 @@ export default function FacultyAnalyticsPage() {
           const avgScore = totalAttempts > 0 ? Math.round(totalScore / totalAttempts) : 0;
           const completionRate = students.length > 0 ? Math.round((studentsWithAttempts / students.length) * 100) : 0;
 
-          // Dynamic Threshold Logic
           let status = 'Needs Attention';
           if (avgScore >= 85 && completionRate >= 80) status = 'Excellent';
           else if (avgScore >= 70 && completionRate >= 50) status = 'On Track';
@@ -109,14 +108,13 @@ export default function FacultyAnalyticsPage() {
 
         setCohortData(formattedCohorts);
 
-        // 2. Process Dynamic Topic Analytics with Cohort Drilldown
+        // 2. Process Dynamic Topic Analytics with Latest Attempt Isolation
         const cohortIds = assignedCohorts?.map(c => c.cohort_id) || [];
         if (cohortIds.length > 0) {
           const { data: examLinks } = await supabase.from('Exam_Cohorts').select('exam_id').in('cohort_id', cohortIds);
           const examIds = [...new Set(examLinks?.map(el => el.exam_id) || [])];
 
           if (examIds.length > 0) {
-             // Map Students to their Cohorts for the Drilldown
              const studentCohortMap = new Map();
              assignedCohorts?.forEach((c: any) => {
                c.Cohorts.Users?.forEach((u: any) => {
@@ -124,22 +122,45 @@ export default function FacultyAnalyticsPage() {
                });
              });
 
-             const { data: attempts } = await supabase.from('Student Attempts').select('attempt_id, student_id').in('exam_id', examIds);
+             // Fetch attempts ordered by newest first
+             const { data: attempts } = await supabase
+               .from('Student Attempts')
+               .select('attempt_id, student_id, exam_id, completed_at')
+               .in('exam_id', examIds)
+               .order('completed_at', { ascending: false });
+
+             // Filter to ONLY the latest attempt per student per exam
+             const latestAttemptsMap = new Map();
              const attemptCohortMap = new Map();
-             attempts?.forEach(a => attemptCohortMap.set(a.attempt_id, studentCohortMap.get(a.student_id) || 'Unknown Cohort'));
+
+             attempts?.forEach(a => {
+                const uniqueKey = `${a.student_id}_${a.exam_id}`;
+                if (!latestAttemptsMap.has(uniqueKey)) {
+                   latestAttemptsMap.set(uniqueKey, a.attempt_id);
+                   attemptCohortMap.set(a.attempt_id, studentCohortMap.get(a.student_id) || 'Unknown Cohort');
+                }
+             });
+
+             const validAttemptIds = Array.from(latestAttemptsMap.values());
 
              const { data: questions } = await supabase.from('Mock Exam Items').select('id, competency').in('exam_session_id', examIds);
              
-             if (questions && questions.length > 0) {
+             if (questions && questions.length > 0 && validAttemptIds.length > 0) {
                 const questionMap = new Map(questions.map(q => [q.id, q.competency || 'General Topic']));
                 const qIds = questions.map(q => q.id);
 
-                const { data: answers } = await supabase.from('Student Answers').select('question_id, is_correct, attempt_id').in('question_id', qIds);
+                const { data: answers } = await supabase
+                  .from('Student Answers')
+                  .select('question_id, is_correct, attempt_id')
+                  .in('question_id', qIds);
 
                 if (answers && answers.length > 0) {
                    const topicStats: Record<string, { total: number, correct: number, cohorts: Record<string, { total: number, correct: number }> }> = {};
                    
                    answers.forEach(ans => {
+                      // Reject any answer that doesn't belong to the student's LATEST attempt
+                      if (!validAttemptIds.includes(ans.attempt_id)) return;
+
                       const topic = questionMap.get(ans.question_id) || 'Unknown';
                       const cohortName = attemptCohortMap.get(ans.attempt_id) || 'Unknown Cohort';
 
@@ -155,7 +176,6 @@ export default function FacultyAnalyticsPage() {
                       }
                    });
 
-                   // Compile the deep analytics array
                    const analysis = Object.entries(topicStats)
                       .map(([topic, stats]) => {
                          const failedCount = stats.total - stats.correct;
@@ -179,7 +199,7 @@ export default function FacultyAnalyticsPage() {
                             cohortBreakdown: breakdown
                          };
                       })
-                      .filter(t => t.failRateNum > 0)
+                      .filter(t => t.failRateNum > 0) // Hide topics with 0% failure rate (Fully Mastered)
                       .sort((a, b) => b.failRateNum - a.failRateNum); // Rank highest failure rate first
 
                    setItemAnalysis(analysis);
@@ -311,7 +331,7 @@ export default function FacultyAnalyticsPage() {
       case 'Excellent': return 'bg-purple-100 text-purple-800 border-purple-200';
       case 'On Track': return 'bg-emerald-100 text-emerald-800 border-emerald-200';
       case 'At Risk': return 'bg-rose-100 text-rose-800 border-rose-200';
-      default: return 'bg-amber-100 text-amber-800 border-amber-200'; // Needs Attention
+      default: return 'bg-amber-100 text-amber-800 border-amber-200'; 
     }
   };
 
@@ -494,13 +514,13 @@ export default function FacultyAnalyticsPage() {
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mt-8">
             <div className="p-6 border-b border-slate-200 bg-slate-50">
               <h3 className="text-xl font-bold text-slate-800">Competency Diagnostics</h3>
-              <p className="text-sm text-slate-500 mt-1 font-bold">Topic mastery ranked by failure rate across all cohorts. Click a topic to see specific cohort breakdowns.</p>
+              <p className="text-sm text-slate-500 mt-1 font-bold">Topic mastery ranked by active failure rate based on the latest student attempts.</p>
             </div>
             
             <div className="divide-y divide-slate-100">
               {itemAnalysis.length === 0 ? (
                 <div className="p-12 text-center text-sm font-bold text-slate-500">
-                  No answer data available yet to calculate analytics.
+                  No failures detected in current student attempts.
                 </div>
               ) : (
                 itemAnalysis.map((item, index) => {
@@ -518,9 +538,9 @@ export default function FacultyAnalyticsPage() {
                             <span className={`text-[10px] px-2.5 py-1 border rounded-md uppercase font-bold tracking-wider ${
                               item.failRateNum >= 50 ? 'bg-rose-100 text-rose-700 border-rose-200' : 
                               item.failRateNum >= 30 ? 'bg-amber-100 text-amber-700 border-amber-200' : 
-                              'bg-emerald-100 text-emerald-700 border-emerald-200'
+                              'bg-slate-100 text-slate-700 border-slate-200'
                             }`}>
-                              {item.failRateNum >= 50 ? 'Critical Struggle' : item.failRateNum >= 30 ? 'Needs Review' : 'Mastered'}
+                              {item.failRateNum >= 50 ? 'Critical Struggle' : item.failRateNum >= 30 ? 'Needs Review' : 'Minor Gaps'}
                             </span>
                             <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded">
                               {item.failedAttempts} / {item.totalAttempts} Attempts Failed
@@ -537,11 +557,7 @@ export default function FacultyAnalyticsPage() {
                             </div>
                             <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                               <div 
-                                className={`h-full transition-all duration-1000 ${
-                                  item.failRateNum >= 50 ? 'bg-rose-500' : 
-                                  item.failRateNum >= 30 ? 'bg-amber-500' : 
-                                  'bg-emerald-500'
-                                }`} 
+                                className="h-full bg-rose-400 transition-all duration-1000" 
                                 style={{ width: `${item.failRateNum}%` }}
                               ></div>
                             </div>
@@ -560,11 +576,7 @@ export default function FacultyAnalyticsPage() {
                             ) : (
                               item.cohortBreakdown.map((cohort, cIdx) => (
                                 <div key={cIdx} className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm relative overflow-hidden">
-                                  <div className={`absolute top-0 left-0 w-1 h-full ${
-                                    cohort.failRate >= 50 ? 'bg-rose-500' : 
-                                    cohort.failRate >= 30 ? 'bg-amber-500' : 
-                                    'bg-emerald-500'
-                                  }`}></div>
+                                  <div className="absolute top-0 left-0 w-1 h-full bg-rose-400"></div>
                                   <div className="pl-3">
                                     <p className="text-sm font-bold text-slate-800 truncate mb-1" title={cohort.cohortName}>{cohort.cohortName}</p>
                                     <div className="flex items-end justify-between mt-3">
