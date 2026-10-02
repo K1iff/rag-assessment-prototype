@@ -119,14 +119,12 @@ export default function LearnerActiveExamPage() {
               if (parsedOptions[charIdx]) mappedAnswer = parsedOptions[charIdx];
             }
           } else if (typeof raw === 'object' && raw !== null) {
-            // Strictly enforce A-B-C-D order to prevent object key shuffling
             const keys = ['A', 'B', 'C', 'D', 'E'];
             parsedOptions = keys
               .map(k => raw[k] || raw[k.toLowerCase()])
               .filter(Boolean)
               .map(opt => cleanString(opt));
 
-            // Use the letter from the DB to extract the full target string from the JSON
             if (mappedAnswer.length === 1) {
               const matchedVal = raw[mappedAnswer.toUpperCase()] || raw[mappedAnswer.toLowerCase()];
               if (matchedVal) {
@@ -154,6 +152,7 @@ export default function LearnerActiveExamPage() {
       
       const endTimeKey = `exam_endtime_${examId}`;
       const startTimeKey = `exam_starttime_${examId}`;
+      const loggedKey = `exam_started_logged_${examId}_${user.id}`; // Prevents duplicate logging on refresh
       
       let storedEndTime = sessionStorage.getItem(endTimeKey);
       let storedStartTime = sessionStorage.getItem(startTimeKey);
@@ -171,6 +170,41 @@ export default function LearnerActiveExamPage() {
         const durationMs = (exam.time_limit_mins || 60) * 60 * 1000;
         endTime = Date.now() + durationMs;
         sessionStorage.setItem(endTimeKey, endTime.toString());
+      }
+
+      // ---> NEW: Log the exam initiation to AuditLogs (only once per session)
+      if (!sessionStorage.getItem(loggedKey)) {
+        const { data: userData } = await supabase
+          .from('Users')
+          .select('email, Roles ( role_name )')
+          .eq('user_id', user.id)
+          .single();
+
+        const userEmail = userData?.email || user.email || 'System';
+        
+        let roleName = 'Learner';
+        if (userData?.Roles) {
+          if (Array.isArray(userData.Roles) && userData.Roles.length > 0) {
+            roleName = (userData.Roles[0] as any).role_name || 'Learner';
+          } else if (!Array.isArray(userData.Roles)) {
+            roleName = (userData.Roles as any).role_name || 'Learner';
+          }
+        }
+
+        await supabase.from('AuditLogs').insert([
+          {
+            user_email: userEmail,
+            role: roleName,
+            action: `Initiated active exam session: "${exam.exam_title}"`,
+            type: 'User Activity',
+            severity: 'Info',
+            ip_address: 'Internal',
+            user_agent: navigator.userAgent
+          }
+        ]);
+        
+        // Mark it as logged in this session to prevent spamming the logs if they refresh the page
+        sessionStorage.setItem(loggedKey, 'true');
       }
 
       const calculatedTimeLeft = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
