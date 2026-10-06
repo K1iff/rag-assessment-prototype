@@ -95,8 +95,9 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
         { type: 'divider', label: 'Access & Structure' },
         { type: 'link', href: '/admin/cohorts', label: 'Cohort Management', match: '/admin/cohorts' },
         { type: 'link', href: '/admin/permissions', label: 'Roles & Permissions', match: '/admin/permissions' },
-        { type: 'divider', label: 'Security' },
+        { type: 'divider', label: 'Security & Configuration' },
         { type: 'link', href: '/admin/logs', label: 'System Audit Logs', match: '/admin/logs' },
+        { type: 'link', href: '/admin/settings', label: 'Settings', match: '/admin/settings' },
       ] as NavItem[]
     }
   };
