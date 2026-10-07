@@ -329,7 +329,7 @@ export default function AdminLogsPage() {
       )}
       <FullScreenLoader 
         isOpen={isLoading} 
-        message="Loading..." 
+        message="Loading audit logs..." 
       />
     </div>
   );

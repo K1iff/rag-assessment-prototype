@@ -396,7 +396,7 @@ export default function AdminRagPage() {
       )}
       <FullScreenLoader 
         isOpen={isLoading} 
-        message="Loading..." 
+        message="Loading knowledge base..." 
       />
     </div>
   );

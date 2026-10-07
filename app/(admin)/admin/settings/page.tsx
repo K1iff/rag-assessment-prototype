@@ -251,7 +251,7 @@ export default function AdminSettingsPage() {
       )}
       <FullScreenLoader 
         isOpen={isLoading || isSaving} 
-        message="Loading..." 
+        message="Loading settings..." 
       />
     </div>
   );
