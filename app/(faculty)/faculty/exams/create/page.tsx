@@ -1,5 +1,6 @@
 'use client';
 
+import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
@@ -818,6 +819,10 @@ export default function CreateExamPage() {
           </div>
         </div>
       </div>
+      <FullScreenLoader 
+        isOpen={isSubmitting} 
+        message="Queuing exam generation engine..." 
+      />
     </div>
   );
 }

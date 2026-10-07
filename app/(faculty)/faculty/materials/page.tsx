@@ -1,8 +1,9 @@
 'use client';
 
+import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { usePermissions } from '@/hooks/usePermissions'; // Import the new security hook
+import { usePermissions } from '@/hooks/usePermissions';
 
 export default function FacultyMaterialsPage() {
   // Security Hook
@@ -10,6 +11,9 @@ export default function FacultyMaterialsPage() {
 
   const [activeTab, setActiveTab] = useState<'action' | 'active' | 'archive'>('action');
   
+  const [isNavigating, setIsNavigating] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState('Loading materials...');
+
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -36,7 +40,10 @@ export default function FacultyMaterialsPage() {
 
   const fetchRequests = async () => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) {
+      setIsNavigating(false);
+      return;
+    }
 
     const { data, error } = await supabase
       .from('Material Requests')
@@ -45,6 +52,8 @@ export default function FacultyMaterialsPage() {
       .order('created_at', { ascending: false });
 
     if (!error && data) setMaterials(data);
+    
+    setIsNavigating(false);
   };
 
   useEffect(() => {
@@ -81,6 +90,8 @@ export default function FacultyMaterialsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile || !uploadDocs) return; // Extra check to prevent submission
+    
+    setLoadingMessage('Uploading file to system...');
     setIsUploading(true);
     
     const { data: { user } } = await supabase.auth.getUser();
@@ -162,7 +173,7 @@ export default function FacultyMaterialsPage() {
   };
 
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-6 relative pb-12">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-2">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Reference Materials Request</h1>
@@ -360,6 +371,10 @@ export default function FacultyMaterialsPage() {
           </div>
         </div>
       )}
+      <FullScreenLoader 
+        isOpen={isNavigating || isUploading} 
+        message={loadingMessage} 
+      />
     </div>
   );
 }
