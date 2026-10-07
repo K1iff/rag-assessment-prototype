@@ -1,5 +1,6 @@
 'use client';
 
+import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/ui/ToastContext';
@@ -29,6 +30,7 @@ export default function AddUserPage() {
   const [activeTab, setActiveTab] = useState<'single' | 'batch'>('single');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [loadingMessage, setLoadingMessage] = useState('Processing...');
   
   // --- Single User States ---
   const [name, setName] = useState('');
@@ -80,6 +82,7 @@ export default function AddUserPage() {
   // ==========================================
   const handleSingleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoadingMessage(`Registering ${name}...`); 
     setIsLoading(true);
     setErrorMessage('');
 
@@ -210,6 +213,7 @@ export default function AddUserPage() {
       return;
     }
 
+    setLoadingMessage('Processing batch import...');
     setIsBatchProcessing(true);
     setBatchProgress({ current: 0, total: validUsers.length, successes: 0, failures: 0 });
 
@@ -549,6 +553,10 @@ export default function AddUserPage() {
           )}
         </div>
       )}
+      <FullScreenLoader 
+        isOpen={isLoading || isBatchProcessing} 
+        message={loadingMessage} 
+      />
     </div>
   );
 }

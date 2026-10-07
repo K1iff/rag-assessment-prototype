@@ -1,5 +1,6 @@
 'use client';
 
+import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect, useRef } from 'react';
 import EmptyState from '@/components/ui/EmptyState';
 import { usePagination } from '@/hooks/usePagination';
@@ -34,7 +35,11 @@ export default function AdminCohortsPage() {
   const [selectedCohort, setSelectedCohort] = useState<string | null>(null);
   const [studentSearch, setStudentSearch] = useState('');
   const [cohortTab, setCohortTab] = useState('active');
-  const [isLoading, setIsLoading] = useState(true);
+  
+  // Dynamic Loading States
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('Processing...');
 
   // Modals State
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -51,11 +56,11 @@ export default function AdminCohortsPage() {
   const [batchEmails, setBatchEmails] = useState('');
 
   const [cohorts, setCohorts] = useState<Cohort[]>([]);
-  const [allUsersDB, setAllUsersDB] = useState<any[]>([]); // Cache for assigning
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [allUsersDB, setAllUsersDB] = useState<any[]>([]);
 
   const fetchCohortsData = async () => {
     setIsLoading(true);
+    setLoadingMessage('Syncing workspace data...');
     
     // Fetch Cohorts, Users, and the new junction table
     const [cohortsRes, usersRes, teachersRes] = await Promise.all([
@@ -139,6 +144,7 @@ export default function AdminCohortsPage() {
 
   const handleCreateCohortSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoadingMessage('Creating new cohort...');
     setIsSubmitting(true);
 
     const now = new Date();
@@ -165,6 +171,7 @@ export default function AdminCohortsPage() {
 
   const handleEditCohortSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoadingMessage('Saving workspace details...');
     setIsSubmitting(true);
 
     const now = new Date();
@@ -192,47 +199,59 @@ export default function AdminCohortsPage() {
 
   // --- Workspace Actions ---
   const handleAssignTeacher = async (teacherId: string) => {
+    setLoadingMessage('Assigning faculty to workspace...');
+    setIsLoading(true);
     await supabase.from('Cohort Teachers').insert([{ cohort_id: selectedCohort, teacher_id: teacherId }]);
     
-    // Fetch real names directly from the DB
     const { data: teacher } = await supabase.from('Users').select('name').eq('user_id', teacherId).single();
     const { data: cohort } = await supabase.from('Cohorts').select('cohort_name').eq('cohort_id', selectedCohort).single();
     
     await logWorkspaceAction(`Assigned teacher ${teacher?.name} to cohort ${cohort?.cohort_name}`);
-    fetchCohortsData();
+    await fetchCohortsData();
+    setIsLoading(false);
   };
 
   const handleRemoveTeacher = async (teacherId: string) => {
+    setLoadingMessage('Removing faculty from workspace...');
+    setIsLoading(true);
     await supabase.from('Cohort Teachers').delete().eq('cohort_id', selectedCohort).eq('teacher_id', teacherId);
     
     const { data: teacher } = await supabase.from('Users').select('name').eq('user_id', teacherId).single();
     const { data: cohort } = await supabase.from('Cohorts').select('cohort_name').eq('cohort_id', selectedCohort).single();
     
     await logWorkspaceAction(`Removed teacher ${teacher?.name} from cohort ${cohort?.cohort_name}`, 'Warning');
-    fetchCohortsData();
+    await fetchCohortsData();
+    setIsLoading(false);
   };
 
   const handleAddStudent = async (studentId: string) => {
+    setLoadingMessage('Enrolling student...');
+    setIsLoading(true);
     await supabase.from('Users').update({ cohort_id: selectedCohort }).eq('user_id', studentId);
     
     const { data: student } = await supabase.from('Users').select('name').eq('user_id', studentId).single();
     const { data: cohort } = await supabase.from('Cohorts').select('cohort_name').eq('cohort_id', selectedCohort).single();
     
     await logWorkspaceAction(`Manually enrolled student ${student?.name} into cohort ${cohort?.cohort_name}`);
-    fetchCohortsData();
+    await fetchCohortsData();
+    setIsLoading(false);
   };
 
   const handleRemoveStudent = async (studentId: string) => {
+    setLoadingMessage('Removing student...');
+    setIsLoading(true);
     await supabase.from('Users').update({ cohort_id: null }).eq('user_id', studentId);
     
     const { data: student } = await supabase.from('Users').select('name').eq('user_id', studentId).single();
     const { data: cohort } = await supabase.from('Cohorts').select('cohort_name').eq('cohort_id', selectedCohort).single();
     
     await logWorkspaceAction(`Removed student ${student?.name} from cohort ${cohort?.cohort_name}`, 'Warning');
-    fetchCohortsData();
+    await fetchCohortsData();
+    setIsLoading(false);
   };
 
   const handleBatchImport = async () => {
+    setLoadingMessage('Processing batch enrollment...');
     setIsSubmitting(true);
     const emailList = batchEmails.split(/[,\n]+/).map(e => e.trim()).filter(e => e !== '');
     
@@ -511,11 +530,14 @@ export default function AdminCohortsPage() {
             </div>
           </div>
         )}
+        <FullScreenLoader 
+          isOpen={isLoading || isSubmitting} 
+          message={loadingMessage} 
+        />
       </div>
     );
   }
 
-  // --- Main Cohort Directory View ---
   return (
     <div className="space-y-6 relative">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
@@ -618,6 +640,12 @@ export default function AdminCohortsPage() {
           </div>
         </div>
       )}
+      
+      {/* Dynamic Loader for View 2 */}
+      <FullScreenLoader 
+        isOpen={isLoading || isSubmitting} 
+        message={loadingMessage} 
+      />
     </div>
   );
 }

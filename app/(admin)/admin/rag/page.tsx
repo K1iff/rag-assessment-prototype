@@ -1,5 +1,6 @@
 'use client';
 
+import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useIngestion } from '@/hooks/useIngestion'; 
@@ -393,6 +394,10 @@ export default function AdminRagPage() {
           </div>
         </div>
       )}
+      <FullScreenLoader 
+        isOpen={isLoading} 
+        message="Loading..." 
+      />
     </div>
   );
 }

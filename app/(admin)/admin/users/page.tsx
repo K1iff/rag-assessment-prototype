@@ -1,5 +1,6 @@
 "use client";
 
+import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Badge from "@/components/ui/Badge";
@@ -33,7 +34,11 @@ export default function AdminUsersPage() {
 
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [dbCohorts, setDbCohorts] = useState<string[]>([]);
+  
+  // Dynamic Loading States
   const [isLoading, setIsLoading] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("Loading users...");
 
   // Security Redirection
   useEffect(() => {
@@ -48,6 +53,7 @@ export default function AdminUsersPage() {
       if (isPermissionsLoading || !manageUsers) return;
 
       setIsLoading(true);
+      setLoadingMessage("Fetching directory data...");
 
       // Fetch users and cohorts simultaneously
       const [usersResponse, cohortsResponse] = await Promise.all([
@@ -118,6 +124,7 @@ export default function AdminUsersPage() {
   }, [isPermissionsLoading, manageUsers]);
 
   const filteredUsers = allUsers.filter((user) => {
+    const safeSearch = (debouncedUserSearch || "").toLowerCase();
     const matchesSearch =
       user.name.toLowerCase().includes(debouncedUserSearch.toLowerCase()) ||
       user.email.toLowerCase().includes(debouncedUserSearch.toLowerCase());
@@ -151,6 +158,10 @@ export default function AdminUsersPage() {
 
   const handleToggleStatus = async (userId: string, currentStatus: string, targetEmail: string) => {
     const newStatus = currentStatus === "Active" ? "Inactive" : "Active";
+    
+    // Trigger the loading overlay
+    setLoadingMessage(`Changing status for ${targetEmail}...`);
+    setIsProcessing(true);
 
     const { error } = await supabase
       .from("Users")
@@ -187,6 +198,9 @@ export default function AdminUsersPage() {
     } else {
       console.error("Error toggling status:", error.message);
     }
+    
+    // Dismiss the loading overlay
+    setIsProcessing(false);
   };
 
   const handleResetPassword = async (userId: string, targetEmail: string) => {
@@ -198,6 +212,10 @@ export default function AdminUsersPage() {
       )
     )
       return;
+
+    // Trigger the loading overlay
+    setLoadingMessage(`Resetting password for ${targetEmail}...`);
+    setIsProcessing(true);
 
     try {
       const { data: sessionData } = await supabase.auth.getUser();
@@ -223,6 +241,8 @@ export default function AdminUsersPage() {
     } catch (error: any) {
       console.error("Failed to reset password:", error);
       alert(`Error resetting password: ${error.message}`);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -402,13 +422,15 @@ export default function AdminUsersPage() {
                     <td className="p-4 text-right space-x-4 whitespace-nowrap">
                       <button
                         onClick={() => handleResetPassword(user.id, user.email)}
-                        className="text-xs font-bold text-blue-600 hover:underline"
+                        disabled={isProcessing}
+                        className="text-xs font-bold text-blue-600 hover:underline disabled:opacity-50"
                       >
                         Reset Pass
                       </button>
                       <button
                         onClick={() => handleToggleStatus(user.id, user.status, user.email)}
-                        className={`text-xs font-bold hover:underline ${user.status === "Active" ? "text-rose-600" : "text-emerald-600"}`}
+                        disabled={isProcessing}
+                        className={`text-xs font-bold hover:underline disabled:opacity-50 ${user.status === "Active" ? "text-rose-600" : "text-emerald-600"}`}
                       >
                         {user.status === "Active" ? "Deactivate" : "Activate"}
                       </button>
@@ -438,6 +460,10 @@ export default function AdminUsersPage() {
           </div>
         </div>
       </div>
+      <FullScreenLoader 
+        isOpen={isLoading || isProcessing} 
+        message={loadingMessage} 
+      />
     </div>
   );
 }

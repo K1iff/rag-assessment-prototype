@@ -1,5 +1,6 @@
 'use client';
 
+import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/components/ui/ToastContext';
@@ -248,6 +249,10 @@ export default function AdminSettingsPage() {
           </div>
         </form>
       )}
+      <FullScreenLoader 
+        isOpen={isLoading || isSaving} 
+        message="Loading..." 
+      />
     </div>
   );
 }
