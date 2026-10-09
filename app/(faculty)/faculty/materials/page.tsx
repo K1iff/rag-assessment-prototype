@@ -62,7 +62,8 @@ export default function FacultyMaterialsPage() {
 
   const actionRequiredFiles = materials.filter(m => m.status === 'Pending Admin Approval');
   const activeFiles = materials.filter(m => m.status === 'Approved & Indexed' || m.status === 'Processing');
-  const archivedFiles = materials.filter(m => ['Rejected', 'Deleted by Admin', 'File Purged'].includes(m.status));
+  // Includes 'Archived' alongside previous archive-type statuses
+  const archivedFiles = materials.filter(m => ['Archived', 'Rejected', 'Deleted by Admin', 'File Purged'].includes(m.status));
 
   const getVisibleFiles = () => {
     if (activeTab === 'action') return actionRequiredFiles;
@@ -89,7 +90,7 @@ export default function FacultyMaterialsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile || !uploadDocs) return; // Extra check to prevent submission
+    if (!selectedFile || !uploadDocs) return;
     
     setLoadingMessage('Uploading file to system...');
     setIsUploading(true);
@@ -180,7 +181,6 @@ export default function FacultyMaterialsPage() {
           <p className="text-sm text-slate-500 mt-1 font-bold">Request syllabus, reading materials, and rubrics to be added to the AI knowledge base.</p>
         </div>
         
-        {/* Security Gate: Only show button if user has uploadDocs permission */}
         {!isPermissionsLoading && uploadDocs && (
           <button onClick={() => setShowUploadModal(true)} className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap">
             Request File Upload
@@ -193,10 +193,10 @@ export default function FacultyMaterialsPage() {
           Action Needed ({actionRequiredFiles.length})
         </button>
         <button onClick={() => handleTabChange('active')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'active' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-          My Active Files
+          My Active Files ({activeFiles.length})
         </button>
         <button onClick={() => handleTabChange('archive')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'archive' ? 'border-slate-500 text-slate-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-          Archive
+          Archive ({archivedFiles.length})
         </button>
       </div>
 
@@ -219,7 +219,7 @@ export default function FacultyMaterialsPage() {
                 getVisibleFiles().map((file) => (
                   <tr key={file.id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-4">
-                      <p className={`font-bold ${file.status === 'File Purged' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{file.title}</p>
+                      <p className={`font-bold ${file.status === 'File Purged' || file.status === 'Archived' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{file.title}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[10px] font-bold uppercase tracking-wider">{file.file_name.split('.').pop()?.toUpperCase()}</span>
                         <span className="text-xs font-bold text-slate-500">{file.file_size_mb} MB</span>
@@ -228,7 +228,7 @@ export default function FacultyMaterialsPage() {
                     <td className="p-4">
                       <div className="flex flex-wrap gap-1.5">
                         {(file.tags || []).map((tag: string, idx: number) => (
-                          <span key={idx} className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${file.status === 'File Purged' ? 'bg-slate-50 text-slate-400 border-slate-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{tag}</span>
+                          <span key={idx} className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${file.status === 'File Purged' || file.status === 'Archived' ? 'bg-slate-50 text-slate-400 border-slate-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{tag}</span>
                         ))}
                       </div>
                     </td>
@@ -237,6 +237,7 @@ export default function FacultyMaterialsPage() {
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider cursor-default ${
                         file.status === 'Approved & Indexed' ? 'bg-emerald-100 text-emerald-800' : 
                         file.status === 'Pending Admin Approval' ? 'bg-amber-100 text-amber-800' : 
+                        file.status === 'Archived' ? 'bg-purple-100 text-purple-800' :
                         file.status === 'File Purged' ? 'bg-slate-200 text-slate-500' :
                         'bg-slate-100 text-slate-600'
                       }`}>
@@ -261,7 +262,7 @@ export default function FacultyMaterialsPage() {
         </div>
       </div>
 
-      {/* Upload Modal - Only renders if they somehow trigger it while missing permissions */}
+      {/* Upload Modal */}
       {showUploadModal && uploadDocs && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200">
@@ -358,10 +359,10 @@ export default function FacultyMaterialsPage() {
                   ))}
                 </div>
               </div>
-              {(viewDetailsModal.status === 'Rejected' || viewDetailsModal.status === 'Deleted by Admin' || viewDetailsModal.status === 'File Purged') && (
+              {(viewDetailsModal.status === 'Rejected' || viewDetailsModal.status === 'Deleted by Admin' || viewDetailsModal.status === 'File Purged' || viewDetailsModal.status === 'Archived') && (
                 <div className="p-3 bg-red-50 border border-red-100 rounded-lg mt-4">
-                  <span className="block text-xs font-bold text-red-500 uppercase tracking-wider mb-1">Admin Note / Rejection Reason</span>
-                  <p className="text-sm font-bold text-red-800">{viewDetailsModal.reject_reason || 'No specific reason provided.'}</p>
+                  <span className="block text-xs font-bold text-red-500 uppercase tracking-wider mb-1">Status Note / Reason</span>
+                  <p className="text-sm font-bold text-red-800">{viewDetailsModal.reject_reason || 'Archived by administrator.'}</p>
                 </div>
               )}
             </div>
@@ -371,6 +372,7 @@ export default function FacultyMaterialsPage() {
           </div>
         </div>
       )}
+      
       <FullScreenLoader 
         isOpen={isNavigating || isUploading} 
         message={loadingMessage} 
