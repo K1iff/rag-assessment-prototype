@@ -204,6 +204,14 @@ function FacultyExamsContent() {
   const [isFetchingAnalytics, setIsFetchingAnalytics] = useState(false);
   const [questionAnalytics, setQuestionAnalytics] = useState<any[]>([]);
 
+  const handleBackToExams = () => {
+    setSelectedExam(null);
+    setSelectedQuestions([]);
+    setSelectedStudentForReview(null);
+    setHasAcknowledgedVoidWarning(false);
+    router.replace('/faculty/exams');
+  };
+
   useEffect(() => {
     const passedExamId = searchParams.get('examId');
     const passedView = searchParams.get('view');
@@ -382,7 +390,7 @@ function FacultyExamsContent() {
         .from('Student Attempts')
         .select('*')
         .eq('exam_id', selectedExam)
-        .order('completed_at', { ascending: true }); // Earliest first
+        .order('completed_at', { ascending: true });
 
       const mergedData = students.map(st => {
         const studentAttempts = attemptsData?.filter(a => a.student_id === st.user_id) || [];
@@ -397,7 +405,6 @@ function FacultyExamsContent() {
            else if (gradingRule === 'latest') calculatedFinalGrade = scores[scores.length - 1];
            else if (gradingRule === 'average') calculatedFinalGrade = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
            
-           // Derive raw score from the final percentage grade stored in DB
            calculatedRawScore = Math.round((Number(calculatedFinalGrade) / 100) * totalItems);
         }
 
@@ -499,18 +506,42 @@ function FacultyExamsContent() {
     ? (validationTab === 'pending' ? pendingQuestions : approvedQuestions) 
     : aiQuestions;
 
-  const handleExamClick = (exam: FacultyExam) => {
+  // Direct navigation to Exam Settings
+  const handleOpenSettings = (exam: FacultyExam) => {
     if (exam.status === 'Generating') return;
     setSelectedExam(exam.id);
     setSelectedStudentForReview(null);
     setHasAcknowledgedVoidWarning(false);
-    
+    setEditSelectedCohorts(exam.cohortIds || []);
+    setIsCohortDropdownOpen(false);
+    setExamTab('settings');
+  };
+
+  // Direct navigation to Questions or Results based on status
+  const handleOpenQuestionsOrResults = (exam: FacultyExam) => {
+    if (exam.status === 'Generating') return;
+    setSelectedExam(exam.id);
+    setSelectedStudentForReview(null);
+    setHasAcknowledgedVoidWarning(false);
     setEditSelectedCohorts(exam.cohortIds || []);
     setIsCohortDropdownOpen(false);
 
-    if (exam.status === 'Pending') setExamTab('questions');
-    else if (exam.status === 'Inactive') setExamTab('question_analytics');
-    else setExamTab('settings');
+    if (exam.status === 'Inactive') {
+      setExamTab('question_analytics');
+    } else {
+      setExamTab('questions');
+    }
+  };
+
+  // Direct navigation to Gradebook
+  const handleOpenGradebook = (exam: FacultyExam) => {
+    if (exam.status === 'Generating' || exam.status === 'Pending') return;
+    setSelectedExam(exam.id);
+    setSelectedStudentForReview(null);
+    setHasAcknowledgedVoidWarning(false);
+    setEditSelectedCohorts(exam.cohortIds || []);
+    setIsCohortDropdownOpen(false);
+    setExamTab('gradebook');
   };
 
   const handleSaveSettings = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -561,7 +592,6 @@ function FacultyExamsContent() {
       await supabase.from('Exam_Cohorts').insert(cohortPayload);
     }
 
-    // ---> NEW: Log the exam update to AuditLogs
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       const { data: userData } = await supabase
@@ -726,12 +756,6 @@ function FacultyExamsContent() {
     if (status === 'Pending') return <span className="shrink-0 px-2 py-1 bg-amber-100 text-amber-800 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
     if (status === 'Hidden') return <span className="shrink-0 px-2 py-1 bg-slate-200 text-slate-700 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
     return <span className="shrink-0 px-2 py-1 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
-  };
-
-  const getActionLabel = (status: string) => {
-    if (status === 'Pending') return 'Review Questions';
-    if (status === 'Inactive') return 'View Results';
-    return 'Manage Exam';
   };
 
   const getAIStatusStyle = (status: string) => {
@@ -942,24 +966,36 @@ function FacultyExamsContent() {
     setStudentStatusFilter(e.target.value);
     resetPage();
   };
+
   if (selectedExam !== null && currentExam) {
     return (
       <div className="space-y-6 relative pb-24">
-        <div className="flex items-center gap-2 text-sm mb-4">
-          <button onClick={() => { setSelectedExam(null); setSelectedQuestions([]); setSelectedStudentForReview(null); setHasAcknowledgedVoidWarning(false); }} className="text-blue-600 hover:underline font-bold">Exams</button>
-          <span className="text-slate-400">/</span>
-          <span className="text-slate-600 font-bold">{currentExam.title}</span>
+        {/* Consistent Standard Back Button */}
+        <div className="flex items-center gap-3 mb-2">
+          <button 
+            onClick={handleBackToExams} 
+            className="text-slate-500 hover:text-blue-600 font-bold text-sm flex items-center gap-1.5 transition-colors"
+          >
+            &larr; Back to Exams
+          </button>
         </div>
 
+        {/* Clean Context-Aware Tab Header */}
         <div className="bg-slate-900 text-white rounded-t-xl flex gap-8 px-8 pt-5 border-b border-slate-700 overflow-x-auto scrollbar-hide">
-          <button onClick={() => { setExamTab('settings'); setSelectedStudentForReview(null); }} className={`pb-4 border-b-2 text-sm font-bold whitespace-nowrap ${examTab === 'settings' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
+          <button 
+            onClick={() => { setExamTab('settings'); setSelectedStudentForReview(null); }} 
+            className={`pb-4 border-b-2 text-sm font-bold whitespace-nowrap ${examTab === 'settings' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+          >
             Exam Settings
           </button>
 
           {currentExam.status === 'Inactive' ? (
-             <button onClick={() => { setExamTab('question_analytics'); setSelectedStudentForReview(null); }} className={`pb-4 border-b-2 text-sm font-bold whitespace-nowrap ${examTab === 'question_analytics' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
-               Question Analytics
-             </button>
+            <button 
+              onClick={() => { setExamTab('question_analytics'); setSelectedStudentForReview(null); }} 
+              className={`pb-4 border-b-2 text-sm font-bold whitespace-nowrap ${examTab === 'question_analytics' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+            >
+              Question Analytics
+            </button>
           ) : (
             <button
               onClick={() => { setExamTab('questions'); setSelectedStudentForReview(null); }}
@@ -1291,7 +1327,8 @@ function FacultyExamsContent() {
               </div>
             </div>
           )}
-          {/* GRADEBOOK TAB (Formerly Student Analytics) */}
+
+          {/* GRADEBOOK TAB */}
           {examTab === 'gradebook' && (
             <div>
               {isLoadingReview ? (
@@ -1689,7 +1726,7 @@ function FacultyExamsContent() {
           <h1 className="text-2xl font-bold text-slate-800">Exam Management</h1>
           <p className="text-sm text-slate-500 mt-1 font-bold">Create, monitor, and validate mock exams for your assigned cohorts.</p>
         </div>
-        <button onClick={() => {setIsNavigating(true);  router.push('/faculty/exams/create')}} className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap">
+        <button onClick={() => {setIsNavigating(true); router.push('/faculty/exams/create')}} className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap">
           + Create New Exam
         </button>
       </div>
@@ -1724,9 +1761,9 @@ function FacultyExamsContent() {
 
       {isLoading ? (
         <FullScreenLoader 
-        isOpen={isLoading} 
-        message="Loading exam management page..." 
-      />
+          isOpen={isLoading} 
+          message="Loading exam management page..." 
+        />
       ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 w-full">
         {filteredExams.map((exam) => (
@@ -1762,23 +1799,69 @@ function FacultyExamsContent() {
                 </div>
               </div>
 
-              <div className="mt-6 pt-5 border-t border-slate-100">
-                <button
-                  onClick={() => handleExamClick(exam)}
-                  disabled={exam.status === 'Generating'}
-                  className={`w-full py-2.5 text-sm font-bold rounded-lg transition-colors shadow-sm ${
-                    exam.status === 'Generating' ? 'bg-blue-50 text-blue-400 cursor-not-allowed border border-blue-100' :
-                    exam.status === 'Pending' ? 'bg-blue-600 text-white hover:bg-blue-700' :
-                    'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200'
-                  }`}
-                >
-                  {exam.status === 'Generating' ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                      Generating AI...
-                    </span>
-                  ) : getActionLabel(exam.status)}
-                </button>
+              {/* Action Buttons Section */}
+              <div className="mt-6 pt-5 border-t border-slate-100 flex flex-col gap-2.5">
+                {exam.status === 'Generating' ? (
+                  <button
+                    disabled
+                    className="w-full py-2.5 text-sm font-bold rounded-lg transition-colors shadow-sm bg-blue-50 text-blue-400 cursor-not-allowed border border-blue-100 flex items-center justify-center gap-2"
+                  >
+                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Generating AI...
+                  </button>
+                ) : (
+                  <>
+                    {/* Primary Content Action Button */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenQuestionsOrResults(exam)}
+                      className={`w-full py-2.5 text-sm font-bold rounded-lg transition-colors shadow-sm flex items-center justify-center gap-2 ${
+                        exam.status === 'Pending'
+                          ? 'bg-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-white text-blue-600 border border-blue-200 hover:bg-blue-50'
+                      }`}
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                      {exam.status === 'Pending'
+                        ? 'Review Questions'
+                        : exam.status === 'Inactive'
+                        ? 'View Results'
+                        : 'View Questions'}
+                    </button>
+
+                    {/* View Grades Button: Shown for exams with active or historical grading records */}
+                    {exam.status !== 'Pending' && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenGradebook(exam)}
+                        className="w-full py-2.5 text-sm font-bold rounded-lg transition-colors shadow-sm bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50 flex items-center justify-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        View Grades
+                      </button>
+                    )}
+
+                    {/* Manage Exam Button: Routes directly to settings */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenSettings(exam)}
+                      className="w-full py-2.5 text-sm font-bold rounded-lg transition-colors shadow-sm bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      Manage Exam
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -1791,9 +1874,9 @@ function FacultyExamsContent() {
       </div>
       )}
       <FullScreenLoader 
-    isOpen={isNavigating} 
-    message="Loading exam creation page..." 
-  />
+        isOpen={isNavigating} 
+        message="Loading exam creation page..." 
+      />
     </div>
   );
 }
