@@ -59,6 +59,28 @@ export default function AdminRagPage() {
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
+  // Helper for centralized Audit Logging
+  const logAuditAction = async (actionDesc: string, type: string = 'Document Uploads', severity: string = 'Info') => {
+    try {
+      const { data: sessionData } = await supabase.auth.getUser();
+      const adminEmail = sessionData?.user?.email || 'Unknown Admin';
+
+      await supabase.from('AuditLogs').insert([
+        {
+          user_email: adminEmail,
+          role: 'Admin',
+          action: actionDesc,
+          type,
+          severity,
+          ip_address: 'Internal',
+          user_agent: navigator.userAgent
+        }
+      ]);
+    } catch (err) {
+      console.error('AuditLog insert failed:', err);
+    }
+  };
+
   // 5-second countdown timer effect for Document Archive
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -149,19 +171,25 @@ export default function AdminRagPage() {
     window.open(data.signedUrl, '_blank');
   };
 
-  const handleApproveAndProcess = async (requestId: string, filePath: string, tags: string[]) => {
+  const handleApproveAndProcess = async (requestId: string, filePath: string, tags: string[], fileName?: string) => {
     await supabase.from('Material Requests').update({ status: 'Processing' }).eq('id', requestId);
+    await logAuditAction(`Approved and initiated ingestion for material request: "${fileName || filePath}"`, 'Document Uploads', 'Info');
     fetchRequests(); 
     await startIngestion(requestId, filePath, tags);
   };
 
   const executeReject = async () => {
     if (!rejectModal) return;
+    const targetFile = requests.find(r => r.id === rejectModal);
+    const finalReason = rejectReason || 'File did not meet formatting requirements.';
+
     await supabase.from('Material Requests').update({ 
       status: 'Rejected',
-      reject_reason: rejectReason || 'File did not meet formatting requirements.'
+      reject_reason: finalReason
     }).eq('id', rejectModal);
     
+    await logAuditAction(`Rejected material request "${targetFile?.title || 'Unknown'}" (Reason: ${finalReason})`, 'Document Uploads', 'Warning');
+
     fetchRequests();
     setRejectModal(null);
     setRejectReason('');
@@ -194,6 +222,13 @@ export default function AdminRagPage() {
         status: 'Archived',
         reject_reason: 'Archived by administrator. Physical file removed and vector embeddings dropped.'
       }).eq('id', deleteModal.id);
+
+      // Log vector drop and storage purge to AuditLogs
+      await logAuditAction(
+        `Archived material "${deleteModal.title}": purged from storage and dropped vector embeddings`,
+        'Document Uploads',
+        'Warning'
+      );
 
     } catch (err) {
       console.error("Error executing archive:", err);
@@ -231,6 +266,13 @@ export default function AdminRagPage() {
 
       if (insertError) throw insertError;
 
+      // Log direct admin upload to AuditLogs
+      await logAuditAction(
+        `Direct admin upload: "${selectedFile.name}" (${fileSizeMB} MB) indexed to Global Knowledge Base`,
+        'Document Uploads',
+        'Info'
+      );
+
       fetchRequests();
       setShowUploadModal(false);
       setSelectedFile(null);
@@ -251,12 +293,20 @@ export default function AdminRagPage() {
     setSettingActionError('');
 
     try {
+      const trimmedName = newSettingName.trim();
       const { error } = await supabase.from('Domain_Settings').insert({
         subject: newSettingSubject,
-        setting_name: newSettingName.trim()
+        setting_name: trimmedName
       });
 
       if (error) throw error;
+
+      // Log new operational setting to AuditLogs
+      await logAuditAction(
+        `Added operational vignette setting "${trimmedName}" for subject: ${newSettingSubject}`,
+        'AI Engine',
+        'Info'
+      );
 
       setNewSettingName('');
       setShowAddSettingModal(false);
@@ -274,10 +324,20 @@ export default function AdminRagPage() {
     setIsSettingsLoading(true);
 
     const targetId = deleteSettingModal.id;
+    const targetName = deleteSettingModal.setting_name;
+    const targetSubject = deleteSettingModal.subject;
+
     const { error } = await supabase.from('Domain_Settings').delete().eq('id', targetId);
     
     if (!error) {
       setDomainSettings(prev => prev.filter(s => s.id !== targetId));
+
+      // Log domain setting deletion to AuditLogs
+      await logAuditAction(
+        `Deleted operational vignette setting "${targetName}" from subject: ${targetSubject}`,
+        'AI Engine',
+        'Warning'
+      );
     } else {
       console.error('Failed to delete setting:', error.message);
     }
@@ -416,7 +476,7 @@ export default function AdminRagPage() {
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
                             file.status === 'Approved & Indexed' ? 'bg-emerald-100 text-emerald-800' : 
                             file.status === 'Pending Admin Approval' ? 'bg-amber-100 text-amber-800' : 
-                            file.status === 'Archived' ? 'bg-purple-100 text-purple-800' :
+                            file.status === 'Archived' ? 'bg-purple-100 text-purple-800' : 
                             file.status === 'File Purged' ? 'bg-slate-200 text-slate-500' : 
                             'bg-slate-100 text-slate-600'
                           }`}>
@@ -431,7 +491,7 @@ export default function AdminRagPage() {
                                 <button onClick={() => handleReview(file.file_path)} className="text-blue-500 hover:text-blue-700 transition-colors" title="Review Document">
                                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                                 </button>
-                                <button onClick={() => handleApproveAndProcess(file.id, file.file_path, file.tags)} className="text-emerald-500 hover:text-emerald-700 transition-colors" title="Approve & Process">
+                                <button onClick={() => handleApproveAndProcess(file.id, file.file_path, file.tags, file.title)} className="text-emerald-500 hover:text-emerald-700 transition-colors" title="Approve & Process">
                                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                                 </button>
                                 <button onClick={() => setRejectModal(file.id)} className="text-red-500 hover:text-red-700 transition-colors" title="Reject">
