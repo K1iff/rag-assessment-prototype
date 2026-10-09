@@ -37,7 +37,7 @@ export default function AdminRagPage() {
   const [rejectModal, setRejectModal] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [viewDetailsModal, setViewDetailsModal] = useState<any | null>(null);
-  const [deleteModal, setDeleteModal] = useState<{ id: string, path: string, status: string } | null>(null);
+  const [deleteModal, setDeleteModal] = useState<{ id: string, title: string, path: string, status: string } | null>(null);
 
   // Domain Settings States
   const [domainSettings, setDomainSettings] = useState<DomainSetting[]>([]);
@@ -85,7 +85,6 @@ export default function AdminRagPage() {
     if (error) {
       console.error("[Domain_Settings Fetch Error]:", error);
     } else if (data) {
-      console.log("[Domain_Settings Fetched]:", data);
       setDomainSettings(data);
     }
     setIsSettingsLoading(false);
@@ -102,7 +101,8 @@ export default function AdminRagPage() {
 
   const actionRequired = requests.filter(r => r.status === 'Pending Admin Approval');
   const activeFiles = requests.filter(r => r.status === 'Approved & Indexed' || r.status === 'Processing');
-  const archivedFiles = requests.filter(r => ['Rejected', 'Deleted by Admin', 'File Purged'].includes(r.status));
+  // Includes 'Archived' alongside legacy rejection/purge statuses
+  const archivedFiles = requests.filter(r => ['Archived', 'Rejected', 'Deleted by Admin', 'File Purged'].includes(r.status));
 
   const getVisibleFiles = () => {
     if (activeTab === 'action') return actionRequired;
@@ -137,35 +137,41 @@ export default function AdminRagPage() {
     setRejectReason('');
   };
 
-  const executeAdminDelete = async () => {
+  // Archive & Purge Handler
+  const executeAdminArchive = async () => {
     if (!deleteModal) return;
 
-    await supabase.storage.from('textbooks').remove([deleteModal.path]);
-
-    if (deleteModal.status === 'Approved & Indexed' || deleteModal.status === 'Processing') {
-      await supabase.from('Material Requests').update({ 
-        status: 'Deleted by Admin',
-        reject_reason: 'Removed from active knowledge base by an administrator.'
-      }).eq('id', deleteModal.id);
-
-      try {
-        await fetch(`${API_BASE_URL}/api/v1/vectors`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ storage_path: deleteModal.path })
-        });
-      } catch (e) {
-        console.error("FastAPI vector deletion failed:", e);
+    try {
+      // 1. HARD PURGE VECTORS: Drop chunks from the Documents table
+      if (deleteModal.status === 'Approved & Indexed' || deleteModal.status === 'Processing') {
+        try {
+          await fetch(`${API_BASE_URL}/api/v1/vectors`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ storage_path: deleteModal.path })
+          });
+        } catch (e) {
+          console.error("FastAPI vector deletion failed:", e);
+        }
       }
-    } else {
-      await supabase.from('Material Requests').update({ 
-        status: 'File Purged',
-        reject_reason: 'Physical file permanently deleted from storage to free up space. Record retained for auditing.'
-      }).eq('id', deleteModal.id);
-    }
 
-    fetchRequests();
-    setDeleteModal(null);
+      // 2. PURGE FROM STORAGE: Free physical disk space in Supabase Storage
+      if (deleteModal.path) {
+        await supabase.storage.from('textbooks').remove([deleteModal.path]);
+      }
+
+      // 3. SOFT DELETE: Update status to 'Archived' (Preserves row for audits)
+      await supabase.from('Material Requests').update({ 
+        status: 'Archived',
+        reject_reason: 'Archived by administrator. Physical file removed and vector embeddings dropped.'
+      }).eq('id', deleteModal.id);
+
+    } catch (err) {
+      console.error("Error executing archive:", err);
+    } finally {
+      fetchRequests();
+      setDeleteModal(null);
+    }
   };
 
   const submitDirectAdminUpload = async (e: React.FormEvent) => {
@@ -307,9 +313,7 @@ export default function AdminRagPage() {
         </button>
       </div>
 
-      {/* ========================================================================= */}
-      {/* SECTION 1: DOCUMENT MANAGEMENT                                            */}
-      {/* ========================================================================= */}
+      {/* SECTION 1: DOCUMENT MANAGEMENT */}
       {currentSection === 'documents' && (
         <>
           <div className="flex gap-4 border-b border-slate-200 mb-6">
@@ -317,10 +321,10 @@ export default function AdminRagPage() {
               Action Required ({actionRequired.length})
             </button>
             <button onClick={() => handleTabChange('active')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'active' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-              Active Knowledge Base
+              Active Knowledge Base ({activeFiles.length})
             </button>
             <button onClick={() => handleTabChange('archive')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'archive' ? 'border-slate-500 text-slate-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-              Archive
+              Archive ({archivedFiles.length})
             </button>
           </div>
 
@@ -357,7 +361,7 @@ export default function AdminRagPage() {
                     getVisibleFiles().map((file) => (
                       <tr key={file.id} className="hover:bg-slate-50 transition-colors">
                         <td className="p-4">
-                          <p className={`font-bold ${file.status === 'File Purged' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{file.title}</p>
+                          <p className={`font-bold ${file.status === 'File Purged' || file.status === 'Archived' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{file.title}</p>
                           <p className="text-xs font-bold text-slate-500">{file.file_size_mb} MB • {new Date(file.created_at).toLocaleDateString()}</p>
                         </td>
                         <td className="p-4">
@@ -367,7 +371,7 @@ export default function AdminRagPage() {
                         <td className="p-4">
                           <div className="flex flex-wrap gap-1.5">
                             {(file.tags || []).map((tag: string, idx: number) => (
-                              <span key={idx} className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${file.status === 'File Purged' ? 'bg-slate-50 text-slate-400 border-slate-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{tag}</span>
+                              <span key={idx} className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${file.status === 'File Purged' || file.status === 'Archived' ? 'bg-slate-50 text-slate-400 border-slate-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{tag}</span>
                             ))}
                           </div>
                         </td>
@@ -375,6 +379,7 @@ export default function AdminRagPage() {
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
                             file.status === 'Approved & Indexed' ? 'bg-emerald-100 text-emerald-800' : 
                             file.status === 'Pending Admin Approval' ? 'bg-amber-100 text-amber-800' : 
+                            file.status === 'Archived' ? 'bg-purple-100 text-purple-800' :
                             file.status === 'File Purged' ? 'bg-slate-200 text-slate-500' : 
                             'bg-slate-100 text-slate-600'
                           }`}>
@@ -399,10 +404,16 @@ export default function AdminRagPage() {
                             ) : (
                               <button onClick={() => setViewDetailsModal(file)} className="text-xs font-bold text-blue-600 hover:underline">View Details</button>
                             )}
-                            {(file.status !== 'Pending Admin Approval' && file.status !== 'File Purged') && (
+
+                            {/* Archive Button: only show if not already archived, purged, or pending approval */}
+                            {(file.status === 'Approved & Indexed' || file.status === 'Processing') && (
                               <>
                                 <div className="w-px h-4 bg-slate-200 mx-1"></div>
-                                <button onClick={() => setDeleteModal({ id: file.id, path: file.file_path, status: file.status })} className="text-slate-400 hover:text-red-600 transition-colors" title={file.status === 'Rejected' || file.status === 'Deleted by Admin' ? "Purge Storage File" : "Soft Delete & Drop Vectors"}>
+                                <button 
+                                  onClick={() => setDeleteModal({ id: file.id, title: file.title, path: file.file_path, status: file.status })} 
+                                  className="text-slate-400 hover:text-red-600 transition-colors" 
+                                  title="Archive Material & Drop Vectors"
+                                >
                                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                 </button>
                               </>
@@ -419,12 +430,9 @@ export default function AdminRagPage() {
         </>
       )}
 
-      {/* ========================================================================= */}
-      {/* SECTION 2: DOMAIN VIGNETTE SETTINGS                                       */}
-      {/* ========================================================================= */}
+      {/* SECTION 2: DOMAIN VIGNETTE SETTINGS */}
       {currentSection === 'settings' && (
         <div className="space-y-6">
-          {/* Controls Bar */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
             <div className="flex items-center gap-3">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Filter by Domain:</span>
@@ -446,7 +454,6 @@ export default function AdminRagPage() {
             </p>
           </div>
 
-          {/* Settings Grid / Table */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
@@ -501,10 +508,6 @@ export default function AdminRagPage() {
           </div>
         </div>
       )}
-
-      {/* ========================================================================= */}
-      {/* MODALS                                                                    */}
-      {/* ========================================================================= */}
 
       {/* Add Domain Setting Modal */}
       {showAddSettingModal && (
@@ -636,21 +639,23 @@ export default function AdminRagPage() {
         </div>
       )}
 
-      {/* Admin Delete Modal */}
+      {/* Archive & Purge Modal */}
       {deleteModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 border border-slate-200 text-center">
-            <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto mb-4"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></div>
-            <h3 className="text-lg font-bold text-slate-800 mb-2">Purge File?</h3>
+            <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Archive Material?</h3>
             <p className="text-sm text-slate-600 font-bold mb-6">
-              {deleteModal.status === 'Approved & Indexed' || deleteModal.status === 'Processing' 
-                ? "This will remove the physical file, drop its vectors from the AI, and notify the faculty of the deletion." 
-                : "This will permanently delete the physical file from storage to free up space. The request record will remain in the archive for auditing."}
+              This will remove the physical file from storage and drop its vectors from the AI knowledge base. The request record will be retained under the Archive tab for audit trails.
             </p>
             <div className="flex justify-center gap-3">
               <button onClick={() => setDeleteModal(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors">Cancel</button>
-              <button onClick={executeAdminDelete} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-colors">
-                {deleteModal.status === 'Approved & Indexed' || deleteModal.status === 'Processing' ? 'Soft Delete & Drop Vectors' : 'Purge File from Storage'}
+              <button onClick={executeAdminArchive} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-colors">
+                Archive & Drop Vectors
               </button>
             </div>
           </div>
@@ -672,14 +677,14 @@ export default function AdminRagPage() {
                 <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Tags</span>
                 <div className="flex flex-wrap gap-1.5 mt-1">
                   {(viewDetailsModal.tags || []).map((tag: string, idx: number) => (
-                    <span key={idx} className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${viewDetailsModal.status === 'File Purged' ? 'bg-slate-50 text-slate-400 border-slate-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{tag}</span>
+                    <span key={idx} className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${viewDetailsModal.status === 'File Purged' || viewDetailsModal.status === 'Archived' ? 'bg-slate-50 text-slate-400 border-slate-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{tag}</span>
                   ))}
                 </div>
               </div>
-              {(viewDetailsModal.status === 'Rejected' || viewDetailsModal.status === 'Deleted by Admin' || viewDetailsModal.status === 'File Purged') && (
+              {(viewDetailsModal.status === 'Rejected' || viewDetailsModal.status === 'Deleted by Admin' || viewDetailsModal.status === 'File Purged' || viewDetailsModal.status === 'Archived') && (
                 <div className="p-3 bg-red-50 border border-red-100 rounded-lg mt-4">
-                  <span className="block text-xs font-bold text-red-500 uppercase tracking-wider mb-1">Rejection/Deletion Reason</span>
-                  <p className="text-sm font-bold text-red-800">{viewDetailsModal.reject_reason}</p>
+                  <span className="block text-xs font-bold text-red-500 uppercase tracking-wider mb-1">Status Note / Audit Reason</span>
+                  <p className="text-sm font-bold text-red-800">{viewDetailsModal.reject_reason || 'Archived'}</p>
                 </div>
               )}
             </div>
