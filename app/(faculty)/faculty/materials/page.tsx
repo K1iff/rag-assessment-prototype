@@ -23,9 +23,23 @@ export default function FacultyMaterialsPage() {
   const [tagsInput, setTagsInput] = useState('');
   const [isUploading, setIsUploading] = useState(false);
 
-  const [cancelModal, setCancelModal] = useState<{ id: string, path: string } | null>(null);
+  // Destructive Cancellation States
+  const [cancelModal, setCancelModal] = useState<{ id: string, path: string, title: string } | null>(null);
+  const [countdown, setCountdown] = useState(5);
+
   const [editTagsModal, setEditTagsModal] = useState<{ id: string, tagsStr: string } | null>(null);
   const [viewDetailsModal, setViewDetailsModal] = useState<any | null>(null);
+
+  // 5-second countdown timer effect for destructive cancellation
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (cancelModal && countdown > 0) {
+      timer = setTimeout(() => {
+        setCountdown((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [cancelModal, countdown]);
 
   // Restore tab from localStorage on mount
   useEffect(() => {
@@ -62,7 +76,6 @@ export default function FacultyMaterialsPage() {
 
   const actionRequiredFiles = materials.filter(m => m.status === 'Pending Admin Approval');
   const activeFiles = materials.filter(m => m.status === 'Approved & Indexed' || m.status === 'Processing');
-  // Includes 'Archived' alongside previous archive-type statuses
   const archivedFiles = materials.filter(m => ['Archived', 'Rejected', 'Deleted by Admin', 'File Purged'].includes(m.status));
 
   const getVisibleFiles = () => {
@@ -81,10 +94,16 @@ export default function FacultyMaterialsPage() {
   };
 
   const executeCancelRequest = async () => {
-    if (!cancelModal) return;
+    if (!cancelModal || countdown > 0) return;
+    
+    setLoadingMessage('Purging file and canceling request...');
+    setIsUploading(true);
+
     await supabase.storage.from('textbooks').remove([cancelModal.path]);
     await supabase.from('Material Requests').delete().eq('id', cancelModal.id);
-    fetchRequests();
+    
+    await fetchRequests();
+    setIsUploading(false);
     setCancelModal(null);
   };
 
@@ -248,7 +267,15 @@ export default function FacultyMaterialsPage() {
                       {file.status === 'Pending Admin Approval' ? (
                         <>
                           <button onClick={() => setEditTagsModal({ id: file.id, tagsStr: (file.tags || []).join(', ') })} className="text-slate-600 hover:text-blue-600 font-bold text-xs">Edit Tags</button>
-                          <button onClick={() => setCancelModal({ id: file.id, path: file.file_path })} className="text-red-500 hover:underline font-bold text-xs">Cancel Request</button>
+                          <button 
+                            onClick={() => {
+                              setCancelModal({ id: file.id, path: file.file_path, title: file.title });
+                              setCountdown(5);
+                            }} 
+                            className="text-red-500 hover:underline font-bold text-xs"
+                          >
+                            Cancel Request
+                          </button>
                         </>
                       ) : (
                         <button onClick={() => setViewDetailsModal(file)} className="text-blue-600 hover:underline font-bold text-xs">View Details</button>
@@ -327,15 +354,40 @@ export default function FacultyMaterialsPage() {
         </div>
       )}
 
-      {/* Cancel Modal */}
+      {/* Destructive Cancel & File Deletion Modal with 5s Timer */}
       {cancelModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 border border-slate-200 text-center">
-            <h3 className="text-lg font-bold text-slate-800 mb-2">Cancel Request?</h3>
-            <p className="text-sm text-slate-600 font-bold mb-6">Are you sure you want to cancel this request and delete the uploaded file? This action cannot be undone.</p>
-            <div className="flex justify-center gap-3">
-              <button onClick={() => setCancelModal(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors">Keep Request</button>
-              <button onClick={executeCancelRequest} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-colors">Confirm Deletion</button>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </div>
+
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Cancel Request & Delete File?</h3>
+            <p className="text-sm text-slate-600 font-bold mb-4">
+              Are you sure you want to cancel the request for <span className="text-slate-900 font-extrabold">{cancelModal.title}</span>?
+            </p>
+            <p className="text-xs text-rose-600 font-bold bg-rose-50 border border-rose-200 rounded-lg p-3 mb-6 text-left">
+              This action permanently purges the uploaded document from storage and discards the pending administrative request. It cannot be recovered.
+            </p>
+
+            <div className="flex justify-end gap-3">
+              <button 
+                type="button"
+                onClick={() => setCancelModal(null)} 
+                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors"
+              >
+                Keep Request
+              </button>
+              <button 
+                type="button"
+                onClick={executeCancelRequest} 
+                disabled={countdown > 0}
+                className="min-w-[170px] px-5 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-sm font-bold rounded-lg transition-colors shadow-sm disabled:cursor-not-allowed"
+              >
+                {countdown > 0 ? `Confirm in ${countdown}s` : 'Confirm Deletion'}
+              </button>
             </div>
           </div>
         </div>

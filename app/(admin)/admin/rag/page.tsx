@@ -33,11 +33,15 @@ export default function AdminRagPage() {
   
   const [requests, setRequests] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState('Loading knowledge base...');
 
   const [rejectModal, setRejectModal] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [viewDetailsModal, setViewDetailsModal] = useState<any | null>(null);
+  
+  // Destructive Document Archive Modal + 5s Timer
   const [deleteModal, setDeleteModal] = useState<{ id: string, title: string, path: string, status: string } | null>(null);
+  const [archiveCountdown, setArchiveCountdown] = useState(5);
 
   // Domain Settings States
   const [domainSettings, setDomainSettings] = useState<DomainSetting[]>([]);
@@ -49,7 +53,33 @@ export default function AdminRagPage() {
   const [isSubmittingSetting, setIsSubmittingSetting] = useState(false);
   const [settingActionError, setSettingActionError] = useState('');
 
+  // Destructive Domain Setting Delete Modal + 5s Timer
+  const [deleteSettingModal, setDeleteSettingModal] = useState<DomainSetting | null>(null);
+  const [settingDeleteCountdown, setSettingDeleteCountdown] = useState(5);
+
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+
+  // 5-second countdown timer effect for Document Archive
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (deleteModal && archiveCountdown > 0) {
+      timer = setTimeout(() => {
+        setArchiveCountdown((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [deleteModal, archiveCountdown]);
+
+  // 5-second countdown timer effect for Setting Deletion
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (deleteSettingModal && settingDeleteCountdown > 0) {
+      timer = setTimeout(() => {
+        setSettingDeleteCountdown((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [deleteSettingModal, settingDeleteCountdown]);
 
   // Restore active document tab on mount
   useEffect(() => {
@@ -65,6 +95,7 @@ export default function AdminRagPage() {
   // Fetch Material Requests
   const fetchRequests = async () => {
     setIsLoading(true);
+    setLoadingMessage('Loading knowledge base documents...');
     const { data, error } = await supabase
       .from('Material Requests')
       .select('*, faculty:Users(name, email)')
@@ -101,7 +132,6 @@ export default function AdminRagPage() {
 
   const actionRequired = requests.filter(r => r.status === 'Pending Admin Approval');
   const activeFiles = requests.filter(r => r.status === 'Approved & Indexed' || r.status === 'Processing');
-  // Includes 'Archived' alongside legacy rejection/purge statuses
   const archivedFiles = requests.filter(r => ['Archived', 'Rejected', 'Deleted by Admin', 'File Purged'].includes(r.status));
 
   const getVisibleFiles = () => {
@@ -139,10 +169,11 @@ export default function AdminRagPage() {
 
   // Archive & Purge Handler
   const executeAdminArchive = async () => {
-    if (!deleteModal) return;
+    if (!deleteModal || archiveCountdown > 0) return;
+    setLoadingMessage('Purging file vectors and archiving request...');
+    setIsLoading(true);
 
     try {
-      // 1. HARD PURGE VECTORS: Drop chunks from the Documents table
       if (deleteModal.status === 'Approved & Indexed' || deleteModal.status === 'Processing') {
         try {
           await fetch(`${API_BASE_URL}/api/v1/vectors`, {
@@ -155,12 +186,10 @@ export default function AdminRagPage() {
         }
       }
 
-      // 2. PURGE FROM STORAGE: Free physical disk space in Supabase Storage
       if (deleteModal.path) {
         await supabase.storage.from('textbooks').remove([deleteModal.path]);
       }
 
-      // 3. SOFT DELETE: Update status to 'Archived' (Preserves row for audits)
       await supabase.from('Material Requests').update({ 
         status: 'Archived',
         reject_reason: 'Archived by administrator. Physical file removed and vector embeddings dropped.'
@@ -169,7 +198,8 @@ export default function AdminRagPage() {
     } catch (err) {
       console.error("Error executing archive:", err);
     } finally {
-      fetchRequests();
+      await fetchRequests();
+      setIsLoading(false);
       setDeleteModal(null);
     }
   };
@@ -238,15 +268,22 @@ export default function AdminRagPage() {
     }
   };
 
-  const handleDeleteDomainSetting = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this setting? It will no longer be sampled in future AI exams.')) return;
+  const executeDeleteDomainSetting = async () => {
+    if (!deleteSettingModal || settingDeleteCountdown > 0) return;
+    setLoadingMessage('Removing operational setting...');
+    setIsSettingsLoading(true);
 
-    const { error } = await supabase.from('Domain_Settings').delete().eq('id', id);
+    const targetId = deleteSettingModal.id;
+    const { error } = await supabase.from('Domain_Settings').delete().eq('id', targetId);
+    
     if (!error) {
-      setDomainSettings(prev => prev.filter(s => s.id !== id));
+      setDomainSettings(prev => prev.filter(s => s.id !== targetId));
     } else {
-      alert('Failed to delete setting: ' + error.message);
+      console.error('Failed to delete setting:', error.message);
     }
+    
+    setIsSettingsLoading(false);
+    setDeleteSettingModal(null);
   };
 
   const filteredDomainSettings = selectedSubjectFilter === 'All'
@@ -405,12 +442,14 @@ export default function AdminRagPage() {
                               <button onClick={() => setViewDetailsModal(file)} className="text-xs font-bold text-blue-600 hover:underline">View Details</button>
                             )}
 
-                            {/* Archive Button: only show if not already archived, purged, or pending approval */}
                             {(file.status === 'Approved & Indexed' || file.status === 'Processing') && (
                               <>
                                 <div className="w-px h-4 bg-slate-200 mx-1"></div>
                                 <button 
-                                  onClick={() => setDeleteModal({ id: file.id, title: file.title, path: file.file_path, status: file.status })} 
+                                  onClick={() => {
+                                    setDeleteModal({ id: file.id, title: file.title, path: file.file_path, status: file.status });
+                                    setArchiveCountdown(5);
+                                  }} 
                                   className="text-slate-400 hover:text-red-600 transition-colors" 
                                   title="Archive Material & Drop Vectors"
                                 >
@@ -490,7 +529,10 @@ export default function AdminRagPage() {
                         </td>
                         <td className="p-4 text-right">
                           <button
-                            onClick={() => handleDeleteDomainSetting(setting.id)}
+                            onClick={() => {
+                              setDeleteSettingModal(setting);
+                              setSettingDeleteCountdown(5);
+                            }}
                             className="text-slate-400 hover:text-red-600 transition-colors p-1"
                             title="Remove Setting"
                           >
@@ -639,23 +681,74 @@ export default function AdminRagPage() {
         </div>
       )}
 
-      {/* Archive & Purge Modal */}
+      {/* Mandatory Archive & Purge Modal with 5s Timer */}
       {deleteModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 border border-slate-200 text-center">
-            <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </div>
-            <h3 className="text-lg font-bold text-slate-800 mb-2">Archive Material?</h3>
-            <p className="text-sm text-slate-600 font-bold mb-6">
-              This will remove the physical file from storage and drop its vectors from the AI knowledge base. The request record will be retained under the Archive tab for audit trails.
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Archive Material & Drop Vectors?</h3>
+            <p className="text-sm text-slate-600 font-bold mb-4">
+              Are you sure you want to archive <span className="text-slate-900 font-extrabold">{deleteModal.title}</span>?
             </p>
-            <div className="flex justify-center gap-3">
-              <button onClick={() => setDeleteModal(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors">Cancel</button>
-              <button onClick={executeAdminArchive} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-colors">
-                Archive & Drop Vectors
+            <p className="text-xs text-rose-600 font-bold bg-rose-50 border border-rose-200 rounded-lg p-3 mb-6 text-left">
+              This action permanently purges the physical file from cloud storage and drops all corresponding document embeddings from the vector database. Future mock exams will no longer sample this reference material.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button 
+                type="button"
+                onClick={() => setDeleteModal(null)} 
+                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                type="button"
+                onClick={executeAdminArchive} 
+                disabled={archiveCountdown > 0}
+                className="min-w-[190px] px-5 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-sm font-bold rounded-lg transition-colors shadow-sm disabled:cursor-not-allowed"
+              >
+                {archiveCountdown > 0 ? `Confirm in ${archiveCountdown}s` : 'Archive & Drop Vectors'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mandatory Domain Setting Deletion Modal with 5s Timer */}
+      {deleteSettingModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Delete Vignette Setting?</h3>
+            <p className="text-sm text-slate-600 font-bold mb-4">
+              Delete setting <span className="text-slate-900 font-extrabold">"{deleteSettingModal.setting_name}"</span> for domain <span className="text-indigo-600 font-extrabold">{deleteSettingModal.subject}</span>?
+            </p>
+            <p className="text-xs text-rose-600 font-bold bg-rose-50 border border-rose-200 rounded-lg p-3 mb-6 text-left">
+              This operational context will immediately be removed from the sampling pool for Higher-Order Thinking Skills (HOTS) question generation.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button 
+                type="button"
+                onClick={() => setDeleteSettingModal(null)} 
+                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                type="button"
+                onClick={executeDeleteDomainSetting} 
+                disabled={settingDeleteCountdown > 0}
+                className="min-w-[170px] px-5 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-sm font-bold rounded-lg transition-colors shadow-sm disabled:cursor-not-allowed"
+              >
+                {settingDeleteCountdown > 0 ? `Confirm in ${settingDeleteCountdown}s` : 'Confirm Deletion'}
               </button>
             </div>
           </div>
@@ -696,8 +789,8 @@ export default function AdminRagPage() {
       )}
 
       <FullScreenLoader 
-        isOpen={isLoading} 
-        message="Loading knowledge base..." 
+        isOpen={isLoading || isSettingsLoading} 
+        message={loadingMessage} 
       />
     </div>
   );
