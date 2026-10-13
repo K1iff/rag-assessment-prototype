@@ -4,6 +4,7 @@ import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useIngestion } from '@/hooks/useIngestion'; 
+import { useToast } from '@/components/ui/ToastContext';
 
 interface DomainSetting {
   id: string;
@@ -22,12 +23,14 @@ const BLEPP_SUBJECTS = [
 export default function AdminRagPage() {
   // Top-level Navigation Switcher
   const [currentSection, setCurrentSection] = useState<'documents' | 'settings'>('documents');
+  const { addToast } = useToast();
 
   // Document Management States
   const [activeTab, setActiveTab] = useState<'action' | 'active' | 'archive'>('action');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [adminUploadSubject, setAdminUploadSubject] = useState(BLEPP_SUBJECTS[0]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   
@@ -59,7 +62,7 @@ export default function AdminRagPage() {
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
-  // Helper for centralized Audit Logging
+  // Centralized Audit Logging
   const logAuditAction = async (actionDesc: string, type: string = 'Document Uploads', severity: string = 'Info') => {
     try {
       const { data: sessionData } = await supabase.auth.getUser();
@@ -162,20 +165,50 @@ export default function AdminRagPage() {
     return archivedFiles;
   };
 
-  const handleReview = async (path: string) => {
-    const { data, error } = await supabase.storage.from('textbooks').createSignedUrl(path, 60);
-    if (error || !data) {
-      alert("Could not load file. It may have been deleted, or the bucket is incorrectly configured.");
+const handleReview = async (path: string) => {
+    if (!path) {
+      addToast('No storage path found for this document.', 'error');
       return;
     }
-    window.open(data.signedUrl, '_blank');
+
+    try {
+      // 1. Try primary path from database
+      let { data, error } = await supabase.storage.from('textbooks').createSignedUrl(path, 60);
+
+      // 2. Self-Healing Fallback: Check between pending/ and indexed/
+      if (error || !data?.signedUrl) {
+        let alternatePath = '';
+        if (path.startsWith('pending/')) {
+          alternatePath = path.replace('pending/', 'indexed/');
+        } else if (path.startsWith('indexed/')) {
+          alternatePath = path.replace('indexed/', 'pending/');
+        }
+
+        if (alternatePath) {
+          const retry = await supabase.storage.from('textbooks').createSignedUrl(alternatePath, 60);
+          if (retry.data?.signedUrl) {
+            data = retry.data;
+            error = null;
+          }
+        }
+      }
+
+      if (error || !data?.signedUrl) {
+        addToast('Could not load file. It may have been deleted or purged from storage.', 'error');
+        return;
+      }
+
+      window.open(data.signedUrl, '_blank');
+    } catch (err: any) {
+      addToast(err.message || 'Error generating secure document link.', 'error');
+    }
   };
 
-  const handleApproveAndProcess = async (requestId: string, filePath: string, tags: string[], fileName?: string) => {
+  const handleApproveAndProcess = async (requestId: string, filePath: string, subject: string, fileName?: string) => {
     await supabase.from('Material Requests').update({ status: 'Processing' }).eq('id', requestId);
-    await logAuditAction(`Approved and initiated ingestion for material request: "${fileName || filePath}"`, 'Document Uploads', 'Info');
+    await logAuditAction(`Approved and initiated ingestion for material request: "${fileName || filePath}" (${subject})`, 'Document Uploads', 'Info');
     fetchRequests(); 
-    await startIngestion(requestId, filePath, tags);
+    await startIngestion(requestId, filePath, [subject]);
   };
 
   const executeReject = async () => {
@@ -223,7 +256,6 @@ export default function AdminRagPage() {
         reject_reason: 'Archived by administrator. Physical file removed and vector embeddings dropped.'
       }).eq('id', deleteModal.id);
 
-      // Log vector drop and storage purge to AuditLogs
       await logAuditAction(
         `Archived material "${deleteModal.title}": purged from storage and dropped vector embeddings`,
         'Document Uploads',
@@ -248,7 +280,6 @@ export default function AdminRagPage() {
       const { data: { user } } = await supabase.auth.getUser();
       const safeName = selectedFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
       const filePath = `pending/admin_${Date.now()}_${safeName}`;
-      const defaultTags = ['Global Knowledge Base'];
       
       const { error: uploadError } = await supabase.storage.from('textbooks').upload(filePath, selectedFile);
       if (uploadError) throw uploadError;
@@ -260,15 +291,15 @@ export default function AdminRagPage() {
         file_name: selectedFile.name,
         file_path: filePath,
         file_size_mb: fileSizeMB,
-        tags: defaultTags,
+        subject: adminUploadSubject,
+        tags: [adminUploadSubject],
         status: 'Processing'
       }).select().single();
 
       if (insertError) throw insertError;
 
-      // Log direct admin upload to AuditLogs
       await logAuditAction(
-        `Direct admin upload: "${selectedFile.name}" (${fileSizeMB} MB) indexed to Global Knowledge Base`,
+        `Direct admin upload: "${selectedFile.name}" (${fileSizeMB} MB) assigned to [${adminUploadSubject}]`,
         'Document Uploads',
         'Info'
       );
@@ -276,7 +307,7 @@ export default function AdminRagPage() {
       fetchRequests();
       setShowUploadModal(false);
       setSelectedFile(null);
-      await startIngestion(insertData.id, filePath, defaultTags);
+      await startIngestion(insertData.id, filePath, [adminUploadSubject]);
 
     } catch (error) {
       setUploadError('Failed to upload the document. Please try again.');
@@ -301,7 +332,6 @@ export default function AdminRagPage() {
 
       if (error) throw error;
 
-      // Log new operational setting to AuditLogs
       await logAuditAction(
         `Added operational vignette setting "${trimmedName}" for subject: ${newSettingSubject}`,
         'AI Engine',
@@ -332,7 +362,6 @@ export default function AdminRagPage() {
     if (!error) {
       setDomainSettings(prev => prev.filter(s => s.id !== targetId));
 
-      // Log domain setting deletion to AuditLogs
       await logAuditAction(
         `Deleted operational vignette setting "${targetName}" from subject: ${targetSubject}`,
         'AI Engine',
@@ -444,7 +473,7 @@ export default function AdminRagPage() {
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Filename and Size</th>
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Requested By</th>
-                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Tags / Scope</th>
+                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">BLEPP Subject</th>
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Pipeline Status</th>
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Actions</th>
                   </tr>
@@ -462,15 +491,13 @@ export default function AdminRagPage() {
                           <p className="text-xs font-bold text-slate-500">{file.file_size_mb} MB • {new Date(file.created_at).toLocaleDateString()}</p>
                         </td>
                         <td className="p-4">
-                          <p className="font-bold text-slate-700">{file.faculty?.name || 'Unknown User'}</p>
-                          <p className="text-xs text-slate-500">{file.faculty?.email}</p>
+                          <p className="font-bold text-slate-700">{file.faculty?.name || 'Admin Upload'}</p>
+                          <p className="text-xs text-slate-500">{file.faculty?.email || 'System'}</p>
                         </td>
                         <td className="p-4">
-                          <div className="flex flex-wrap gap-1.5">
-                            {(file.tags || []).map((tag: string, idx: number) => (
-                              <span key={idx} className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${file.status === 'File Purged' || file.status === 'Archived' ? 'bg-slate-50 text-slate-400 border-slate-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{tag}</span>
-                            ))}
-                          </div>
+                          <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md text-xs font-bold whitespace-nowrap">
+                            {file.subject || (file.tags && file.tags[0]) || 'General Reference'}
+                          </span>
                         </td>
                         <td className="p-4">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
@@ -485,23 +512,58 @@ export default function AdminRagPage() {
                           </span>
                         </td>
                         <td className="p-4 text-right">
-                          <div className="flex justify-end items-center gap-4">
-                            {file.status === 'Pending Admin Approval' ? (
-                              <>
-                                <button onClick={() => handleReview(file.file_path)} className="text-blue-500 hover:text-blue-700 transition-colors" title="Review Document">
-                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                </button>
-                                <button onClick={() => handleApproveAndProcess(file.id, file.file_path, file.tags, file.title)} className="text-emerald-500 hover:text-emerald-700 transition-colors" title="Approve & Process">
-                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                                </button>
-                                <button onClick={() => setRejectModal(file.id)} className="text-red-500 hover:text-red-700 transition-colors" title="Reject">
-                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                </button>
-                              </>
-                            ) : (
-                              <button onClick={() => setViewDetailsModal(file)} className="text-xs font-bold text-blue-600 hover:underline">View Details</button>
+                          <div className="flex justify-end items-center gap-2">
+                            {/* EYE ICON: View File (Available on Action Needed and Active Files) */}
+                            {(file.status === 'Pending Admin Approval' || file.status === 'Approved & Indexed' || file.status === 'Processing') && (
+                              <button 
+                                onClick={() => handleReview(file.file_path)} 
+                                className="text-slate-400 hover:text-blue-600 transition-colors p-1" 
+                                title="View Document"
+                              >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                              </button>
                             )}
 
+                            {/* NOTEBOOK ICON: View Details (Available across all tabs) */}
+                            <button 
+                              onClick={() => setViewDetailsModal(file)} 
+                              className="text-slate-400 hover:text-indigo-600 transition-colors p-1" 
+                              title="View Details"
+                            >
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                              </svg>
+                            </button>
+
+                            {/* Pending Action Buttons (Approve / Reject) */}
+                            {file.status === 'Pending Admin Approval' && (
+                              <>
+                                <div className="w-px h-4 bg-slate-200 mx-1"></div>
+                                <button 
+                                  onClick={() => handleApproveAndProcess(file.id, file.file_path, file.subject || (file.tags && file.tags[0]) || 'General Reference', file.title)} 
+                                  className="text-emerald-500 hover:text-emerald-700 transition-colors p-1" 
+                                  title="Approve & Process"
+                                >
+                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                </button>
+                                <button 
+                                  onClick={() => setRejectModal(file.id)} 
+                                  className="text-red-500 hover:text-red-700 transition-colors p-1" 
+                                  title="Reject"
+                                >
+                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              </>
+                            )}
+
+                            {/* Active Action Button (Archive & Purge) */}
                             {(file.status === 'Approved & Indexed' || file.status === 'Processing') && (
                               <>
                                 <div className="w-px h-4 bg-slate-200 mx-1"></div>
@@ -510,10 +572,12 @@ export default function AdminRagPage() {
                                     setDeleteModal({ id: file.id, title: file.title, path: file.file_path, status: file.status });
                                     setArchiveCountdown(5);
                                   }} 
-                                  className="text-slate-400 hover:text-red-600 transition-colors" 
+                                  className="text-slate-400 hover:text-red-600 transition-colors p-1" 
                                   title="Archive Material & Drop Vectors"
                                 >
-                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
                                 </button>
                               </>
                             )}
@@ -695,12 +759,13 @@ export default function AdminRagPage() {
             <form onSubmit={submitDirectAdminUpload}>
               <div className="space-y-5">
                 {uploadError && (<div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800 font-bold flex items-center gap-2">{uploadError}</div>)}
+                
                 <div 
-                  className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors relative ${dragActive ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'} ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors relative ${dragActive ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'} ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
                   onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }} onDragLeave={() => setDragActive(false)} onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
                   onDrop={(e) => { e.preventDefault(); setDragActive(false); if (e.dataTransfer.files?.[0]) setSelectedFile(e.dataTransfer.files[0]); }}
                 >
-                  <div className="w-12 h-12 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center mx-auto mb-4"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg></div>
+                  <div className="w-12 h-12 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center mx-auto mb-3"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg></div>
                   {selectedFile ? (
                     <div>
                       <h4 className="text-sm font-bold text-slate-800 mb-1">{selectedFile.name}</h4>
@@ -716,6 +781,23 @@ export default function AdminRagPage() {
                     </div>
                   )}
                 </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                    Target BLEPP Subject
+                  </label>
+                  <select
+                    value={adminUploadSubject}
+                    onChange={(e) => setAdminUploadSubject(e.target.value)}
+                    disabled={isUploading}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 bg-white focus:outline-none focus:border-blue-500"
+                  >
+                    {BLEPP_SUBJECTS.map((subj) => (
+                      <option key={subj} value={subj}>{subj}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                   <button type="button" onClick={() => !isUploading && setShowUploadModal(false)} disabled={isUploading} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors disabled:opacity-50">Cancel</button>
                   <button type="submit" disabled={isUploading || !selectedFile} className={`min-w-[170px] px-5 py-2.5 text-white text-sm font-bold rounded-lg transition-colors shadow-sm flex items-center justify-center gap-2 ${isUploading || !selectedFile ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}>{isUploading ? 'Uploading...' : 'Upload and Embed'}</button>
@@ -789,7 +871,7 @@ export default function AdminRagPage() {
             </div>
             <h3 className="text-lg font-bold text-slate-800 mb-2">Delete Vignette Setting?</h3>
             <p className="text-sm text-slate-600 font-bold mb-4">
-              Delete setting <span className="text-slate-900 font-extrabold">"{deleteSettingModal.setting_name}"</span> for domain <span className="text-indigo-600 font-extrabold">{deleteSettingModal.subject}</span>?
+              Delete setting <span className="text-slate-900 font-extrabold">&quot;{deleteSettingModal.setting_name}&quot;</span> for domain <span className="text-indigo-600 font-extrabold">{deleteSettingModal.subject}</span>?
             </p>
             <p className="text-xs text-rose-600 font-bold bg-rose-50 border border-rose-200 rounded-lg p-3 mb-6 text-left">
               This operational context will immediately be removed from the sampling pool for Higher-Order Thinking Skills (HOTS) question generation.
@@ -827,12 +909,10 @@ export default function AdminRagPage() {
               <div><span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">File Name</span><p className="text-sm font-bold text-slate-800">{viewDetailsModal.title}</p></div>
               <div><span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Requested By</span><p className="text-sm font-bold text-slate-800">{viewDetailsModal.faculty?.name || 'Admin Upload'} ({viewDetailsModal.faculty?.email || 'N/A'})</p></div>
               <div>
-                <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Tags</span>
-                <div className="flex flex-wrap gap-1.5 mt-1">
-                  {(viewDetailsModal.tags || []).map((tag: string, idx: number) => (
-                    <span key={idx} className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${viewDetailsModal.status === 'File Purged' || viewDetailsModal.status === 'Archived' ? 'bg-slate-50 text-slate-400 border-slate-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{tag}</span>
-                  ))}
-                </div>
+                <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">BLEPP Subject</span>
+                <span className="inline-block mt-1 px-2.5 py-1 rounded text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                  {viewDetailsModal.subject || (viewDetailsModal.tags && viewDetailsModal.tags[0]) || 'General Reference'}
+                </span>
               </div>
               {(viewDetailsModal.status === 'Rejected' || viewDetailsModal.status === 'Deleted by Admin' || viewDetailsModal.status === 'File Purged' || viewDetailsModal.status === 'Archived') && (
                 <div className="p-3 bg-red-50 border border-red-100 rounded-lg mt-4">

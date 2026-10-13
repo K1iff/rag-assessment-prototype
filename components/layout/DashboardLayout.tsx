@@ -63,6 +63,7 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
       nav: [
         { type: 'link', href: '/learner', label: 'Weekly Activity', match: '/learner', exact: true },
         { type: 'link', href: '/learner/exams', label: 'Scheduled Mock Exams', match: '/learner/exams' },
+        { type: 'link', href: '/learner/materials', label: 'Review Materials', match: '/learner/materials' }, // <-- NEW FOR STUDENTS
         { type: 'link', href: '/learner/performance', label: 'Historical Performance', match: '/learner/performance' },
         { type: 'link', href: '/learner/roadmap', label: 'PRC Progress Roadmap', match: '/learner/roadmap' },
       ] as NavItem[]
@@ -76,8 +77,8 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
       roleLabel: 'Faculty Account',
       nav: [
         { type: 'link', href: '/faculty', label: 'Dashboard Overview', match: '/faculty', exact: true },
+        { type: 'link', href: '/faculty/cohorts', label: 'My Cohorts', match: '/faculty/cohorts' },
         { type: 'link', href: '/faculty/exams', label: 'Exam Management', match: '/faculty/exams' },
-        { type: 'link', href: '/faculty/analytics', label: 'Student Analytics & Grades', match: '/faculty/analytics' },
         { type: 'link', href: '/faculty/materials', label: 'Reference Materials', match: '/faculty/materials' },
       ] as NavItem[]
     },
@@ -115,7 +116,6 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
   return (
     <ToastProvider>
       <div className="min-h-screen bg-slate-50 flex flex-col">
-        
         {/* Mobile Header */}
         <div className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center z-40 relative shadow-md">
           <span className={`font-bold text-lg ${currentTheme.colorText}`}>{currentTheme.title}</span>
@@ -203,7 +203,6 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
             {children}
           </div>
         </main>
-
       </div>
     </ToastProvider>
   );
