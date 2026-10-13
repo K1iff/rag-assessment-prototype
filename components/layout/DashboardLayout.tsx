@@ -79,7 +79,6 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
         { type: 'link', href: '/faculty', label: 'Dashboard Overview', match: '/faculty', exact: true },
         { type: 'link', href: '/faculty/cohorts', label: 'My Cohorts', match: '/faculty/cohorts' },
         { type: 'link', href: '/faculty/exams', label: 'Exam Management', match: '/faculty/exams' },
-        { type: 'link', href: '/faculty/analytics', label: 'Student Analytics & Grades', match: '/faculty/analytics' },
         { type: 'link', href: '/faculty/materials', label: 'Reference Materials', match: '/faculty/materials' },
       ] as NavItem[]
     },

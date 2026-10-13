@@ -102,20 +102,6 @@ export function calculateItemAnalysis(
 ): ItemAnalysisResult {
   const totalExaminees = allAttempts.length;
 
-  // Handle sparse or missing data
-  if (totalExaminees < 4) {
-    return {
-      questionId: question.id,
-      facilityIndex: 0,
-      discriminationIndex: 0,
-      facilityLabel: 'Moderate',
-      discriminationLabel: 'Acceptable',
-      status: 'PENDING_DATA',
-      statusMessage: 'Insufficient attempt data to calculate CTT metrics (min. 4 examinees required).',
-      distractors: [],
-    };
-  }
-
   // 1. Extract responses for this specific question
   const responses = allAttempts.map((attempt) => {
     const ans = attempt.answers.find((a) => a.questionId === question.id);
@@ -127,11 +113,56 @@ export function calculateItemAnalysis(
     };
   });
 
-  // 2. Compute Item Facility Index (P)
+  // 2. Distractor Analysis (Supports both full text and letter 'A', 'B', 'C', 'D' matching)
+  const normalizedCorrectAnswer = question.correctAnswer.trim().toLowerCase();
+  const distractors: DistractorMetric[] = (question.options || []).map((opt, idx) => {
+    const isCorrect = opt.trim().toLowerCase() === normalizedCorrectAnswer;
+    const optLetter = String.fromCharCode(65 + idx).toLowerCase(); // 'a', 'b', 'c', 'd'
+
+    const count = responses.filter((r) => {
+      const sel = (r.selectedOption || '').trim().toLowerCase();
+      return (
+        sel === opt.trim().toLowerCase() ||
+        sel === optLetter ||
+        sel === `option ${optLetter}`
+      );
+    }).length;
+
+    const selectionRate = totalExaminees > 0 ? Number((count / totalExaminees).toFixed(3)) : 0;
+
+    return {
+      optionText: opt,
+      count,
+      selectionRate,
+      isCorrect,
+      isNonFunctional: totalExaminees >= 4 && !isCorrect && selectionRate < 0.05,
+    };
+  });
+
+  // 3. Handle sparse or missing data (returns choices and counts even when examinees < 4)
+  if (totalExaminees < 4) {
+    const correctCount = responses.filter((r) => r.isCorrect).length;
+    const P = totalExaminees > 0 ? Number((correctCount / totalExaminees).toFixed(3)) : 0;
+
+    return {
+      questionId: question.id,
+      facilityIndex: P,
+      discriminationIndex: 0,
+      facilityLabel: totalExaminees === 0 ? 'Moderate' : P >= 0.7 ? 'Fairly Easy' : P >= 0.4 ? 'Moderate' : 'Difficult',
+      discriminationLabel: 'Acceptable',
+      status: 'PENDING_DATA',
+      statusMessage: totalExaminees === 0 
+        ? 'No examinee attempts recorded yet.' 
+        : 'Insufficient attempt data to calculate discrimination index (min. 4 examinees required).',
+      distractors,
+    };
+  }
+
+  // 4. Compute Item Facility Index (P)
   const correctCount = responses.filter((r) => r.isCorrect).length;
   const P = Number((correctCount / totalExaminees).toFixed(3));
 
-  // 3. Compute Item Discrimination Index (D) using Kelly's Upper/Lower 27% Rule
+  // 5. Compute Item Discrimination Index (D) using Kelly's Upper/Lower 27% Rule
   // Sort examinees in descending order of overall exam score
   const sorted = [...responses].sort((a, b) => b.totalScore - a.totalScore);
   const groupSize = Math.max(1, Math.round(totalExaminees * 0.27));
@@ -145,24 +176,6 @@ export function calculateItemAnalysis(
   const Pu = upperCorrect / groupSize;
   const Pl = lowerCorrect / groupSize;
   const D = Number((Pu - Pl).toFixed(3));
-
-  // 4. Distractor Analysis & Non-Functional Distractors (NFD)
-  const normalizedCorrectAnswer = question.correctAnswer.trim().toLowerCase();
-  const distractors: DistractorMetric[] = question.options.map((opt) => {
-    const isCorrect = opt.trim().toLowerCase() === normalizedCorrectAnswer;
-    const count = responses.filter(
-      (r) => r.selectedOption.trim().toLowerCase() === opt.trim().toLowerCase()
-    ).length;
-    const selectionRate = Number((count / totalExaminees).toFixed(3));
-
-    return {
-      optionText: opt,
-      count,
-      selectionRate,
-      isCorrect,
-      isNonFunctional: !isCorrect && selectionRate < 0.05,
-    };
-  });
 
   // 5. Psychometric Labels & Diagnostic Status
   let facilityLabel: ItemAnalysisResult['facilityLabel'] = 'Moderate';
@@ -287,10 +300,12 @@ export function calculateTOSScoring(
     });
   }
 
-  // Map answers to questions
+  // Map answers to questions (supports both camelCase and snake_case)
   questions.forEach((q) => {
-    const ans = studentAnswers.find((a) => a.questionId === q.id);
-    const isCorrect = ans ? ans.isCorrect : false;
+    const ans: any = studentAnswers.find(
+      (a: any) => (a.questionId || a.question_id) === q.id
+    );
+    const isCorrect = ans ? (ans.isCorrect ?? ans.is_correct ?? false) : false;
     if (isCorrect) rawScore += 1;
 
     // Subject tracking
