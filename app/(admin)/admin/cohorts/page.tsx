@@ -5,6 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import EmptyState from '@/components/ui/EmptyState';
 import { usePagination } from '@/hooks/usePagination';
 import { supabase } from '@/lib/supabaseClient';
+import Link from 'next/link';
 
 interface Student {
   id: string;
@@ -65,6 +66,8 @@ export default function AdminCohortsPage() {
   const [cohortStart, setCohortStart] = useState('');
   const [cohortEnd, setCohortEnd] = useState('');
   const [batchEmails, setBatchEmails] = useState('');
+
+  const [availableStudentSearch, setAvailableStudentSearch] = useState('');
 
   const [cohorts, setCohorts] = useState<Cohort[]>([]);
   const [allUsersDB, setAllUsersDB] = useState<any[]>([]);
@@ -340,6 +343,10 @@ export default function AdminCohortsPage() {
 
   const availableTeachers = allUsersDB.filter(u => u.role_id === 2 && !currentCohort?.teachers.some(t => t.id === u.user_id));
   const availableStudents = allUsersDB.filter(u => u.role_id === 1 && u.cohort_id !== selectedCohort);
+  const filteredAvailableStudents = availableStudents.filter(u =>
+    u.name.toLowerCase().includes(availableStudentSearch.toLowerCase()) ||
+    (u.email && u.email.toLowerCase().includes(availableStudentSearch.toLowerCase()))
+  );
 
   // Confirmation Modal JSX Component
   const renderRemovalModal = () => {
@@ -602,14 +609,26 @@ export default function AdminCohortsPage() {
         {showAddStudentModal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 flex flex-col max-h-[80vh]">
-              <div className="flex justify-between items-center mb-4 border-b pb-2">
+              <div className="flex justify-between items-center mb-2 border-b pb-2">
                 <h3 className="text-lg font-bold text-slate-800">Add Student to Cohort</h3>
                 <button onClick={() => setShowAddStudentModal(false)} className="text-slate-400 hover:text-slate-700">✕</button>
               </div>
+              <div className="mb-4">
+                <p className="text-xs text-slate-500 font-bold mb-3">
+                  If you want to add a new student, please go to the <Link href="/admin/users/add" className="text-blue-600 hover:underline">user directory</Link> to add a user.
+                </p>
+                <input
+                  type="text"
+                  placeholder="Search students by name or email..."
+                  value={availableStudentSearch}
+                  onChange={(e) => setAvailableStudentSearch(e.target.value)}
+                  className="w-full text-xs font-bold px-3 py-2 border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 outline-none"
+                />
+              </div>
               <div className="overflow-y-auto flex-1 space-y-2">
-                {availableStudents.length === 0 ? (
-                  <p className="text-sm text-slate-500 text-center py-4">All students are already in this cohort.</p>
-                ) : availableStudents.map(u => (
+                {filteredAvailableStudents.length === 0 ? (
+                  <p className="text-sm text-slate-500 text-center py-4">No available students found.</p>
+                ) : filteredAvailableStudents.map(u => (
                   <div key={u.user_id} className="flex justify-between items-center p-3 bg-slate-50 border rounded-lg">
                     <div><p className="text-sm font-bold">{u.name}</p><p className="text-xs text-slate-500">{u.email}</p></div>
                     <button onClick={() => handleAddStudent(u.user_id)} className="px-3 py-1 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700">Add</button>
