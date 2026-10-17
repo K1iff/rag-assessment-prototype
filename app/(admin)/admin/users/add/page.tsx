@@ -296,6 +296,20 @@ export default function AddUserPage() {
     link.click();
   };
 
+  const downloadErrorsCSV = () => {
+    const errorUsers = parsedUsers.filter(u => !u.isValid);
+    if (errorUsers.length === 0) return;
+
+    const headers = "Name,Email,Role,Cohort,Error Reason\n";
+    const rows = errorUsers.map(u => `"${u.name}","${u.email}","${u.role}","${u.cohortName}","${u.errorMsg}"`).join("\n");
+    const blob = new Blob([headers + rows], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'user_import_errors.csv';
+    link.click();
+  };
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto relative pb-12">
       <div className="flex items-center gap-3 mb-2">
@@ -484,13 +498,13 @@ export default function AddUserPage() {
           {parsedUsers.length > 0 && (
             <div className="space-y-4 animate-in fade-in duration-300">
               <div className="flex justify-between items-center">
-                <h3 className="font-bold text-slate-800 text-sm">Data Preview</h3>
+                <h3 className="font-bold text-slate-800 text-sm">Valid Users to Import</h3>
                 <span className="text-xs font-bold px-2.5 py-1 rounded bg-slate-100 text-slate-600">
-                  {parsedUsers.filter(u => u.isValid).length} Valid / {parsedUsers.filter(u => !u.isValid).length} Errors
+                  {parsedUsers.filter(u => u.isValid).length} Valid
                 </span>
               </div>
               
-              <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[300px] overflow-y-auto">
+              <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[300px] overflow-y-auto mb-6">
                 <table className="w-full text-left text-sm whitespace-nowrap">
                   <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200 shadow-sm">
                     <tr className="text-xs font-bold uppercase text-slate-500 tracking-wider">
@@ -502,29 +516,76 @@ export default function AddUserPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {parsedUsers.map((user, idx) => (
-                      <tr key={idx} className={user.isValid ? 'bg-white' : 'bg-red-50/50'}>
+                    {parsedUsers.filter(u => u.isValid).length === 0 ? (
+                      <tr><td colSpan={5} className="p-4 text-center text-slate-500 text-sm">No valid users found.</td></tr>
+                    ) : parsedUsers.filter(u => u.isValid).map((user, idx) => (
+                      <tr key={idx} className="bg-white">
                         <td className="p-3">
-                          {user.isValid ? (
-                            <span className="text-emerald-500 font-bold">✓ Ready</span>
-                          ) : (
-                            <span className="text-red-500 font-bold" title={user.errorMsg}>✗ Error</span>
-                          )}
+                          <span className="text-emerald-500 font-bold">✓ Ready</span>
                         </td>
                         <td className="p-3 font-bold text-slate-800">{user.name}</td>
                         <td className="p-3 text-slate-600">{user.email}</td>
                         <td className="p-3 text-slate-600">{user.role}</td>
                         <td className="p-3 text-slate-600">
                           {user.cohortName || <span className="text-slate-400 italic">N/A</span>}
-                          {!user.isValid && user.errorMsg && (
-                            <span className="block text-[10px] text-red-600 mt-0.5">{user.errorMsg}</span>
-                          )}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+
+              {parsedUsers.filter(u => !u.isValid).length > 0 && (
+                <div className="mt-8 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-bold text-red-700 text-sm">Users with Errors</h3>
+                    <div className="flex gap-2 items-center">
+                      <span className="text-xs font-bold px-2.5 py-1 rounded bg-red-100 text-red-700">
+                        {parsedUsers.filter(u => !u.isValid).length} Errors
+                      </span>
+                      <button
+                        onClick={downloadErrorsCSV}
+                        disabled={isBatchProcessing}
+                        className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
+                      >
+                        Download Error List
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto border border-red-200 rounded-lg max-h-[300px] overflow-y-auto">
+                    <table className="w-full text-left text-sm whitespace-nowrap">
+                      <thead className="bg-red-50 sticky top-0 z-10 border-b border-red-200 shadow-sm">
+                        <tr className="text-xs font-bold uppercase text-red-700 tracking-wider">
+                          <th className="p-3">Status</th>
+                          <th className="p-3">Name</th>
+                          <th className="p-3">Email</th>
+                          <th className="p-3">Role</th>
+                          <th className="p-3">Cohort</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-red-100">
+                        {parsedUsers.filter(u => !u.isValid).map((user, idx) => (
+                          <tr key={idx} className="bg-red-50/50">
+                            <td className="p-3">
+                              <span className="text-red-500 font-bold" title={user.errorMsg}>✗ Error</span>
+                            </td>
+                            <td className="p-3 font-bold text-slate-800">{user.name}</td>
+                            <td className="p-3 text-slate-600">{user.email}</td>
+                            <td className="p-3 text-slate-600">{user.role}</td>
+                            <td className="p-3 text-slate-600">
+                              {user.cohortName || <span className="text-slate-400 italic">N/A</span>}
+                              {user.errorMsg && (
+                                <span className="block text-[10px] text-red-600 mt-0.5">{user.errorMsg}</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {isBatchProcessing && (
                 <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">

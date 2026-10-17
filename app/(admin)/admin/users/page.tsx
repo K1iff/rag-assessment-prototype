@@ -473,21 +473,23 @@ export default function AdminUsersPage() {
                     <td className="p-4 text-slate-500 font-bold">
                       {user.lastLogin}
                     </td>
-                    <td className="p-4 text-right space-x-4 whitespace-nowrap">
-                      <button
-                        onClick={() => handleInitiatePasswordReset(user.id, user.email)}
-                        disabled={isProcessing}
-                        className="text-xs font-bold text-blue-600 hover:underline disabled:opacity-50"
-                      >
-                        Reset Pass
-                      </button>
-                      <button
-                        onClick={() => handleInitiateStatusChange(user.id, user.status, user.email)}
-                        disabled={isProcessing}
-                        className={`text-xs font-bold hover:underline disabled:opacity-50 ${user.status === "Active" ? "text-rose-600" : "text-emerald-600"}`}
-                      >
-                        {user.status === "Active" ? "Deactivate" : "Activate"}
-                      </button>
+                    <td className="p-4 text-right whitespace-nowrap">
+                      <div className="inline-flex gap-2 p-1.5 border border-slate-200 bg-slate-50 rounded-lg">
+                        <button
+                          onClick={() => handleInitiatePasswordReset(user.id, user.email)}
+                          disabled={isProcessing}
+                          className="px-3 py-1.5 bg-white border border-slate-200 text-xs font-bold text-blue-600 rounded hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
+                        >
+                          Reset Pass
+                        </button>
+                        <button
+                          onClick={() => handleInitiateStatusChange(user.id, user.status, user.email)}
+                          disabled={isProcessing}
+                          className={`px-3 py-1.5 bg-white border border-slate-200 text-xs font-bold rounded hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50 ${user.status === "Active" ? "text-rose-600" : "text-emerald-600"}`}
+                        >
+                          {user.status === "Active" ? "Deactivate" : "Activate"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
