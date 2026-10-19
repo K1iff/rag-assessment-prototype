@@ -235,7 +235,7 @@ export default function FacultyDashboardPage() {
           <h3 className="font-bold text-base text-slate-700">Exam Overview</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse min-w-[720px]">
             <thead>
               <tr className="bg-white border-b border-slate-200 text-xs font-bold uppercase text-slate-500 tracking-wider">
                 <th className="p-6">Exam Title</th>
