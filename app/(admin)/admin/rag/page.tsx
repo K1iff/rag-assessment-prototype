@@ -645,7 +645,7 @@ export default function AdminRagPage() {
           {/* Documents Table */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-[720px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Filename and Size</th>
@@ -832,7 +832,7 @@ export default function AdminRagPage() {
 
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-[720px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Setting / Operational Context</th>

@@ -414,7 +414,8 @@ export default function FacultyAnalyticsPage() {
                 <span className="text-xs font-bold text-slate-400">Click a row to view students</span>
               </div>
               <div className="overflow-y-auto scrollbar-hide flex-1">
-                <table className="w-full text-left border-collapse relative">
+                <div className="overflow-x-auto w-full">
+                  <table className="w-full text-left border-collapse relative min-w-[720px]">
                   <thead className="sticky top-0 bg-white shadow-[0_1px_0_0_#e2e8f0] z-10">
                     <tr>
                       <th 
@@ -506,7 +507,8 @@ export default function FacultyAnalyticsPage() {
                       </React.Fragment>
                     ))}
                   </tbody>
-                </table>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
