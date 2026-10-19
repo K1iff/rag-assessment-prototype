@@ -1,7 +1,7 @@
 'use client';
 
 import FullScreenLoader from '@/components/ui/FullScreenLoader';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useIngestion } from '@/hooks/useIngestion'; 
 import { useToast } from '@/components/ui/ToastContext';
@@ -19,6 +19,9 @@ const BLEPP_SUBJECTS = [
   'Psychological Assessment',
   'Developmental Psychology'
 ];
+
+const DOCS_PER_PAGE = 10;
+const SETTINGS_PER_PAGE = 10;
 
 export default function AdminRagPage() {
   // Top-level Navigation Switcher
@@ -41,7 +44,13 @@ export default function AdminRagPage() {
   const [rejectModal, setRejectModal] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [viewDetailsModal, setViewDetailsModal] = useState<any | null>(null);
+  const [editModalSubject, setEditModalSubject] = useState(BLEPP_SUBJECTS[0]);
+  const [isUpdatingSubject, setIsUpdatingSubject] = useState(false);
   
+  // Document Search & Pagination
+  const [docSearchQuery, setDocSearchQuery] = useState('');
+  const [docPage, setDocPage] = useState(1);
+
   // Destructive Document Archive Modal + 5s Timer
   const [deleteModal, setDeleteModal] = useState<{ id: string, title: string, path: string, status: string } | null>(null);
   const [archiveCountdown, setArchiveCountdown] = useState(5);
@@ -55,6 +64,7 @@ export default function AdminRagPage() {
   const [newSettingName, setNewSettingName] = useState('');
   const [isSubmittingSetting, setIsSubmittingSetting] = useState(false);
   const [settingActionError, setSettingActionError] = useState('');
+  const [settingPage, setSettingPage] = useState(1);
 
   // Destructive Domain Setting Delete Modal + 5s Timer
   const [deleteSettingModal, setDeleteSettingModal] = useState<DomainSetting | null>(null);
@@ -114,21 +124,36 @@ export default function AdminRagPage() {
 
   const handleTabChange = (tab: 'action' | 'active' | 'archive') => {
     setActiveTab(tab);
+    setDocPage(1);
     localStorage.setItem('adminRagTab', tab);
   };
 
   // Fetch Material Requests
-  const fetchRequests = async () => {
-    setIsLoading(true);
-    setLoadingMessage('Loading knowledge base documents...');
+  const fetchRequests = async (silent = false) => {
+    if (!silent) {
+      setIsLoading(true);
+      setLoadingMessage('Loading knowledge base documents...');
+    }
     const { data, error } = await supabase
       .from('Material Requests')
       .select('*, faculty:Users(name, email)')
       .order('created_at', { ascending: false });
 
     if (!error && data) setRequests(data);
-    setIsLoading(false);
+    if (!silent) setIsLoading(false);
   };
+
+  // Persistent background polling: If any file is in 'Processing' status, keep polling
+  useEffect(() => {
+    const hasProcessing = requests.some(r => r.status === 'Processing');
+    if (!hasProcessing) return;
+
+    const interval = setInterval(() => {
+      fetchRequests(true);
+    }, 3500);
+
+    return () => clearInterval(interval);
+  }, [requests]);
 
   // Fetch Domain Settings
   const fetchDomainSettings = async () => {
@@ -155,27 +180,57 @@ export default function AdminRagPage() {
     onSuccess: () => fetchRequests()
   });
 
-  const actionRequired = requests.filter(r => r.status === 'Pending Admin Approval');
-  const activeFiles = requests.filter(r => r.status === 'Approved & Indexed' || r.status === 'Processing');
-  const archivedFiles = requests.filter(r => ['Archived', 'Rejected', 'Deleted by Admin', 'File Purged'].includes(r.status));
+  const actionRequired = useMemo(() => requests.filter(r => r.status === 'Pending Admin Approval'), [requests]);
+  const activeFiles = useMemo(() => requests.filter(r => r.status === 'Approved & Indexed' || r.status === 'Processing'), [requests]);
+  const archivedFiles = useMemo(() => requests.filter(r => ['Archived', 'Rejected', 'Deleted by Admin', 'File Purged'].includes(r.status)), [requests]);
 
-  const getVisibleFiles = () => {
+  // Files currently undergoing active ingestion (handles page reload persistence)
+  const processingFiles = useMemo(() => requests.filter(r => r.status === 'Processing'), [requests]);
+
+  const getBaseVisibleFiles = () => {
     if (activeTab === 'action') return actionRequired;
     if (activeTab === 'active') return activeFiles;
     return archivedFiles;
   };
 
-const handleReview = async (path: string) => {
+  // Search filter for documents
+  const filteredDocFiles = useMemo(() => {
+    const list = getBaseVisibleFiles();
+    if (!docSearchQuery.trim()) return list;
+    const q = docSearchQuery.toLowerCase();
+
+    return list.filter((file) => {
+      const matchTitle = (file.title || '').toLowerCase().includes(q);
+      const matchFileName = (file.file_name || '').toLowerCase().includes(q);
+      const matchSubject = (file.subject || file.tags?.[0] || '').toLowerCase().includes(q);
+      const matchFacultyName = (file.faculty?.name || '').toLowerCase().includes(q);
+      const matchFacultyEmail = (file.faculty?.email || '').toLowerCase().includes(q);
+
+      return matchTitle || matchFileName || matchSubject || matchFacultyName || matchFacultyEmail;
+    });
+  }, [activeTab, requests, docSearchQuery]);
+
+  // Paginated Document Slices
+  const totalDocPages = Math.max(1, Math.ceil(filteredDocFiles.length / DOCS_PER_PAGE));
+  const paginatedDocFiles = useMemo(() => {
+    const start = (docPage - 1) * DOCS_PER_PAGE;
+    return filteredDocFiles.slice(start, start + DOCS_PER_PAGE);
+  }, [filteredDocFiles, docPage]);
+
+  // Reset page when search or tab changes
+  useEffect(() => {
+    setDocPage(1);
+  }, [docSearchQuery, activeTab]);
+
+  const handleReview = async (path: string) => {
     if (!path) {
       addToast('No storage path found for this document.', 'error');
       return;
     }
 
     try {
-      // 1. Try primary path from database
       let { data, error } = await supabase.storage.from('textbooks').createSignedUrl(path, 60);
 
-      // 2. Self-Healing Fallback: Check between pending/ and indexed/
       if (error || !data?.signedUrl) {
         let alternatePath = '';
         if (path.startsWith('pending/')) {
@@ -207,7 +262,7 @@ const handleReview = async (path: string) => {
   const handleApproveAndProcess = async (requestId: string, filePath: string, subject: string, fileName?: string) => {
     await supabase.from('Material Requests').update({ status: 'Processing' }).eq('id', requestId);
     await logAuditAction(`Approved and initiated ingestion for material request: "${fileName || filePath}" (${subject})`, 'Document Uploads', 'Info');
-    fetchRequests(); 
+    fetchRequests(true); 
     await startIngestion(requestId, filePath, [subject]);
   };
 
@@ -304,7 +359,7 @@ const handleReview = async (path: string) => {
         'Info'
       );
 
-      fetchRequests();
+      fetchRequests(true);
       setShowUploadModal(false);
       setSelectedFile(null);
       await startIngestion(insertData.id, filePath, [adminUploadSubject]);
@@ -313,6 +368,56 @@ const handleReview = async (path: string) => {
       setUploadError('Failed to upload the document. Please try again.');
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  // Open Details Modal and sync subject state
+  const handleOpenDetails = (file: any) => {
+    setViewDetailsModal(file);
+    const initialSubject = file.subject || (file.tags && file.tags[0]) || BLEPP_SUBJECTS[0];
+    setEditModalSubject(initialSubject);
+  };
+
+  // Edit BLEPP Subject Handler
+  const handleUpdateDocumentSubject = async () => {
+    if (!viewDetailsModal) return;
+    setIsUpdatingSubject(true);
+
+    try {
+      const { error } = await supabase
+        .from('Material Requests')
+        .update({
+          subject: editModalSubject,
+          tags: [editModalSubject]
+        })
+        .eq('id', viewDetailsModal.id);
+
+      if (error) throw error;
+
+      await logAuditAction(
+        `Updated BLEPP subject for "${viewDetailsModal.title}" to [${editModalSubject}]`,
+        'Document Uploads',
+        'Info'
+      );
+
+      // Update local state in requests array
+      setRequests(prev => prev.map(r => r.id === viewDetailsModal.id ? {
+        ...r,
+        subject: editModalSubject,
+        tags: [editModalSubject]
+      } : r));
+
+      setViewDetailsModal((prev: any) => ({
+        ...prev,
+        subject: editModalSubject,
+        tags: [editModalSubject]
+      }));
+
+      addToast('BLEPP Subject successfully updated.', 'success');
+    } catch (err: any) {
+      addToast(err.message || 'Failed to update subject.', 'error');
+    } finally {
+      setIsUpdatingSubject(false);
     }
   };
 
@@ -341,6 +446,7 @@ const handleReview = async (path: string) => {
       setNewSettingName('');
       setShowAddSettingModal(false);
       fetchDomainSettings();
+      addToast('Domain setting added successfully.', 'success');
     } catch (err: any) {
       setSettingActionError(err.message || 'Failed to save domain setting.');
     } finally {
@@ -367,27 +473,41 @@ const handleReview = async (path: string) => {
         'AI Engine',
         'Warning'
       );
+      addToast('Operational setting removed.', 'info');
     } else {
       console.error('Failed to delete setting:', error.message);
+      addToast('Failed to delete setting.', 'error');
     }
     
     setIsSettingsLoading(false);
     setDeleteSettingModal(null);
   };
 
-  const filteredDomainSettings = selectedSubjectFilter === 'All'
-    ? domainSettings
-    : domainSettings.filter(s => s.subject === selectedSubjectFilter);
+  const filteredDomainSettings = useMemo(() => {
+    return selectedSubjectFilter === 'All'
+      ? domainSettings
+      : domainSettings.filter(s => s.subject === selectedSubjectFilter);
+  }, [domainSettings, selectedSubjectFilter]);
+
+  const totalSettingPages = Math.max(1, Math.ceil(filteredDomainSettings.length / SETTINGS_PER_PAGE));
+  const paginatedSettings = useMemo(() => {
+    const start = (settingPage - 1) * SETTINGS_PER_PAGE;
+    return filteredDomainSettings.slice(start, start + SETTINGS_PER_PAGE);
+  }, [filteredDomainSettings, settingPage]);
+
+  useEffect(() => {
+    setSettingPage(1);
+  }, [selectedSubjectFilter]);
 
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-6 relative pb-20">
       {/* Top Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Knowledge Base & Domain Administration</h1>
           <p className="text-sm text-slate-500 mt-1 font-bold">
             {currentSection === 'documents' 
-              ? 'Review faculty material requests and monitor document vectorization status.' 
+              ? 'Review faculty material requests, search knowledge documents, and monitor vectorization status.' 
               : 'Manage operational vignette settings sampled during HOTS exam generation.'}
           </p>
         </div>
@@ -442,30 +562,87 @@ const handleReview = async (path: string) => {
       {/* SECTION 1: DOCUMENT MANAGEMENT */}
       {currentSection === 'documents' && (
         <>
-          <div className="flex gap-4 border-b border-slate-200 mb-6">
-            <button onClick={() => handleTabChange('action')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'action' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-              Action Required ({actionRequired.length})
-            </button>
-            <button onClick={() => handleTabChange('active')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'active' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-              Active Knowledge Base ({activeFiles.length})
-            </button>
-            <button onClick={() => handleTabChange('archive')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'archive' ? 'border-slate-500 text-slate-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-              Archive ({archivedFiles.length})
-            </button>
+          {/* Tabs and Search Bar */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 pb-3 mb-6">
+            <div className="flex gap-4">
+              <button 
+                onClick={() => handleTabChange('action')} 
+                className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'action' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+              >
+                Action Required ({actionRequired.length})
+              </button>
+              <button 
+                onClick={() => handleTabChange('active')} 
+                className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'active' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+              >
+                Active Knowledge Base ({activeFiles.length})
+              </button>
+              <button 
+                onClick={() => handleTabChange('archive')} 
+                className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'archive' ? 'border-slate-500 text-slate-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+              >
+                Archive ({archivedFiles.length})
+              </button>
+            </div>
+
+            {/* Live Document Search Input */}
+            <div className="relative w-full lg:w-80">
+              <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search by title, subject, or requester..."
+                value={docSearchQuery}
+                onChange={(e) => setDocSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-8 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 bg-white focus:outline-none focus:border-blue-500"
+              />
+              {docSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setDocSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
 
-          {ingestionStatus === 'PROCESSING' && progressDetails && (
+          {/* Persistent Ingestion Progress / Auto-Recovery Banner */}
+          {(ingestionStatus === 'PROCESSING' && progressDetails) ? (
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between mb-6 shadow-sm animate-in fade-in">
               <div>
                 <h4 className="text-sm font-bold text-blue-800 flex items-center gap-2">
-                  <svg className="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  <svg className="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
                   {progressDetails.step || 'Processing Document'}
                 </h4>
                 <p className="text-xs text-blue-600 mt-1">{progressDetails.details || progressDetails.message}</p>
               </div>
             </div>
-          )}
+          ) : processingFiles.length > 0 ? (
+            <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-4 flex items-center justify-between mb-6 shadow-sm animate-in fade-in">
+              <div className="flex items-center gap-3">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-600"></span>
+                </span>
+                <div>
+                  <h4 className="text-sm font-bold text-blue-900 flex items-center gap-2">
+                    Background Ingestion Active ({processingFiles.length} file{processingFiles.length === 1 ? '' : 's'})
+                  </h4>
+                  <p className="text-xs text-blue-700 font-medium mt-0.5">
+                    Currently chunking and vectorizing: <span className="font-bold">{processingFiles.map(f => f.title).join(', ')}</span>. The table updates automatically.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
+          {/* Documents Table */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
@@ -481,10 +658,14 @@ const handleReview = async (path: string) => {
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {isLoading ? (
                     <tr><td colSpan={5} className="p-8 text-center text-slate-500 font-bold">Loading requests...</td></tr>
-                  ) : getVisibleFiles().length === 0 ? (
-                    <tr><td colSpan={5} className="p-8 text-center text-slate-500 font-bold">No records found for this view.</td></tr>
+                  ) : paginatedDocFiles.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-8 text-center text-slate-500 font-bold">
+                        {docSearchQuery ? 'No documents match your search criteria.' : 'No records found for this view.'}
+                      </td>
+                    </tr>
                   ) : (
-                    getVisibleFiles().map((file) => (
+                    paginatedDocFiles.map((file) => (
                       <tr key={file.id} className="hover:bg-slate-50 transition-colors">
                         <td className="p-4">
                           <p className={`font-bold ${file.status === 'File Purged' || file.status === 'Archived' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{file.title}</p>
@@ -513,7 +694,7 @@ const handleReview = async (path: string) => {
                         </td>
                         <td className="p-4 text-right">
                           <div className="flex justify-end items-center gap-2">
-                            {/* EYE ICON: View File (Available on Action Needed and Active Files) */}
+                            {/* EYE ICON: View File */}
                             {(file.status === 'Pending Admin Approval' || file.status === 'Approved & Indexed' || file.status === 'Processing') && (
                               <button 
                                 onClick={() => handleReview(file.file_path)} 
@@ -527,18 +708,18 @@ const handleReview = async (path: string) => {
                               </button>
                             )}
 
-                            {/* NOTEBOOK ICON: View Details (Available across all tabs) */}
+                            {/* NOTEBOOK ICON: View Details & Edit Subject */}
                             <button 
-                              onClick={() => setViewDetailsModal(file)} 
+                              onClick={() => handleOpenDetails(file)} 
                               className="text-slate-400 hover:text-indigo-600 transition-colors p-1" 
-                              title="View Details"
+                              title="View & Edit Details"
                             >
                               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                               </svg>
                             </button>
 
-                            {/* Pending Action Buttons (Approve / Reject) */}
+                            {/* Approve / Reject */}
                             {file.status === 'Pending Admin Approval' && (
                               <>
                                 <div className="w-px h-4 bg-slate-200 mx-1"></div>
@@ -563,7 +744,7 @@ const handleReview = async (path: string) => {
                               </>
                             )}
 
-                            {/* Active Action Button (Archive & Purge) */}
+                            {/* Archive & Purge */}
                             {(file.status === 'Approved & Indexed' || file.status === 'Processing') && (
                               <>
                                 <div className="w-px h-4 bg-slate-200 mx-1"></div>
@@ -589,6 +770,38 @@ const handleReview = async (path: string) => {
                 </tbody>
               </table>
             </div>
+
+            {/* Documents Pagination Footer (Limit: 10) */}
+            {filteredDocFiles.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-200 bg-slate-50 gap-3 text-xs font-bold text-slate-600">
+                <span>
+                  Showing {Math.min(filteredDocFiles.length, (docPage - 1) * DOCS_PER_PAGE + 1)} to{' '}
+                  {Math.min(filteredDocFiles.length, docPage * DOCS_PER_PAGE)} of {filteredDocFiles.length} documents
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDocPage((prev) => Math.max(prev - 1, 1))}
+                    disabled={docPage === 1}
+                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+                  >
+                    &larr; Prev
+                  </button>
+                  <span className="px-2 font-bold text-slate-700">
+                    Page {docPage} of {totalDocPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setDocPage((prev) => Math.min(prev + 1, totalDocPages))}
+                    disabled={docPage === totalDocPages}
+                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+                  >
+                    Next &rarr;
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -631,14 +844,14 @@ const handleReview = async (path: string) => {
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {isSettingsLoading ? (
                     <tr><td colSpan={4} className="p-8 text-center text-slate-500 font-bold">Loading domain settings...</td></tr>
-                  ) : filteredDomainSettings.length === 0 ? (
+                  ) : paginatedSettings.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="p-8 text-center text-slate-500 font-bold">
-                        No settings found for this domain. Add one to expand the AI's HOTS vignette variety.
+                        No settings found for this domain. Add one to expand the AI&apos;s HOTS vignette variety.
                       </td>
                     </tr>
                   ) : (
-                    filteredDomainSettings.map((setting) => (
+                    paginatedSettings.map((setting) => (
                       <tr key={setting.id} className="hover:bg-slate-50 transition-colors">
                         <td className="p-4">
                           <p className="font-bold text-slate-800">{setting.setting_name}</p>
@@ -671,6 +884,38 @@ const handleReview = async (path: string) => {
                 </tbody>
               </table>
             </div>
+
+            {/* Vignettes Settings Pagination Footer */}
+            {filteredDomainSettings.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-200 bg-slate-50 gap-3 text-xs font-bold text-slate-600">
+                <span>
+                  Showing {Math.min(filteredDomainSettings.length, (settingPage - 1) * SETTINGS_PER_PAGE + 1)} to{' '}
+                  {Math.min(filteredDomainSettings.length, settingPage * SETTINGS_PER_PAGE)} of {filteredDomainSettings.length} settings
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSettingPage((prev) => Math.max(prev - 1, 1))}
+                    disabled={settingPage === 1}
+                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+                  >
+                    &larr; Prev
+                  </button>
+                  <span className="px-2 font-bold text-slate-700">
+                    Page {settingPage} of {totalSettingPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSettingPage((prev) => Math.min(prev + 1, totalSettingPages))}
+                    disabled={settingPage === totalSettingPages}
+                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+                  >
+                    Next &rarr;
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -897,32 +1142,86 @@ const handleReview = async (path: string) => {
         </div>
       )}
 
-      {/* View Details Modal */}
+      {/* View & Edit Details Modal */}
       {viewDetailsModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 border border-slate-200">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 border border-slate-200">
             <div className="flex justify-between items-start mb-6">
-              <h3 className="text-lg font-bold text-slate-800">Document Details</h3>
-              <button onClick={() => setViewDetailsModal(null)} className="text-slate-400 hover:text-slate-700"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
-            </div>
-            <div className="space-y-4">
-              <div><span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">File Name</span><p className="text-sm font-bold text-slate-800">{viewDetailsModal.title}</p></div>
-              <div><span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Requested By</span><p className="text-sm font-bold text-slate-800">{viewDetailsModal.faculty?.name || 'Admin Upload'} ({viewDetailsModal.faculty?.email || 'N/A'})</p></div>
               <div>
-                <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">BLEPP Subject</span>
-                <span className="inline-block mt-1 px-2.5 py-1 rounded text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                  {viewDetailsModal.subject || (viewDetailsModal.tags && viewDetailsModal.tags[0]) || 'General Reference'}
-                </span>
+                <h3 className="text-lg font-bold text-slate-800">Document Details & Metadata</h3>
+                <p className="text-xs text-slate-500 font-bold mt-0.5">Review material properties and reassign BLEPP subject classification.</p>
               </div>
+              <button onClick={() => setViewDetailsModal(null)} className="text-slate-400 hover:text-slate-700">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">File Name</span>
+                <p className="text-sm font-bold text-slate-800">{viewDetailsModal.title}</p>
+              </div>
+
+              <div>
+                <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Requested By</span>
+                <p className="text-sm font-bold text-slate-800">
+                  {viewDetailsModal.faculty?.name || 'Admin Upload'} ({viewDetailsModal.faculty?.email || 'N/A'})
+                </p>
+              </div>
+
+              {/* Editable BLEPP Subject */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                <div className="flex justify-between items-center mb-1.5">
+                  <span className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+                    BLEPP Subject / Domain
+                  </span>
+                  {editModalSubject !== (viewDetailsModal.subject || viewDetailsModal.tags?.[0]) && (
+                    <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                      Unsaved Change
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={editModalSubject}
+                    onChange={(e) => setEditModalSubject(e.target.value)}
+                    disabled={isUpdatingSubject}
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 bg-white focus:outline-none focus:border-indigo-500"
+                  >
+                    {BLEPP_SUBJECTS.map((subj) => (
+                      <option key={subj} value={subj}>
+                        {subj}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleUpdateDocumentSubject}
+                    disabled={isUpdatingSubject || editModalSubject === (viewDetailsModal.subject || viewDetailsModal.tags?.[0])}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg transition-colors shrink-0 shadow-xs"
+                  >
+                    {isUpdatingSubject ? 'Saving...' : 'Update Subject'}
+                  </button>
+                </div>
+              </div>
+
               {(viewDetailsModal.status === 'Rejected' || viewDetailsModal.status === 'Deleted by Admin' || viewDetailsModal.status === 'File Purged' || viewDetailsModal.status === 'Archived') && (
-                <div className="p-3 bg-red-50 border border-red-100 rounded-lg mt-4">
+                <div className="p-3 bg-red-50 border border-red-100 rounded-lg">
                   <span className="block text-xs font-bold text-red-500 uppercase tracking-wider mb-1">Status Note / Audit Reason</span>
                   <p className="text-sm font-bold text-red-800">{viewDetailsModal.reject_reason || 'Archived'}</p>
                 </div>
               )}
             </div>
+
             <div className="mt-8 pt-4 border-t border-slate-100 flex justify-end">
-              <button onClick={() => setViewDetailsModal(null)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors">Close</button>
+              <button 
+                onClick={() => setViewDetailsModal(null)} 
+                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

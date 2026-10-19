@@ -1,7 +1,7 @@
 'use client';
 
 import FullScreenLoader from '@/components/ui/FullScreenLoader';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useToast } from '@/components/ui/ToastContext';
@@ -12,6 +12,8 @@ const BLEPP_SUBJECTS = [
   'Psychological Assessment',
   'Developmental Psychology'
 ];
+
+const DOCS_PER_PAGE = 10;
 
 export default function FacultyMaterialsPage() {
   // Security Hook
@@ -30,6 +32,10 @@ export default function FacultyMaterialsPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedSubject, setSelectedSubject] = useState(BLEPP_SUBJECTS[0]);
   const [isUploading, setIsUploading] = useState(false);
+
+  // Search & Pagination States
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Destructive Cancellation States
   const [cancelModal, setCancelModal] = useState<{ id: string, path: string, title: string } | null>(null);
@@ -59,10 +65,16 @@ export default function FacultyMaterialsPage() {
 
   const handleTabChange = (tab: 'action' | 'active' | 'archive') => {
     setActiveTab(tab);
+    setCurrentPage(1);
     localStorage.setItem('facultyRagTab', tab);
   };
 
-  const fetchRequests = async () => {
+  const fetchRequests = async (silent = false) => {
+    if (!silent) {
+      setIsNavigating(true);
+      setLoadingMessage('Loading materials...');
+    }
+
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       setIsNavigating(false);
@@ -76,28 +88,65 @@ export default function FacultyMaterialsPage() {
       .order('created_at', { ascending: false });
 
     if (!error && data) setMaterials(data);
-    
-    setIsNavigating(false);
+    if (!silent) setIsNavigating(false);
   };
 
   useEffect(() => {
     fetchRequests();
   }, []);
 
-  const actionRequiredFiles = materials.filter(m => m.status === 'Pending Admin Approval');
-  const activeFiles = materials.filter(m => m.status === 'Approved & Indexed' || m.status === 'Processing');
-  const archivedFiles = materials.filter(m => ['Archived', 'Rejected', 'Deleted by Admin', 'File Purged'].includes(m.status));
+  // Auto-polling for active ingestion on the teacher's own files
+  useEffect(() => {
+    const hasProcessing = materials.some(m => m.status === 'Processing');
+    if (!hasProcessing) return;
 
-  const getVisibleFiles = () => {
+    const interval = setInterval(() => {
+      fetchRequests(true);
+    }, 3500);
+
+    return () => clearInterval(interval);
+  }, [materials]);
+
+  const actionRequiredFiles = useMemo(() => materials.filter(m => m.status === 'Pending Admin Approval'), [materials]);
+  const activeFiles = useMemo(() => materials.filter(m => m.status === 'Approved & Indexed' || m.status === 'Processing'), [materials]);
+  const archivedFiles = useMemo(() => materials.filter(m => ['Archived', 'Rejected', 'Deleted by Admin', 'File Purged'].includes(m.status)), [materials]);
+  const processingFiles = useMemo(() => materials.filter(m => m.status === 'Processing'), [materials]);
+
+  const getBaseVisibleFiles = () => {
     if (activeTab === 'action') return actionRequiredFiles;
     if (activeTab === 'active') return activeFiles;
     return archivedFiles;
   };
 
-  const executeEditSubject = async () => {
-  if (!editSubjectModal) return;
+  // Search Filter
+  const filteredFiles = useMemo(() => {
+    const list = getBaseVisibleFiles();
+    if (!searchQuery.trim()) return list;
+    const q = searchQuery.toLowerCase();
 
-  const { error } = await supabase
+    return list.filter(file => {
+      const matchTitle = (file.title || '').toLowerCase().includes(q);
+      const matchFileName = (file.file_name || '').toLowerCase().includes(q);
+      const matchSubject = (file.subject || file.tags?.[0] || '').toLowerCase().includes(q);
+      return matchTitle || matchFileName || matchSubject;
+    });
+  }, [activeTab, materials, searchQuery]);
+
+  // Paginated Slices (10 per page)
+  const totalPages = Math.max(1, Math.ceil(filteredFiles.length / DOCS_PER_PAGE));
+  const paginatedFiles = useMemo(() => {
+    const start = (currentPage - 1) * DOCS_PER_PAGE;
+    return filteredFiles.slice(start, start + DOCS_PER_PAGE);
+  }, [filteredFiles, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, activeTab]);
+
+  const executeEditSubject = async () => {
+    if (!editSubjectModal) return;
+
+    const { error } = await supabase
       .from('Material Requests')
       .update({ 
         subject: editSubjectChoice,
@@ -109,12 +158,11 @@ export default function FacultyMaterialsPage() {
       addToast(error.message || 'Failed to update subject.', 'error');
     } else {
       addToast('Target subject updated successfully.', 'success');
-      fetchRequests();
+      fetchRequests(true);
       setEditSubjectModal(null);
     }
   };
 
-  // Preview file directly in browser via signed URL
   const handleReview = async (path: string) => {
     if (!path) {
       addToast('No storage path found for this document.', 'error');
@@ -122,10 +170,8 @@ export default function FacultyMaterialsPage() {
     }
 
     try {
-      // 1. Try primary path from database
       let { data, error } = await supabase.storage.from('textbooks').createSignedUrl(path, 60);
 
-      // 2. Self-Healing Fallback: Check between pending/ and indexed/
       if (error || !data?.signedUrl) {
         let alternatePath = '';
         if (path.startsWith('pending/')) {
@@ -163,9 +209,10 @@ export default function FacultyMaterialsPage() {
     await supabase.storage.from('textbooks').remove([cancelModal.path]);
     await supabase.from('Material Requests').delete().eq('id', cancelModal.id);
     
-    await fetchRequests();
+    await fetchRequests(true);
     setIsUploading(false);
     setCancelModal(null);
+    addToast('Request canceled and file removed.', 'info');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -184,6 +231,7 @@ export default function FacultyMaterialsPage() {
 
     if (uploadError) {
       console.error("Upload failed", uploadError);
+      addToast('Failed to upload file to storage.', 'error');
       setIsUploading(false);
       return;
     }
@@ -204,15 +252,11 @@ export default function FacultyMaterialsPage() {
     if (user) {
       const { data: userData } = await supabase
         .from('Users')
-        .select(`
-          email,
-          Roles ( role_name )
-        `)
+        .select(`email, Roles ( role_name )`)
         .eq('user_id', user.id)
         .single();
 
       const userEmail = userData?.email || user.email || 'System';
-      
       let roleName = 'Teacher';
       if (userData?.Roles) {
         if (Array.isArray(userData.Roles) && userData.Roles.length > 0) {
@@ -235,10 +279,11 @@ export default function FacultyMaterialsPage() {
       ]);
     }
 
-    fetchRequests(); 
+    await fetchRequests(true); 
     setIsUploading(false);
     setShowUploadModal(false);
     setSelectedFile(null);
+    addToast('Document submitted for administrative approval.', 'success');
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -253,32 +298,92 @@ export default function FacultyMaterialsPage() {
   };
 
   return (
-    <div className="space-y-6 relative pb-12">
+    <div className="space-y-6 relative pb-20">
+      {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-2">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Reference Materials Request</h1>
-          <p className="text-sm text-slate-500 mt-1 font-bold">Request syllabus, reading materials, and rubrics to be added to the AI knowledge base.</p>
+          <h1 className="text-2xl font-black text-slate-800">Reference Materials Requests</h1>
+          <p className="text-sm text-slate-500 mt-1 font-medium">Request syllabus textbooks, reading materials, and rubrics to be ingested into the AI knowledge base.</p>
         </div>
         
         {!isPermissionsLoading && uploadDocs && (
-          <button onClick={() => setShowUploadModal(true)} className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap">
-            Request File Upload
+          <button 
+            onClick={() => setShowUploadModal(true)} 
+            className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap"
+          >
+            + Request File Upload
           </button>
         )}
       </div>
 
-      <div className="flex gap-4 border-b border-slate-200">
-        <button onClick={() => handleTabChange('action')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'action' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-          Action Needed ({actionRequiredFiles.length})
-        </button>
-        <button onClick={() => handleTabChange('active')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'active' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-          My Active Files ({activeFiles.length})
-        </button>
-        <button onClick={() => handleTabChange('archive')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'archive' ? 'border-slate-500 text-slate-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-          Archive ({archivedFiles.length})
-        </button>
+      {/* Tabs and Live Search */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 pb-3">
+        <div className="flex gap-4">
+          <button 
+            onClick={() => handleTabChange('action')} 
+            className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'action' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          >
+            Awaiting Admin Approval ({actionRequiredFiles.length})
+          </button>
+          <button 
+            onClick={() => handleTabChange('active')} 
+            className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'active' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          >
+            My Active Files ({activeFiles.length})
+          </button>
+          <button 
+            onClick={() => handleTabChange('archive')} 
+            className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'archive' ? 'border-slate-500 text-slate-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          >
+            Archive ({archivedFiles.length})
+          </button>
+        </div>
+
+        {/* Search Input */}
+        <div className="relative w-full lg:w-72">
+          <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search my requested files..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-8 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 bg-white focus:outline-none focus:border-blue-500 shadow-2xs"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
+      {/* Persistent Ingestion Progress Indicator for Faculty */}
+      {processingFiles.length > 0 && (
+        <div className="bg-blue-50/90 border border-blue-200 rounded-xl p-4 flex items-center justify-between shadow-xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-3">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-600"></span>
+            </span>
+            <div>
+              <h4 className="text-sm font-bold text-blue-900 flex items-center gap-2">
+                Knowledge Base Ingestion in Progress ({processingFiles.length} file{processingFiles.length === 1 ? '' : 's'})
+              </h4>
+              <p className="text-xs text-blue-700 font-medium mt-0.5">
+                The administrator has approved <span className="font-bold">{processingFiles.map(f => f.title).join(', ')}</span>. The AI engine is actively chunking and indexing it.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Materials Table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -292,24 +397,35 @@ export default function FacultyMaterialsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-              {getVisibleFiles().length === 0 ? (
-                <tr><td colSpan={5} className="p-8 text-center text-slate-500 font-bold">No records found for this view.</td></tr>
+              {paginatedFiles.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-12 text-center text-slate-500 font-bold">
+                    {searchQuery ? 'No documents match your search.' : 'No records found for this view.'}
+                  </td>
+                </tr>
               ) : (
-                getVisibleFiles().map((file) => (
-                  <tr key={file.id} className="hover:bg-slate-50 transition-colors">
+                paginatedFiles.map((file) => (
+                  <tr key={file.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-4">
-                      <p className={`font-bold ${file.status === 'File Purged' || file.status === 'Archived' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{file.title}</p>
+                      <p className={`font-bold ${file.status === 'File Purged' || file.status === 'Archived' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                        {file.title}
+                      </p>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[10px] font-bold uppercase tracking-wider">{file.file_name.split('.').pop()?.toUpperCase()}</span>
-                        <span className="text-xs font-bold text-slate-500">{file.file_size_mb} MB</span>
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase tracking-wider border border-slate-200">
+                          {file.file_name.split('.').pop()?.toUpperCase()}
+                        </span>
+                        <span className="text-xs font-medium text-slate-400">{file.file_size_mb} MB</span>
                       </div>
                     </td>
                     <td className="p-4">
-                      <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md text-xs font-bold whitespace-nowrap">
+                      {/* High-Contrast Target BLEPP Subject Badge */}
+                      <span className="px-2.5 py-1 bg-indigo-100/90 text-indigo-950 border border-indigo-300 rounded-md text-xs font-black tracking-tight whitespace-nowrap shadow-2xs">
                         {file.subject || (file.tags && file.tags[0]) || 'General Reference'}
                       </span>
                     </td>
-                    <td className="p-4 text-slate-500 font-bold">{new Date(file.created_at).toLocaleDateString()}</td>
+                    <td className="p-4 text-slate-500 font-medium text-xs">
+                      {new Date(file.created_at).toLocaleDateString()}
+                    </td>
                     <td className="p-4">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider cursor-default ${
                         file.status === 'Approved & Indexed' ? 'bg-emerald-100 text-emerald-800' : 
@@ -318,12 +434,13 @@ export default function FacultyMaterialsPage() {
                         file.status === 'File Purged' ? 'bg-slate-200 text-slate-500' : 
                         'bg-slate-100 text-slate-600'
                       }`}>
+                        {file.status === 'Processing' && <span className="h-2 w-2 bg-blue-500 rounded-full animate-pulse"></span>}
                         {file.status}
                       </span>
                     </td>
                     <td className="p-4 text-right">
                       <div className="flex justify-end items-center gap-2">
-                        {/* EYE ICON: View File (Action Needed and Active Files only) */}
+                        {/* EYE ICON: View File */}
                         {(file.status === 'Pending Admin Approval' || file.status === 'Approved & Indexed' || file.status === 'Processing') && (
                           <button
                             onClick={() => handleReview(file.file_path)}
@@ -337,7 +454,7 @@ export default function FacultyMaterialsPage() {
                           </button>
                         )}
 
-                        {/* NOTEBOOK ICON: View Details (Always available) */}
+                        {/* NOTEBOOK ICON: View Details */}
                         <button
                           onClick={() => setViewDetailsModal(file)}
                           className="text-slate-400 hover:text-indigo-600 transition-colors p-1"
@@ -366,7 +483,7 @@ export default function FacultyMaterialsPage() {
                               </svg>
                             </button>
 
-                            {/* RED "X" ICON: Cancel Request */}
+                            {/* CANCEL REQUEST */}
                             <button 
                               onClick={() => {
                                 setCancelModal({ id: file.id, path: file.file_path, title: file.title });
@@ -389,9 +506,41 @@ export default function FacultyMaterialsPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Footer (Limit: 10) */}
+        {filteredFiles.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-200 bg-slate-50 gap-3 text-xs font-bold text-slate-600">
+            <span>
+              Showing {Math.min(filteredFiles.length, (currentPage - 1) * DOCS_PER_PAGE + 1)} to{' '}
+              {Math.min(filteredFiles.length, currentPage * DOCS_PER_PAGE)} of {filteredFiles.length} files
+            </span>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+              >
+                &larr; Prev
+              </button>
+              <span className="px-2 font-bold text-slate-800">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+              >
+                Next &rarr;
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Upload Modal */}
+      {/* Upload Modal with Fixed Font Colors */}
       {showUploadModal && uploadDocs && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200">
@@ -413,7 +562,7 @@ export default function FacultyMaterialsPage() {
                   {selectedFile ? (
                     <div className="mb-4">
                       <h4 className="text-sm font-bold text-emerald-600 mb-1">File Attached!</h4>
-                      <p className="text-xs font-bold text-slate-600">{selectedFile.name}</p>
+                      <p className="text-xs font-bold text-slate-800">{selectedFile.name}</p>
                     </div>
                   ) : (
                     <>
@@ -426,22 +575,22 @@ export default function FacultyMaterialsPage() {
                     <div className="absolute left-10 right-10 top-auto h-px bg-slate-200"></div>
                   </div>
                   <input type="file" className="hidden" ref={fileInputRef} onChange={(e) => { if (e.target.files?.[0]) setSelectedFile(e.target.files[0]); }} />
-                  <button type="button" onClick={() => fileInputRef.current?.click()} className="mt-4 px-5 py-2 border border-slate-300 text-slate-700 text-sm font-bold rounded-lg bg-white hover:bg-slate-50 transition-colors shadow-sm relative z-20">Browse Files</button>
+                  <button type="button" onClick={() => fileInputRef.current?.click()} className="mt-4 px-5 py-2 border border-slate-300 text-slate-800 text-sm font-bold rounded-lg bg-white hover:bg-slate-50 transition-colors shadow-sm relative z-20">Browse Files</button>
                 </div>
 
-                {/* Target BLEPP Subject */}
+                {/* Target BLEPP Subject Dropdown with High-Contrast Text */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1.5">
                     Target BLEPP Subject
                   </label>
                   <select 
                     value={selectedSubject} 
                     onChange={(e) => setSelectedSubject(e.target.value)} 
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 bg-white" 
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:border-blue-500 bg-white shadow-2xs" 
                     disabled={isUploading}
                   >
                     {BLEPP_SUBJECTS.map((subj) => (
-                      <option key={subj} value={subj}>{subj}</option>
+                      <option key={subj} value={subj} className="text-slate-900 font-bold">{subj}</option>
                     ))}
                   </select>
                 </div>
@@ -460,25 +609,26 @@ export default function FacultyMaterialsPage() {
       {editSubjectModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 border border-slate-200">
-            <h3 className="text-lg font-bold text-slate-800 mb-4">Edit Target Subject</h3>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Edit Target Subject</h3>
+            <p className="text-xs text-slate-500 font-medium mb-4">Update the BLEPP subject classification for this material request.</p>
             <select
               value={editSubjectChoice}
               onChange={(e) => setEditSubjectChoice(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:outline-none focus:border-blue-500 bg-white mb-6"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:border-blue-500 bg-white mb-6 shadow-2xs"
             >
               {BLEPP_SUBJECTS.map((subj) => (
-                <option key={subj} value={subj}>{subj}</option>
+                <option key={subj} value={subj} className="text-slate-900 font-bold">{subj}</option>
               ))}
             </select>
             <div className="flex justify-end gap-3">
               <button onClick={() => setEditSubjectModal(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors">Cancel</button>
-              <button onClick={executeEditSubject} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors">Save Subject</button>
+              <button onClick={executeEditSubject} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm">Save Subject</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Destructive Cancel & File Deletion Modal with 5s Timer */}
+      {/* Destructive Cancel Modal with 5s Timer */}
       {cancelModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 text-center">
@@ -517,26 +667,31 @@ export default function FacultyMaterialsPage() {
         </div>
       )}
 
-      {/* View Details Modal */}
+      {/* View Details Modal with High Contrast Badge */}
       {viewDetailsModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 border border-slate-200">
             <div className="flex justify-between items-start mb-6">
               <h3 className="text-lg font-bold text-slate-800">Document Details</h3>
-              <button onClick={() => setViewDetailsModal(null)} className="text-slate-400 hover:text-slate-700"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+              <button onClick={() => setViewDetailsModal(null)} className="text-slate-400 hover:text-slate-700">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
             </div>
             <div className="space-y-4">
-              <div><span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">File Name</span><p className="text-sm font-bold text-slate-800">{viewDetailsModal.title}</p></div>
               <div>
-                <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">BLEPP Subject</span>
-                <span className="inline-block mt-1 px-2.5 py-1 rounded text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                <span className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">File Name</span>
+                <p className="text-sm font-bold text-slate-900">{viewDetailsModal.title}</p>
+              </div>
+              <div>
+                <span className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">BLEPP Subject</span>
+                <span className="inline-block mt-1 px-3 py-1 rounded text-xs font-black bg-indigo-100 text-indigo-950 border border-indigo-300 shadow-2xs">
                   {viewDetailsModal.subject || (viewDetailsModal.tags && viewDetailsModal.tags[0]) || 'General Reference'}
                 </span>
               </div>
               {(viewDetailsModal.status === 'Rejected' || viewDetailsModal.status === 'Deleted by Admin' || viewDetailsModal.status === 'File Purged' || viewDetailsModal.status === 'Archived') && (
                 <div className="p-3 bg-red-50 border border-red-100 rounded-lg mt-4">
-                  <span className="block text-xs font-bold text-red-500 uppercase tracking-wider mb-1">Status Note / Reason</span>
-                  <p className="text-sm font-bold text-red-800">{viewDetailsModal.reject_reason || 'Archived by administrator.'}</p>
+                  <span className="block text-xs font-bold text-red-600 uppercase tracking-wider mb-1">Status Note / Reason</span>
+                  <p className="text-sm font-bold text-red-900">{viewDetailsModal.reject_reason || 'Archived by administrator.'}</p>
                 </div>
               )}
             </div>
