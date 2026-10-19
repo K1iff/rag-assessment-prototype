@@ -1037,9 +1037,10 @@ function FacultyExamsContent() {
 
   const getStatusBadge = (status: string) => {
     if (status === 'Generating') return <span className="shrink-0 px-2 py-1 bg-blue-100 text-blue-800 rounded text-[10px] font-bold uppercase tracking-wider animate-pulse border border-blue-200 shadow-sm">Generating AI...</span>;
-    if (status === 'Active') return <span className="shrink-0 px-2 py-1 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
-    if (status === 'Pending') return <span className="shrink-0 px-2 py-1 bg-amber-100 text-amber-800 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
-    if (status === 'Hidden') return <span className="shrink-0 px-2 py-1 bg-slate-200 text-slate-700 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
+    if (status === 'Active') return <span className="shrink-0 px-2 py-1 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold uppercase tracking-wider">Active</span>;
+    if (status === 'Pending') return <span className="shrink-0 px-2 py-1 bg-amber-100 text-amber-800 rounded text-[10px] font-bold uppercase tracking-wider">Draft</span>;
+    if (status === 'Inactive') return <span className="shrink-0 px-2 py-1 bg-blue-50 text-blue-700 rounded text-[10px] font-bold uppercase tracking-wider">Completed</span>;
+    if (status === 'Hidden') return <span className="shrink-0 px-2 py-1 bg-slate-200 text-slate-700 rounded text-[10px] font-bold uppercase tracking-wider">Hidden</span>;
     return <span className="shrink-0 px-2 py-1 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase tracking-wider">{status}</span>;
   };
 
@@ -1505,9 +1506,9 @@ function FacultyExamsContent() {
                  <div>
                    <label className="block text-sm font-bold text-slate-700 mb-2">Exam Status</label>
                    <select name="status" defaultValue={currentExam.status} className="w-full px-4 py-3 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white">
-                     {currentExam.status === 'Pending' && <option value="Pending">Pending (Questions need checking and validation)</option>}
+                     {currentExam.status === 'Pending' && <option value="Pending">Draft (Questions need checking and validation)</option>}
                      <option value="Active">Active (Available for learners to take)</option>
-                     <option value="Inactive">Inactive / Finished (Deadline passed)</option>
+                     <option value="Inactive">Completed / Finished (Deadline passed)</option>
                      <option value="Hidden">Hidden (Maintenance mode, invisible to students)</option>
                    </select>
                  </div>
@@ -2440,8 +2441,8 @@ function FacultyExamsContent() {
           >
             <option value="All">All Statuses</option>
             <option value="Active">Active</option>
-            <option value="Pending">Pending</option>
-            <option value="Inactive">Inactive</option>
+            <option value="Pending">Draft</option>
+            <option value="Inactive">Completed</option>
             <option value="Hidden">Hidden</option>
           </select>
         </div>
