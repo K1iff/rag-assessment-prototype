@@ -764,7 +764,8 @@ export default function FacultyCohortsPage() {
               </div>
 
               <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-                <table className="w-full text-left border-collapse">
+                <div className="overflow-x-auto w-full">
+                  <table className="w-full text-left border-collapse min-w-[720px]">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
                       <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Document Title & Details</th>
@@ -829,7 +830,8 @@ export default function FacultyCohortsPage() {
                       ))
                     )}
                   </tbody>
-                </table>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -837,7 +839,8 @@ export default function FacultyCohortsPage() {
           {/* TAB 2: ENROLLED STUDENTS */}
           {activeTab === 'students' && (
             <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-              <table className="w-full text-left border-collapse">
+              <div className="overflow-x-auto w-full">
+                <table className="w-full text-left border-collapse min-w-[720px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Student Name</th>
@@ -868,14 +871,16 @@ export default function FacultyCohortsPage() {
                     ))
                   )}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
           )}
 
           {/* TAB 3: ASSIGNED EXAMS WITH ACTION ICON */}
           {activeTab === 'exams' && (
             <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-              <table className="w-full text-left border-collapse">
+              <div className="overflow-x-auto w-full">
+                <table className="w-full text-left border-collapse min-w-[720px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Exam Title</th>
@@ -925,7 +930,8 @@ export default function FacultyCohortsPage() {
                     ))
                   )}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
           )}
 
@@ -1110,7 +1116,7 @@ export default function FacultyCohortsPage() {
 
                     {/* Scroll-Capped Table Container */}
                     <div className="overflow-x-auto max-h-[460px] overflow-y-auto">
-                      <table className="w-full text-left border-collapse">
+                      <table className="w-full text-left border-collapse min-w-[720px]">
                         <thead className="sticky top-0 bg-slate-50 shadow-2xs z-10">
                           <tr className="border-b border-slate-200">
                             <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Student Name</th>

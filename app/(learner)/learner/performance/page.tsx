@@ -421,7 +421,7 @@ export default function UnifiedPerformancePage() {
               <h3 className="font-bold text-base text-slate-700">Exam History Matrix</h3>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-[720px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold uppercase text-slate-500 tracking-wider">
                     <th className="p-4">Exam Title</th>

@@ -32,3 +32,8 @@ input, textarea {
 input::placeholder, textarea::placeholder {
   color: #475569 !important; /* text-slate-600 */
 }
+
+/* Global touch scrolling for all horizontal scroll containers */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}

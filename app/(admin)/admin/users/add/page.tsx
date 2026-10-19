@@ -505,7 +505,7 @@ export default function AddUserPage() {
               </div>
               
               <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[300px] overflow-y-auto mb-6">
-                <table className="w-full text-left text-sm whitespace-nowrap">
+                <table className="w-full text-left text-sm whitespace-nowrap min-w-[720px]">
                   <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200 shadow-sm">
                     <tr className="text-xs font-bold uppercase text-slate-500 tracking-wider">
                       <th className="p-3">Status</th>
@@ -554,7 +554,7 @@ export default function AddUserPage() {
                   </div>
 
                   <div className="overflow-x-auto border border-red-200 rounded-lg max-h-[300px] overflow-y-auto">
-                    <table className="w-full text-left text-sm whitespace-nowrap">
+                    <table className="w-full text-left text-sm whitespace-nowrap min-w-[720px]">
                       <thead className="bg-red-50 sticky top-0 z-10 border-b border-red-200 shadow-sm">
                         <tr className="text-xs font-bold uppercase text-red-700 tracking-wider">
                           <th className="p-3">Status</th>

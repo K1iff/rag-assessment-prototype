@@ -382,7 +382,7 @@ export default function AdminUsersPage() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse min-w-[720px]">
             <thead>
               <tr className="bg-white border-b border-slate-200">
                 <th className="p-4 w-12 text-center">
