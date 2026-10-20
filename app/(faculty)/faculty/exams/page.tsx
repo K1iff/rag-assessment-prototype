@@ -1285,7 +1285,7 @@ function FacultyExamsContent() {
     return (
       <div className="relative group/p inline-block cursor-help">
         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${colorClass}`}>
-          {label} (P = {facility})
+          Diff: {label} (P = {facility})
         </span>
         <div className="absolute right-0 top-full mt-1.5 hidden group-hover/p:block z-50 w-64 p-3 bg-slate-900 text-white text-[11px] font-normal normal-case rounded-lg shadow-xl pointer-events-none leading-relaxed text-left">
           <span className="font-bold text-amber-300 block mb-1">Facility Index (P) — Difficulty</span>
@@ -1309,7 +1309,7 @@ function FacultyExamsContent() {
     return (
       <div className="relative group/d inline-block cursor-help">
         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${colorClass}`}>
-          {label} (D = {d > 0 ? `+${d}` : d})
+          Disc: {label} (D = {d > 0 ? `+${d}` : d})
         </span>
         <div className="absolute right-0 top-full mt-1.5 hidden group-hover/d:block z-50 w-64 p-3 bg-slate-900 text-white text-[11px] font-normal normal-case rounded-lg shadow-xl pointer-events-none leading-relaxed text-left">
           <span className="font-bold text-blue-300 block mb-1">Discrimination Index (D) — Kelly&apos;s 27%</span>
@@ -2014,7 +2014,7 @@ function FacultyExamsContent() {
                                   {student.attempts && student.attempts.length > 0 ? (
                                     <button
                                       onClick={() => handleViewStudent(student)}
-                                      className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+                                      className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-md text-xs font-bold transition-colors inline-block"
                                     >
                                       View Attempts ({student.attempts.length})
                                     </button>
