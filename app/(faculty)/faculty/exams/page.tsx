@@ -1971,11 +1971,7 @@ function FacultyExamsContent() {
                   </div>
 
                   <div className="overflow-x-auto border border-slate-200 rounded-b-lg">
-<<<<<<< HEAD
-                    <table className="w-full text-left border-collapse min-w-[720px]">
-=======
                     <table className="w-full text-left border-collapse min-w-[640px]">
->>>>>>> test/jules-mobile-fixes
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200">
                           <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 sm:sticky sm:left-0 bg-white sm:shadow-[1px_0_0_0_rgba(0,0,0,0.1)] z-10 whitespace-nowrap">Student Name</th>
