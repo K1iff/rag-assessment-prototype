@@ -1749,10 +1749,10 @@ function FacultyExamsContent() {
                 </div>
               ) : selectedStudentForReview ? (
                 <div className="space-y-6 animate-in fade-in duration-300">
-                  <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
                     <button
                       onClick={() => setSelectedStudentForReview(null)}
-                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-2"
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-2 shrink-0"
                     >
                       ← Back to Gradebook
                     </button>
@@ -1767,16 +1767,16 @@ function FacultyExamsContent() {
                       <h3 className="text-xl font-bold text-slate-800 leading-none">{selectedStudentForReview.name}</h3>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
-                      <div className="relative min-w-[280px]">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full md:w-auto">
+                      <div className="relative w-full sm:w-auto sm:min-w-[260px] max-w-full">
                         <button
                           onClick={() => setIsReviewDropdownOpen(!isReviewDropdownOpen)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 bg-white flex justify-between items-center transition-colors hover:border-blue-400 shadow-sm"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 bg-white flex justify-between items-center transition-colors hover:border-blue-400 shadow-sm max-w-full"
                         >
-                          <span className="uppercase tracking-wider">
+                          <span className="uppercase tracking-wider truncate mr-1">
                             ATTEMPT {activeAttemptIndex + 1}/{selectedStudentForReview.attempts.length} ({formatAttemptDate(selectedStudentForReview.attempts[activeAttemptIndex].takenAt).toUpperCase()})
                           </span>
-                          <svg className={`w-4 h-4 ml-2 transition-transform duration-200 text-slate-500 ${isReviewDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <svg className={`w-4 h-4 ml-2 shrink-0 transition-transform duration-200 text-slate-500 ${isReviewDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                           </svg>
                         </button>
@@ -1800,18 +1800,18 @@ function FacultyExamsContent() {
                                     onClick={() => { setActiveAttemptIndex(idx); setIsReviewDropdownOpen(false); }}
                                     className={`flex justify-between items-center px-4 py-3 cursor-pointer transition-colors border-l-4 ${isSelected ? 'bg-blue-50 border-blue-600' : 'hover:bg-slate-50 border-transparent'}`}
                                   >
-                                    <div>
+                                    <div className="min-w-0 pr-2">
                                       <div className={`text-sm font-bold flex items-center gap-2 ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>
                                         <span>Attempt {idx + 1}</span>
                                         {isGradedAttempt && (
-                                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">
+                                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded shrink-0">
                                             ★ Graded
                                           </span>
                                         )}
                                       </div>
-                                      <div className={`text-xs font-bold mt-0.5 ${isSelected ? 'text-blue-600' : 'text-slate-500'}`}>Submitted {formatAttemptDate(att.takenAt)}</div>
+                                      <div className={`text-xs font-bold mt-0.5 truncate ${isSelected ? 'text-blue-600' : 'text-slate-500'}`}>Submitted {formatAttemptDate(att.takenAt)}</div>
                                     </div>
-                                    <div className="flex gap-2 items-center">
+                                    <div className="flex gap-2 items-center shrink-0">
                                       <span className="text-xs font-bold text-slate-500">{att.rawScore}/{att.maxScore}</span>
                                       <span className="px-2 py-0.5 rounded text-xs font-bold bg-blue-100 text-blue-800">
                                         {att.scorePercentage}%
@@ -1826,7 +1826,7 @@ function FacultyExamsContent() {
                       </div>
                       
                       {/* Single Clean Score Box */}
-                      <div className="bg-slate-50 border border-slate-200 px-4 py-2 rounded-lg text-center min-w-[130px]">
+                      <div className="bg-slate-50 border border-slate-200 px-4 py-2 rounded-lg text-center w-full sm:w-auto sm:min-w-[130px]">
                         <span className="text-xl font-black text-blue-600 block leading-none">
                           {selectedStudentForReview.attempts[activeAttemptIndex].rawScore} / {selectedStudentForReview.attempts[activeAttemptIndex].maxScore}
                         </span>
@@ -1854,35 +1854,35 @@ function FacultyExamsContent() {
                     </div>
                   )}
 
-                  {/* Question Review List */}
-                  <div className="grid gap-6">
+{/* Question Review List */}
+                  <div className="grid gap-6 w-full max-w-full">
                     {selectedStudentForReview.attempts[activeAttemptIndex].items.map((item) => (
                       <div
                         key={item.qNum}
-                        className={`p-6 border rounded-xl bg-white shadow-sm flex flex-col gap-3 border-l-4 transition-all ${
+                        className={`p-3 sm:p-6 border rounded-xl bg-white shadow-sm flex flex-col gap-3 border-l-4 transition-all w-full max-w-full overflow-hidden ${
                           item.isCorrect ? 'border-l-emerald-500' : 'border-l-rose-500'
                         }`}
                       >
-                        <div className="flex justify-between items-start mb-2">
-                          <div className="flex items-center gap-3">
-                            <span className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center text-xs font-bold border border-slate-200 shrink-0">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-2 gap-2 w-full max-w-full">
+                          <div className="flex items-start gap-3 flex-1 min-w-0 pr-2">
+                            <span className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center text-xs font-bold border border-slate-200 shrink-0 mt-0.5">
                               {item.qNum}
                             </span>
-                            <p className="text-base font-bold text-slate-900 leading-relaxed">{item.text}</p>
+                            <p className="text-base font-bold text-slate-900 leading-relaxed break-words flex-1 min-w-0">{item.text}</p>
                           </div>
-                          <span className={`shrink-0 px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${
+                          <span className={`shrink-0 self-start sm:self-auto px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${
                             item.isCorrect ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
                           }`}>
                             {item.isCorrect ? '✓ Correct' : '✗ Incorrect'}
                           </span>
                         </div>
 
-                        <div className="space-y-2">
+                        <div className="space-y-2 w-full max-w-full">
                           {item.options.map((opt, i) => {
                             const isSelected = normalizeForComparison(opt) === normalizeForComparison(item.studentAnswer);
                             const isCorrect = normalizeForComparison(opt) === normalizeForComparison(item.correctAnswer);
 
-                            let baseStyle = 'p-3 border rounded-lg text-sm font-bold flex justify-between items-center transition-colors ';
+                            let baseStyle = 'p-3 border rounded-lg text-sm font-bold flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors w-full max-w-full ';
 
                             if (isSelected && isCorrect) {
                               baseStyle += 'bg-emerald-100 border-emerald-300 text-emerald-900';
@@ -1896,23 +1896,23 @@ function FacultyExamsContent() {
 
                             return (
                               <div key={i} className={baseStyle}>
-                                <span>{opt}</span>
-                                <div className="flex gap-2 text-[10px] uppercase tracking-wider shrink-0">
-                                  {isSelected && <span>(Student's Answer)</span>}
-                                  {isCorrect && <span>(Correct Answer)</span>}
+                                <span className="break-words leading-relaxed flex-1 min-w-0">{opt}</span>
+                                <div className="flex flex-wrap gap-1.5 text-[10px] uppercase tracking-wider shrink-0 self-start sm:self-auto">
+                                  {isSelected && <span className="px-1.5 py-0.5 rounded bg-white/70 border border-current">(Student's Answer)</span>}
+                                  {isCorrect && <span className="px-1.5 py-0.5 rounded bg-white/70 border border-current">(Correct Answer)</span>}
                                 </div>
                               </div>
                             );
                           })}
                         </div>
                         
-                        <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-lg mt-3 flex items-start gap-3">
+                        <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-lg mt-3 flex items-start gap-3 w-full max-w-full overflow-hidden">
                           <span className="text-lg shrink-0 mt-0.5">🧠</span>
-                          <div>
+                          <div className="flex-1 min-w-0">
                             <span className="block text-[11px] font-bold text-blue-800 uppercase tracking-wider mb-1">
                               AI-Generated Rationale
                             </span>
-                            <p className="text-sm text-blue-950 font-bold leading-relaxed">
+                            <p className="text-sm text-blue-950 font-bold leading-relaxed break-words">
                               {item.explanation}
                             </p>
                           </div>
@@ -1971,14 +1971,18 @@ function FacultyExamsContent() {
                   </div>
 
                   <div className="overflow-x-auto border border-slate-200 rounded-b-lg">
+<<<<<<< HEAD
                     <table className="w-full text-left border-collapse min-w-[720px]">
+=======
+                    <table className="w-full text-left border-collapse min-w-[640px]">
+>>>>>>> test/jules-mobile-fixes
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200">
-                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Student Name</th>
-                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Cohort</th>
-                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Status</th>
-                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Score (%)</th>
-                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Attempts</th>
+                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 sm:sticky sm:left-0 bg-white sm:shadow-[1px_0_0_0_rgba(0,0,0,0.1)] z-10 whitespace-nowrap">Student Name</th>
+                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell whitespace-nowrap">Cohort</th>
+                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap">Status</th>
+                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap">Score (%)</th>
+                          <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right whitespace-nowrap">Attempts</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-sm">
@@ -1992,13 +1996,13 @@ function FacultyExamsContent() {
 
                             return (
                               <tr key={student.id} className="hover:bg-slate-50 transition-colors bg-white">
-                                <td className="p-4 font-bold text-slate-800">{student.name}</td>
-                                <td className="p-4">
+                                <td className="p-4 font-bold text-slate-800 sm:sticky sm:left-0 bg-white sm:shadow-[1px_0_0_0_rgba(0,0,0,0.1)] z-10 whitespace-nowrap">{student.name}</td>
+                                <td className="p-4 hidden md:table-cell">
                                   <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-600 rounded text-xs font-bold whitespace-nowrap">
                                     {cohortName}
                                   </span>
                                 </td>
-                                <td className="p-4">
+                                <td className="p-4 whitespace-nowrap">
                                   <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
                                     student.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' :
                                     student.status === 'In Progress' ? 'bg-blue-100 text-blue-800' :
@@ -2007,10 +2011,10 @@ function FacultyExamsContent() {
                                     {student.status}
                                   </span>
                                 </td>
-                                <td className="p-4 font-bold text-slate-800">
+                                <td className="p-4 font-bold text-slate-800 whitespace-nowrap">
                                   {student.grade}
                                 </td>
-                                <td className="p-4 text-right">
+                                <td className="p-4 text-right whitespace-nowrap">
                                   {student.attempts && student.attempts.length > 0 ? (
                                     <button
                                       onClick={() => handleViewStudent(student)}
@@ -2047,7 +2051,7 @@ function FacultyExamsContent() {
                 </div>
 
                 {/* Controls in a Single Row */}
-                <div className="flex items-center gap-2.5 flex-wrap xl:flex-nowrap shrink-0">
+                <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2.5 shrink-0 w-full xl:w-auto mt-4 xl:mt-0">
                   {/* Hover Information Tooltip */}
                   <div className="relative group">
                     <button
@@ -2104,7 +2108,7 @@ function FacultyExamsContent() {
                   <select
                     value={analyticsAttemptBasis}
                     onChange={(e: any) => setAnalyticsAttemptBasis(e.target.value)}
-                    className="w-36 px-2.5 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 bg-white focus:outline-none focus:border-blue-500 shrink-0"
+                    className="w-full sm:w-36 px-2.5 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 bg-white focus:outline-none focus:border-blue-500 shrink-0"
                     title="Select Attempt Basis"
                   >
                     <option value="graded">Graded Attempt ({currentExam.gradingLogic})</option>
@@ -2116,7 +2120,7 @@ function FacultyExamsContent() {
                   <select
                     value={analyticsCohortFilter}
                     onChange={(e) => setAnalyticsCohortFilter(e.target.value)}
-                    className="w-32 px-2.5 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 bg-white focus:outline-none focus:border-blue-500 shrink-0"
+                    className="w-full sm:w-32 px-2.5 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 bg-white focus:outline-none focus:border-blue-500 shrink-0"
                     title="Filter by Cohort"
                   >
                     <option value="All">All Cohorts</option>
@@ -2132,7 +2136,7 @@ function FacultyExamsContent() {
                     <select
                       value={selectedCompetencyFilter}
                       onChange={(e) => setSelectedCompetencyFilter(e.target.value)}
-                      className="w-48 px-2.5 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 bg-white focus:outline-none focus:border-blue-500 shrink-0 truncate"
+                      className="w-full sm:w-48 px-2.5 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 bg-white focus:outline-none focus:border-blue-500 shrink-0 truncate"
                       title={selectedCompetencyFilter === 'All' ? 'All Competencies' : selectedCompetencyFilter}
                     >
                       <option value="All">All Competencies ({questionAnalytics.length})</option>
@@ -2160,10 +2164,10 @@ function FacultyExamsContent() {
                     const isExpanded = !!expandedQuestionDetails[qa.id];
 
                     return (
-                      <div key={qa.id} className="p-6 border border-slate-200 rounded-xl bg-white shadow-sm">
+                      <div key={qa.id} className="p-3 sm:p-6 border border-slate-200 rounded-xl bg-white shadow-sm">
                         {/* Header: Question Number, Prompt Text, and Vertically Stacked P & D Badges */}
-                        <div className="flex justify-between items-start mb-5 pb-4 border-b border-slate-100 gap-4">
-                          <div className="flex items-start gap-3 flex-1 min-w-0">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-5 pb-4 border-b border-slate-100 gap-4">
+                          <div className="flex items-start gap-3 flex-1 min-w-0 w-full">
                             <span className="w-8 h-8 shrink-0 mt-0.5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-sm font-bold border border-slate-200">
                               {index + 1}
                             </span>
@@ -2182,7 +2186,7 @@ function FacultyExamsContent() {
                           </div>
 
                           {/* Vertically Stacked Difficulty & Discrimination Badges */}
-                          <div className="flex flex-col items-end gap-1.5 shrink-0 self-start">
+                          <div className="flex flex-row flex-wrap items-center gap-1.5 sm:flex-col sm:items-end shrink-0 self-start">
                             {getDifficultyBadge(qa.facilityIndex, qa.facilityLabel)}
                             {getDiscriminationBadge(qa.discriminationIndex, qa.discriminationLabel)}
                           </div>
@@ -2458,7 +2462,7 @@ function FacultyExamsContent() {
         {filteredExams.map((exam) => (
           <div key={exam.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col relative">
             <div className={`h-1.5 w-full ${exam.color}`}></div>
-            <div className="p-6 flex-1 flex flex-col justify-between">
+            <div className="p-3 sm:p-6 flex-1 flex flex-col justify-between">
               <div>
                 <div className="flex justify-between items-start mb-4">
                   <h3 className="font-bold text-lg text-slate-800 leading-snug pr-3">{exam.title}</h3>

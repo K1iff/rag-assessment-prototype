@@ -419,7 +419,7 @@ export default function FacultyAnalyticsPage() {
                   <thead className="sticky top-0 bg-white shadow-[0_1px_0_0_#e2e8f0] z-10">
                     <tr>
                       <th 
-                        className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 cursor-pointer hover:text-slate-800 transition-colors"
+                        className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 cursor-pointer hover:text-slate-800 transition-colors sticky left-0 bg-white shadow-[1px_0_0_0_rgba(0,0,0,0.1)] z-10"
                         onClick={() => handleSort('cohort')}
                       >
                         Cohort Name {sortKey === 'cohort' && (sortDirection === 'asc' ? '↑' : '↓')}
@@ -443,7 +443,7 @@ export default function FacultyAnalyticsPage() {
                     {sortedCohorts.map((record) => (
                       <React.Fragment key={record.id}>
                         <tr onClick={() => toggleExpand(record.id)} className={`transition-colors cursor-pointer ${expandedCohort === record.id ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
-                          <td className="p-4"><p className="font-bold text-slate-800">{record.cohort}</p></td>
+                          <td className="p-4 sticky left-0 bg-white shadow-[1px_0_0_0_rgba(0,0,0,0.1)] z-10"><p className="font-bold text-slate-800">{record.cohort}</p></td>
                           <td className="p-4"><p className="font-bold text-slate-800">{record.averageScoreNum}%</p></td>
                           <td className="p-4"><p className="font-bold text-slate-800">{record.completionRateNum}%</p></td>
                           <td className="p-4">

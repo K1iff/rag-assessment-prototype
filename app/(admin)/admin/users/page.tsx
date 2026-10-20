@@ -402,13 +402,13 @@ export default function AdminUsersPage() {
                 <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">
                   Role
                 </th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">
+                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell">
                   Cohort
                 </th>
                 <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">
                   Status
                 </th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">
+                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell">
                   Last Login
                 </th>
                 <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">
@@ -458,7 +458,7 @@ export default function AdminUsersPage() {
                     <td className="p-4">
                       <p className="font-bold text-slate-600">{user.role}</p>
                     </td>
-                    <td className="p-4">
+                    <td className="p-4 hidden md:table-cell">
                       <p className="font-bold text-slate-600">{user.cohort}</p>
                     </td>
                     <td className="p-4">
@@ -470,7 +470,7 @@ export default function AdminUsersPage() {
                         {user.status}
                       </Badge>
                     </td>
-                    <td className="p-4 text-slate-500 font-bold">
+                    <td className="p-4 text-slate-500 font-bold hidden md:table-cell">
                       {user.lastLogin}
                     </td>
                     <td className="p-4 text-right whitespace-nowrap">
