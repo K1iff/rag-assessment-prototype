@@ -237,12 +237,12 @@ export default function LearnerCalendarPage() {
             <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
               Syncing calendar data...
             </div>
-          ) : weeklySchedule.length === 0 ? (
+          ) : weeklySchedule.filter(schedule => !['Completed', 'Closed', 'Finished', 'Past'].includes(schedule.status)).length === 0 ? (
             <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
-              No scheduled activities found.
+              No active exams scheduled right now. Check 'Scheduled Mock Exams' or 'Historical Performance' for past exams.
             </div>
           ) : (
-            weeklySchedule.map((schedule, idx) => (
+            weeklySchedule.filter(schedule => !['Completed', 'Closed', 'Finished', 'Past'].includes(schedule.status)).map((schedule, idx) => (
               <div key={idx} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between gap-4">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div>
