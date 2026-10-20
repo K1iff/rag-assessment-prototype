@@ -14,6 +14,7 @@ const BLEPP_SUBJECTS = [
 ];
 
 const DOCS_PER_PAGE = 10;
+const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB Supabase storage ceiling
 
 export default function FacultyMaterialsPage() {
   // Security Hook
@@ -143,6 +144,23 @@ export default function FacultyMaterialsPage() {
     setCurrentPage(1);
   }, [searchQuery, activeTab]);
 
+  // Client-Side File Validation Handler
+  const validateAndSetFile = (file: File): boolean => {
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+      addToast(
+        `File size (${sizeMB} MB) exceeds the 50 MB storage limit. Please compress the file or choose a smaller document.`,
+        'error'
+      );
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return false;
+    }
+
+    setSelectedFile(file);
+    return true;
+  };
+
   const executeEditSubject = async () => {
     if (!editSubjectModal) return;
 
@@ -218,6 +236,12 @@ export default function FacultyMaterialsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile || !uploadDocs) return;
+
+    if (selectedFile.size > MAX_FILE_SIZE_BYTES) {
+      const sizeMB = (selectedFile.size / (1024 * 1024)).toFixed(1);
+      addToast(`Upload blocked: File size (${sizeMB} MB) exceeds the 50 MB limit.`, 'error');
+      return;
+    }
     
     setLoadingMessage('Uploading file to system...');
     setIsUploading(true);
@@ -294,7 +318,9 @@ export default function FacultyMaterialsPage() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files?.[0]) setSelectedFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files?.[0]) {
+      validateAndSetFile(e.dataTransfer.files[0]);
+    }
   };
 
   return (
@@ -418,7 +444,6 @@ export default function FacultyMaterialsPage() {
                       </div>
                     </td>
                     <td className="p-4">
-                      {/* High-Contrast Target BLEPP Subject Badge */}
                       <span className="px-2.5 py-1 bg-indigo-100/90 text-indigo-950 border border-indigo-300 rounded-md text-xs font-black tracking-tight whitespace-nowrap shadow-2xs">
                         {file.subject || (file.tags && file.tags[0]) || 'General Reference'}
                       </span>
@@ -440,7 +465,6 @@ export default function FacultyMaterialsPage() {
                     </td>
                     <td className="p-4 text-right">
                       <div className="flex justify-end items-center gap-2">
-                        {/* EYE ICON: View File */}
                         {(file.status === 'Pending Admin Approval' || file.status === 'Approved & Indexed' || file.status === 'Processing') && (
                           <button
                             onClick={() => handleReview(file.file_path)}
@@ -454,7 +478,6 @@ export default function FacultyMaterialsPage() {
                           </button>
                         )}
 
-                        {/* NOTEBOOK ICON: View Details */}
                         <button
                           onClick={() => setViewDetailsModal(file)}
                           className="text-slate-400 hover:text-indigo-600 transition-colors p-1"
@@ -465,11 +488,9 @@ export default function FacultyMaterialsPage() {
                           </svg>
                         </button>
 
-                        {/* Pending Controls: Edit Subject & Cancel Request */}
                         {file.status === 'Pending Admin Approval' && (
                           <>
                             <div className="w-px h-4 bg-slate-200 mx-1"></div>
-                            {/* PENCIL ICON: Edit Subject */}
                             <button 
                               onClick={() => {
                                 setEditSubjectModal({ id: file.id, currentSubject: file.subject || BLEPP_SUBJECTS[0] });
@@ -483,7 +504,6 @@ export default function FacultyMaterialsPage() {
                               </svg>
                             </button>
 
-                            {/* CANCEL REQUEST */}
                             <button 
                               onClick={() => {
                                 setCancelModal({ id: file.id, path: file.file_path, title: file.title });
@@ -540,7 +560,7 @@ export default function FacultyMaterialsPage() {
         )}
       </div>
 
-      {/* Upload Modal with Fixed Font Colors */}
+      {/* Upload Modal with File Validation */}
       {showUploadModal && uploadDocs && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200">
@@ -562,23 +582,41 @@ export default function FacultyMaterialsPage() {
                   {selectedFile ? (
                     <div className="mb-4">
                       <h4 className="text-sm font-bold text-emerald-600 mb-1">File Attached!</h4>
-                      <p className="text-xs font-bold text-slate-800">{selectedFile.name}</p>
+                      <p className="text-xs font-bold text-slate-800 break-all">{selectedFile.name}</p>
+                      <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                        <span>{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB / 50 MB</span>
+                      </div>
                     </div>
                   ) : (
                     <>
                       <h4 className="text-sm font-bold text-slate-800 mb-1">Drag and drop your file here</h4>
-                      <p className="text-xs font-bold text-slate-500 mb-4">Supports PDF, PPTX, and DOCX up to 50MB</p>
+                      <p className="text-xs font-bold text-slate-500 mb-2">Supports PDF, PPTX, and DOCX</p>
+                      <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-bold mb-4">
+                        <svg className="w-3.5 h-3.5 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <span>Maximum file size: 50 MB (Supabase Storage Ceiling)</span>
+                      </div>
                     </>
                   )}
                   <div className="flex items-center justify-center">
                     <span className="px-2 bg-slate-50 text-xs font-bold text-slate-400 uppercase relative z-10">Or</span>
                     <div className="absolute left-10 right-10 top-auto h-px bg-slate-200"></div>
                   </div>
-                  <input type="file" className="hidden" ref={fileInputRef} onChange={(e) => { if (e.target.files?.[0]) setSelectedFile(e.target.files[0]); }} />
+                  <input 
+                    type="file" 
+                    className="hidden" 
+                    ref={fileInputRef} 
+                    onChange={(e) => { 
+                      if (e.target.files?.[0]) {
+                        validateAndSetFile(e.target.files[0]);
+                      }
+                    }} 
+                  />
                   <button type="button" onClick={() => fileInputRef.current?.click()} className="mt-4 px-5 py-2 border border-slate-300 text-slate-800 text-sm font-bold rounded-lg bg-white hover:bg-slate-50 transition-colors shadow-sm relative z-20">Browse Files</button>
                 </div>
 
-                {/* Target BLEPP Subject Dropdown with High-Contrast Text */}
+                {/* Target BLEPP Subject Dropdown */}
                 <div>
                   <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1.5">
                     Target BLEPP Subject
