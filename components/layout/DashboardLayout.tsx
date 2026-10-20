@@ -61,7 +61,7 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
       colorBadge: 'bg-blue-900 bg-opacity-50 text-blue-400',
       roleLabel: 'Learner Account',
       nav: [
-        { type: 'link', href: '/learner', label: 'Weekly Activity', match: '/learner', exact: true },
+        { type: 'link', href: '/learner', label: 'Home', match: '/learner', exact: true },
         { type: 'link', href: '/learner/exams', label: 'Scheduled Mock Exams', match: '/learner/exams' },
         { type: 'link', href: '/learner/materials', label: 'Review Materials', match: '/learner/materials' }, // <-- NEW FOR STUDENTS
         { type: 'link', href: '/learner/performance', label: 'Historical Performance', match: '/learner/performance' },

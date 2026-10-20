@@ -764,13 +764,14 @@ export default function FacultyCohortsPage() {
               </div>
 
               <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-                <table className="w-full text-left border-collapse">
+                <div className="overflow-x-auto w-full">
+                  <table className="w-full text-left border-collapse min-w-[720px]">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
                       <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Document Title & Details</th>
                       <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">BLEPP Subject</th>
                       <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Uploaded By</th>
-                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Date Assigned</th>
+                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell">Date Assigned</th>
                       <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -798,7 +799,7 @@ export default function FacultyCohortsPage() {
                           <td className="p-4 font-bold text-slate-600 text-xs">
                             {mat.uploaded_by}
                           </td>
-                          <td className="p-4 text-xs font-bold text-slate-400">
+                          <td className="p-4 text-xs font-bold text-slate-400 hidden md:table-cell">
                             {new Date(mat.created_at).toLocaleDateString()}
                           </td>
                           <td className="p-4 text-right">
@@ -829,7 +830,8 @@ export default function FacultyCohortsPage() {
                       ))
                     )}
                   </tbody>
-                </table>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -837,13 +839,14 @@ export default function FacultyCohortsPage() {
           {/* TAB 2: ENROLLED STUDENTS */}
           {activeTab === 'students' && (
             <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-              <table className="w-full text-left border-collapse">
+              <div className="overflow-x-auto w-full">
+                <table className="w-full text-left border-collapse min-w-[720px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Student Name</th>
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Email Address</th>
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Account Status</th>
-                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Enrolled Date</th>
+                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right hidden md:table-cell">Enrolled Date</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -861,26 +864,28 @@ export default function FacultyCohortsPage() {
                             {student.account_status || 'Active'}
                           </span>
                         </td>
-                        <td className="p-4 text-right text-xs font-bold text-slate-400">
+                        <td className="p-4 text-right text-xs font-bold text-slate-400 hidden md:table-cell">
                           {new Date(student.created_at).toLocaleDateString()}
                         </td>
                       </tr>
                     ))
                   )}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
           )}
 
           {/* TAB 3: ASSIGNED EXAMS WITH ACTION ICON */}
           {activeTab === 'exams' && (
             <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-              <table className="w-full text-left border-collapse">
+              <div className="overflow-x-auto w-full">
+                <table className="w-full text-left border-collapse min-w-[720px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Exam Title</th>
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Subject</th>
-                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Schedule Window</th>
+                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell">Schedule Window</th>
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Status</th>
                     <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Manage</th>
                   </tr>
@@ -895,7 +900,7 @@ export default function FacultyCohortsPage() {
                       <tr key={exam.exam_id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="p-4 font-bold text-slate-800">{exam.exam_title}</td>
                         <td className="p-4 font-bold text-slate-600">{exam.exam_subject}</td>
-                        <td className="p-4 text-xs font-medium text-slate-500">
+                        <td className="p-4 text-xs font-medium text-slate-500 hidden md:table-cell">
                           {exam.schedule_start ? new Date(exam.schedule_start).toLocaleDateString() : 'N/A'} - {' '}
                           {exam.schedule_end ? new Date(exam.schedule_end).toLocaleDateString() : 'N/A'}
                         </td>
@@ -925,7 +930,8 @@ export default function FacultyCohortsPage() {
                     ))
                   )}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
           )}
 
@@ -1110,7 +1116,7 @@ export default function FacultyCohortsPage() {
 
                     {/* Scroll-Capped Table Container */}
                     <div className="overflow-x-auto max-h-[460px] overflow-y-auto">
-                      <table className="w-full text-left border-collapse">
+                      <table className="w-full text-left border-collapse min-w-[720px]">
                         <thead className="sticky top-0 bg-slate-50 shadow-2xs z-10">
                           <tr className="border-b border-slate-200">
                             <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Student Name</th>

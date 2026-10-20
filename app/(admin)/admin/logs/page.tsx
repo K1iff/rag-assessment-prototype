@@ -179,7 +179,7 @@ export default function AdminLogsPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse min-w-[720px]">
             <thead>
               <tr className="bg-white border-b border-slate-200">
                 <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Event ID</th>
