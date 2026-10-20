@@ -85,7 +85,8 @@ export default function LearnerCalendarPage() {
           attempts:"Student Attempts" ( attempt_id, final_score )
         `)
         .in('exam_id', examIds)
-        .in('global_status', ['Active', 'Inactive']) 
+        .eq('is_visible', true)
+        .neq('global_status', 'Draft')
         .order('schedule_start', { ascending: true });
 
       if (error) {

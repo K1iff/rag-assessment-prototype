@@ -106,7 +106,8 @@ export default function ScheduledExamsPage() {
           attempts:"Student Attempts" ( exam_status, final_score, student_id )
         `)
         .in("exam_id", examIds)
-        .in("global_status", ["Active", "Inactive"]) 
+        .eq("is_visible", true)
+        .neq("global_status", "Draft")
         .order("schedule_start", { ascending: true });
 
       if (examsError) {
