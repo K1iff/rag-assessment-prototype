@@ -27,7 +27,7 @@ export default function UnifiedPerformancePage() {
       const { data: userData } = await supabase.from('Users').select('cohort_id').eq('user_id', user.id).single();
       const studentCohortId = userData?.cohort_id;
 
-      // 2. Fetch ONLY the current student's completed attempts WITH their exact answers
+      // 2. Fetch the current student's completed attempts
       const { data: attempts, error: attemptsError } = await supabase
         .from('Student Attempts')
         .select(`
@@ -56,21 +56,31 @@ export default function UnifiedPerformancePage() {
         cohortExamIds = cohortExams?.map(ce => ce.exam_id) || [];
       }
 
-      // 4. MERGE: Combine exams they took historically + exams currently assigned to them
+      // 4. Combine exams taken + exams currently assigned
       const relevantExamIds = [...new Set([...attemptedExamIds, ...cohortExamIds])];
 
       if (relevantExamIds.length === 0) {
-        setIsLoading(false);
+        setHistoricalAttempts([]);
+        setStats({ completed: 0, average: 0 });
+        setLatestExam(null);
         setCohortRank("N/A");
+        setIsLoading(false);
         return;
       }
 
-      // 5. Fetch ONLY relevant exams with dynamic passing metrics
-      const { data: allExams } = await supabase
+      // 5. Fetch relevant exams, filtering out Hidden or Draft exams
+      const { data: allExamsRaw } = await supabase
         .from('Exams')
-        .select('exam_id, exam_title, exam_subject, schedule_start, schedule_end, close_after_deadline, global_status, grading_logic, passing_score, passing_percentage')
-        .in('exam_id', relevantExamIds)
-        .neq('global_status', 'Hidden');
+        .select('exam_id, exam_title, exam_subject, schedule_start, schedule_end, close_after_deadline, global_status, grading_logic, passing_score, passing_percentage, is_visible')
+        .in('exam_id', relevantExamIds);
+
+      // Decoupled visibility filter: only consider exams explicitly set to is_visible === true and not Draft
+      const allExams = (allExamsRaw || []).filter(e => 
+        e.is_visible === true && 
+        e.global_status !== 'Hidden' && 
+        e.global_status !== 'Draft' && 
+        e.global_status !== 'Pending'
+      );
 
       // Group student's attempts by exam_id
       const groupedAttempts: Record<string, any[]> = {};
@@ -81,13 +91,13 @@ export default function UnifiedPerformancePage() {
         });
       }
 
-      // 6. Build the consolidated history
+      // 6. Build the consolidated history for visible exams only
       const consolidatedHistory: any[] = [];
-      const requiredExams = (allExams || []).filter(e => 
+      const requiredExams = allExams.filter(e => 
         cohortExamIds.includes(e.exam_id) && e.schedule_end && e.close_after_deadline && now > new Date(e.schedule_end)
       );
 
-      (allExams || []).forEach(exam => {
+      allExams.forEach(exam => {
         const group = groupedAttempts[exam.exam_id];
         const targetScore = exam.passing_percentage || exam.passing_score || 75;
 
@@ -105,7 +115,6 @@ export default function UnifiedPerformancePage() {
             finalCalculatedScore = latestAttempt.final_score || 0; 
           }
 
-          // Dynamically calculate exact correct/incorrect from the answers array
           let correctCount = 0;
           let totalItems = 100;
           if (latestAttempt["Student Answers"] && latestAttempt["Student Answers"].length > 0) {
@@ -157,8 +166,11 @@ export default function UnifiedPerformancePage() {
       consolidatedHistory.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
       if (consolidatedHistory.length === 0) {
-        setIsLoading(false);
+        setHistoricalAttempts([]);
+        setStats({ completed: 0, average: 0 });
+        setLatestExam(null);
         setCohortRank("N/A");
+        setIsLoading(false);
         return;
       }
 
@@ -166,7 +178,7 @@ export default function UnifiedPerformancePage() {
       const totalScore = consolidatedHistory.reduce((acc, curr) => acc + (curr.rawScore || 0), 0);
       const avg = Math.round(totalScore / consolidatedHistory.length);
 
-      // 8. Dynamically build Radar Chart
+      // 8. Build Radar Chart
       const subjectAverages: Record<string, { total: number; count: number }> = {};
       consolidatedHistory.forEach((h) => {
         if (!subjectAverages[h.subject]) subjectAverages[h.subject] = { total: 0, count: 0 };
@@ -174,14 +186,12 @@ export default function UnifiedPerformancePage() {
         subjectAverages[h.subject].count += 1;
       });
 
-      // ---> NEW: Removed the text truncation so full subjects display correctly
       const dynamicRadarData = Object.keys(subjectAverages).map(subj => ({
         subject: subj, 
         score: Math.round(subjectAverages[subj].total / subjectAverages[subj].count),
         fullMark: 100
       }));
 
-      // Find the student's best and worst subject for dynamic feedback
       let bestSubject = { name: 'General', score: -1 };
       let worstSubject = { name: 'General', score: 101 };
       
@@ -198,7 +208,7 @@ export default function UnifiedPerformancePage() {
 
       const mostRecent = consolidatedHistory[0];
 
-      // 9. Dynamic AI Feedback utilizing the Radar and Passing Thresholds
+      // 9. AI Feedback
       let dynamicFeedback = "";
       if (avg >= 90) {
         dynamicFeedback = `Outstanding performance! Your historical average of ${avg}% shows deep mastery. You are particularly strong in ${bestSubject.name}. Keep up the excellent retention strategies.`;
@@ -221,7 +231,7 @@ export default function UnifiedPerformancePage() {
         radarData: dynamicRadarData
       });
 
-      // 10. Calculate Cohort Standing securely applying grading logic
+      // 10. Calculate Cohort Standing securely ignoring hidden exams
       let calculatedRank = "N/A";
       
       if (studentCohortId) {
@@ -229,31 +239,34 @@ export default function UnifiedPerformancePage() {
         const cohortUserIds = cohortUsers?.map(u => u.user_id) || [];
 
         if (cohortUserIds.length > 0) {
-          const { data: cohortAttempts } = await supabase
+          const { data: cohortAttemptsRaw } = await supabase
             .from('Student Attempts')
-            .select('student_id, final_score, exam_id, completed_at, exam:Exams!inner (global_status, grading_logic)')
+            .select('student_id, final_score, exam_id, completed_at, exam:Exams!inner (global_status, grading_logic, is_visible)')
             .in('student_id', cohortUserIds)
             .eq('exam_status', 'completed')
-            .neq('exam.global_status', 'Hidden')
             .order('completed_at', { ascending: false });
+
+          // Only keep attempts from visible, published exams
+          const cohortAttempts = (cohortAttemptsRaw || []).filter((ca: any) => {
+            const ex = ca.exam;
+            return ex && ex.is_visible === true && ex.global_status !== 'Hidden' && ex.global_status !== 'Draft';
+          });
 
           const studentAverages: Record<string, { total: number; count: number }> = {};
           cohortUserIds.forEach(id => studentAverages[id] = { total: 0, count: 0 });
 
           const studentExamGroups: Record<string, Record<string, any[]>> = {};
-          if (cohortAttempts) {
-            cohortAttempts.forEach(ca => {
-              if (!studentExamGroups[ca.student_id]) studentExamGroups[ca.student_id] = {};
-              if (!studentExamGroups[ca.student_id][ca.exam_id]) studentExamGroups[ca.student_id][ca.exam_id] = [];
-              studentExamGroups[ca.student_id][ca.exam_id].push(ca);
-            });
-          }
+          cohortAttempts.forEach(ca => {
+            if (!studentExamGroups[ca.student_id]) studentExamGroups[ca.student_id] = {};
+            if (!studentExamGroups[ca.student_id][ca.exam_id]) studentExamGroups[ca.student_id][ca.exam_id] = [];
+            studentExamGroups[ca.student_id][ca.exam_id].push(ca);
+          });
 
           Object.keys(studentExamGroups).forEach(studentId => {
             const examsForStudent = studentExamGroups[studentId];
             Object.keys(examsForStudent).forEach(examId => {
               const attemptsForExam = examsForStudent[examId];
-              const logic = attemptsForExam[0].exam?.grading_logic || 'highest';
+              const logic = attemptsForExam[0]?.exam?.grading_logic || 'highest';
               
               let score = 0;
               if (logic === 'highest') score = Math.max(...attemptsForExam.map(a => a.final_score || 0));
@@ -421,7 +434,7 @@ export default function UnifiedPerformancePage() {
               <h3 className="font-bold text-base text-slate-700">Exam History Matrix</h3>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-[720px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold uppercase text-slate-500 tracking-wider">
                     <th className="p-4">Exam Title</th>

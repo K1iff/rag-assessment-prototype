@@ -90,15 +90,60 @@ const formatCitations = (rawCitations: any): string => {
   return formattedDocs.join(' | ') || 'No citation provided';
 };
 
+const parseItemData = (
+  mockItem: any,
+  studentAnswerRaw: string | null = null,
+  isCorrectRaw: boolean | null = null,
+  ragFeedback: string | null = null
+) => {
+  let parsedOptions: string[] = [];
+  let mappedCorrectAnswer = String(mockItem?.correct_answer || "N/A").trim();
+
+  try {
+    let raw = mockItem?.options;
+    while (typeof raw === 'string') raw = JSON.parse(raw);
+
+    if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+      parsedOptions = Object.values(raw).map((opt) => String(opt));
+      if (raw[mappedCorrectAnswer.toUpperCase()]) {
+        mappedCorrectAnswer = String(raw[mappedCorrectAnswer.toUpperCase()]);
+      }
+    } else if (Array.isArray(raw)) {
+      parsedOptions = raw.map((opt) => String(opt));
+      if (mappedCorrectAnswer.length === 1 && /^[A-Z]$/i.test(mappedCorrectAnswer)) {
+        const charIdx = mappedCorrectAnswer.toUpperCase().charCodeAt(0) - 65;
+        if (parsedOptions[charIdx]) mappedCorrectAnswer = parsedOptions[charIdx];
+      }
+    }
+  } catch (e) {
+    console.error("Failed to parse options for review", e);
+  }
+
+  const cleanCorrectAnswer = mappedCorrectAnswer.replace(/^["']|["']$/g, '').trim();
+  const isUnanswered = !studentAnswerRaw || studentAnswerRaw === "No Answer Selected" || studentAnswerRaw.trim() === "";
+  const cleanStudentAnswer = isUnanswered ? "No Answer Selected" : String(studentAnswerRaw).replace(/^["']|["']$/g, '').trim();
+
+  return {
+    text: mockItem?.question || "Question data unavailable",
+    studentAnswer: cleanStudentAnswer,
+    correctAnswer: cleanCorrectAnswer,
+    isCorrect: isUnanswered ? false : isCorrectRaw === true,
+    explanation: mockItem?.rationale || ragFeedback || "No explanation provided for this item.",
+    options: parsedOptions,
+    topic: mockItem?.competency || 'General Scope',
+    citations: formatCitations(mockItem?.citations),
+  };
+};
+
 export default function ExamReviewPage() {
   const router = useRouter();
   const params = useParams();
   const { addToast } = useToast();
-  
+
   const [activeAttemptIndex, setActiveAttemptIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<'review' | 'diagnostics'>('review');
   const [isLoading, setIsLoading] = useState(true);
-  
+
   const [examTitle, setExamTitle] = useState("");
   const [attempts, setAttempts] = useState<AttemptRecord[]>([]);
   const [maxAttempts, setMaxAttempts] = useState(1);
@@ -119,13 +164,13 @@ export default function ExamReviewPage() {
         return;
       }
 
-      // 1. Fetch Exam Details
+      // 1. Fetch Exam Configuration
       const { data: examData, error: examError } = await supabase
         .from("Exams")
         .select("exam_title, global_status, max_attempts, close_after_deadline, schedule_end, grading_logic, passing_percentage, passing_score")
         .eq("exam_id", examId)
         .single();
-        
+
       if (examError || !examData) {
         addToast("Failed to load exam details.", "error");
         router.push('/learner/performance');
@@ -143,8 +188,27 @@ export default function ExamReviewPage() {
       setGradingLogic(examData.grading_logic || "highest");
       setPassingScoreTarget(examData.passing_percentage || examData.passing_score || 75);
 
-      // 2. Fetch Attempts
-      const { data: attemptsData, error: attemptsError } = await supabase
+      // 2. Fetch Master Exam Questions via exam_session_id
+      let { data: masterQuestions } = await supabase
+        .from("Mock Exam Items")
+        .select("id, question, correct_answer, rationale, options, competency, citations")
+        .eq("exam_session_id", examId);
+
+      // Fallback in case items were keyed under exam_id
+      if (!masterQuestions || masterQuestions.length === 0) {
+        const { data: altQuestions } = await supabase
+          .from("Mock Exam Items")
+          .select("id, question, correct_answer, rationale, options, competency, citations")
+          .eq("exam_id", examId);
+        if (altQuestions && altQuestions.length > 0) {
+          masterQuestions = altQuestions;
+        }
+      }
+
+      const questionsList = masterQuestions || [];
+
+      // 3. Fetch Student Attempts
+      const { data: attemptsData } = await supabase
         .from("Student Attempts")
         .select(`
           attempt_id,
@@ -156,14 +220,41 @@ export default function ExamReviewPage() {
         .eq("student_id", user.id)
         .order("completed_at", { ascending: true });
 
-      if (attemptsError || !attemptsData || attemptsData.length === 0) {
+      const isExamClosed =
+        examData.global_status !== 'Active' ||
+        (examData.close_after_deadline && examData.schedule_end && Date.now() > new Date(examData.schedule_end).getTime());
+
+      // 4. Handle Case: Exam Closed with 0 Completed Attempts
+      if (!attemptsData || attemptsData.length === 0) {
+        if (isExamClosed && questionsList.length > 0) {
+          const unattemptedItems: ReviewItem[] = questionsList.map((q, idx) => ({
+            qNum: idx + 1,
+            ...parseItemData(q, null, false),
+          }));
+
+          const syntheticAttempt: AttemptRecord = {
+            attemptId: "unattempted",
+            score: 0,
+            rawScore: 0,
+            maxScore: unattemptedItems.length,
+            status: "Closed (Unattempted)",
+            takenAt: examData.schedule_end || new Date().toISOString(),
+            items: unattemptedItems,
+          };
+
+          setAttempts([syntheticAttempt]);
+          setActiveAttemptIndex(0);
+          setCanRetake(false);
+          setIsLoading(false);
+          return;
+        }
+
         setIsLoading(false);
         return;
       }
 
-      // 3. Evaluate Retake Eligibility
+      // 5. Evaluate Retake Eligibility
       let allowRetake = true;
-
       if (examData.global_status !== 'Active') {
         allowRetake = false;
       } else if (examData.close_after_deadline && examData.schedule_end) {
@@ -179,67 +270,61 @@ export default function ExamReviewPage() {
 
       setCanRetake(allowRetake);
 
-      // 4. Load Detailed Review Data
+      // 6. Assemble Attempt Review Items (Merging Master Questions with Answers)
       const formattedAttempts: AttemptRecord[] = await Promise.all(
         attemptsData.map(async (attempt) => {
           const { data: answersData } = await supabase
             .from("Student Answers")
             .select(`
+              question_id,
               selected_option,
               is_correct,
               rag_feedback,
-              "Mock Exam Items" ( question, correct_answer, rationale, options, competency, citations )
+              "Mock Exam Items" ( id, question, correct_answer, rationale, options, competency, citations )
             `)
             .eq("attempt_id", attempt.attempt_id);
 
-          const items: ReviewItem[] = (answersData || []).map((ans, idx) => {
-            const rawMockItem = ans["Mock Exam Items"];
-            const mockItem = Array.isArray(rawMockItem) ? rawMockItem[0] : rawMockItem;
-            
-            let parsedOptions: string[] = [];
-            let mappedCorrectAnswer = String(mockItem?.correct_answer || "N/A").trim();
-            
-            try {
-              let raw = mockItem?.options;
-              while (typeof raw === 'string') raw = JSON.parse(raw);
-              
-              if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
-                parsedOptions = Object.values(raw).map(opt => String(opt));
-                if (raw[mappedCorrectAnswer.toUpperCase()]) {
-                  mappedCorrectAnswer = String(raw[mappedCorrectAnswer.toUpperCase()]);
-                }
-              } else if (Array.isArray(raw)) {
-                parsedOptions = raw.map(opt => String(opt));
-                if (mappedCorrectAnswer.length === 1 && /^[A-Z]$/i.test(mappedCorrectAnswer)) {
-                  const charIdx = mappedCorrectAnswer.toUpperCase().charCodeAt(0) - 65;
-                  if (parsedOptions[charIdx]) mappedCorrectAnswer = parsedOptions[charIdx];
-                }
-              }
-            } catch (e) {
-              console.error("Failed to parse options for review", e);
+          const answerMap: Record<string, any> = {};
+          (answersData || []).forEach((ans: any) => {
+            if (ans.question_id) {
+              answerMap[ans.question_id] = ans;
             }
-
-            const cleanCorrectAnswer = mappedCorrectAnswer.replace(/^["']|["']$/g, '').trim();
-            const cleanStudentAnswer = String(ans.selected_option || "No Answer Selected").replace(/^["']|["']$/g, '').trim();
-
-            return {
-              qNum: idx + 1,
-              text: mockItem?.question || "Question data unavailable",
-              studentAnswer: cleanStudentAnswer,
-              correctAnswer: cleanCorrectAnswer,
-              isCorrect: ans.is_correct,
-              explanation: mockItem?.rationale || ans.rag_feedback || "No explanation provided for this item.",
-              options: parsedOptions,
-              topic: mockItem?.competency || 'General Scope',
-              citations: formatCitations(mockItem?.citations)
-            };
           });
+
+          let items: ReviewItem[] = [];
+
+          if (questionsList.length > 0) {
+            items = questionsList.map((q, idx) => {
+              const matchedAnswer = answerMap[q.id];
+              return {
+                qNum: idx + 1,
+                ...parseItemData(
+                  q,
+                  matchedAnswer?.selected_option || null,
+                  matchedAnswer?.is_correct ?? false,
+                  matchedAnswer?.rag_feedback || null
+                ),
+              };
+            });
+          } else if (answersData && answersData.length > 0) {
+            items = answersData.map((ans: any, idx: number) => {
+              const rawMock = ans["Mock Exam Items"];
+              const mock = Array.isArray(rawMock) ? rawMock[0] : rawMock;
+              return {
+                qNum: idx + 1,
+                ...parseItemData(mock, ans.selected_option, ans.is_correct, ans.rag_feedback),
+              };
+            });
+          }
+
+          const rawScore = items.filter((i) => i.isCorrect).length;
+          const maxScore = items.length;
 
           return {
             attemptId: attempt.attempt_id,
             score: attempt.final_score || 0,
-            rawScore: items.filter(i => i.isCorrect).length,
-            maxScore: items.length,
+            rawScore: rawScore,
+            maxScore: maxScore,
             status: attempt.exam_status,
             takenAt: attempt.completed_at,
             items: items,
@@ -266,20 +351,28 @@ export default function ExamReviewPage() {
 
   if (attempts.length === 0) {
     return (
-      <div className="p-12 text-center text-sm text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
-        No completed attempts found for this exam.
+      <div className="p-12 text-center text-sm font-bold text-slate-500 bg-white rounded-xl border border-slate-200">
+        <p className="mb-4">No completed attempts found for this exam.</p>
+        <button
+          onClick={() => router.push(`/learner/exams/${params?.id}`)}
+          className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-bold shadow-sm"
+        >
+          View Exam Details
+        </button>
       </div>
     );
   }
 
-  // Final Grade Calculation
+  const isUnattemptedClosed = attempts.length === 1 && attempts[0].attemptId === "unattempted";
+
+  // Score Calculations
   let calculatedFinalGrade = 0;
   let finalRawScore = 0;
   let finalMaxScore = 0;
 
   if (attempts.length > 0) {
     if (gradingLogic === 'highest') {
-      const bestAttempt = attempts.reduce((prev, current) => (prev.score > current.score) ? prev : current);
+      const bestAttempt = attempts.reduce((prev, current) => (prev.score > current.score ? prev : current));
       calculatedFinalGrade = bestAttempt.score;
       finalRawScore = bestAttempt.rawScore;
       finalMaxScore = bestAttempt.maxScore;
@@ -295,49 +388,71 @@ export default function ExamReviewPage() {
     }
   }
 
-  const isPassing = calculatedFinalGrade >= passingScoreTarget;
-  const scoreBgClass = isPassing ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200';
-  const scoreTextClass = isPassing ? 'text-emerald-700' : 'text-rose-700';
-  const scoreDividerClass = isPassing ? 'border-emerald-200 text-emerald-600' : 'border-rose-200 text-rose-600';
+  const isPassing = calculatedFinalGrade >= passingScoreTarget && !isUnattemptedClosed;
+  const scoreBgClass = isUnattemptedClosed
+    ? 'bg-slate-50 border-slate-200'
+    : isPassing
+    ? 'bg-emerald-50 border-emerald-200'
+    : 'bg-rose-50 border-rose-200';
+  const scoreTextClass = isUnattemptedClosed
+    ? 'text-slate-600'
+    : isPassing
+    ? 'text-emerald-700'
+    : 'text-rose-700';
+  const scoreDividerClass = isUnattemptedClosed
+    ? 'border-slate-200 text-slate-500'
+    : isPassing
+    ? 'border-emerald-200 text-emerald-600'
+    : 'border-rose-200 text-rose-600';
 
-  const gradingLogicLabel = gradingLogic === 'highest' ? 'Highest Score' : gradingLogic === 'latest' ? 'Latest Score' : 'Average Score';
-  const currentAttempt = attempts[activeAttemptIndex];
-  const attemptsLeft = Math.max(0, maxAttempts - attempts.length);
+  const gradingLogicLabel = isUnattemptedClosed
+    ? 'Closed (Unattempted)'
+    : gradingLogic === 'highest'
+    ? 'Highest Score'
+    : gradingLogic === 'latest'
+    ? 'Latest Score'
+    : 'Average Score';
 
-  // --- Dynamic Topic Diagnostics Processing ---
-  const topicStatsMap: Record<string, { total: number, correct: number, sources: Set<string> }> = {};
-  
-  currentAttempt.items.forEach(item => {
+  const currentAttempt = attempts[activeAttemptIndex] || attempts[0];
+  const attemptsLeft = isUnattemptedClosed ? 0 : Math.max(0, maxAttempts - attempts.length);
+
+  // Topic Diagnostics Processing
+  const topicStatsMap: Record<string, { total: number; correct: number; sources: Set<string> }> = {};
+
+  currentAttempt.items.forEach((item) => {
     if (!topicStatsMap[item.topic]) {
       topicStatsMap[item.topic] = { total: 0, correct: 0, sources: new Set() };
     }
     topicStatsMap[item.topic].total += 1;
     if (item.isCorrect) topicStatsMap[item.topic].correct += 1;
-    
-    // Split combined citations if multiple are returned in one string
+
     if (item.citations && item.citations !== 'No citation provided') {
-      item.citations.split(' | ').forEach(src => topicStatsMap[item.topic].sources.add(src));
+      item.citations.split(' | ').forEach((src) => topicStatsMap[item.topic].sources.add(src));
     }
   });
 
-  const diagnosticData = Object.keys(topicStatsMap).map(topic => {
-    const stat = topicStatsMap[topic];
-    const failed = stat.total - stat.correct;
-    const failRate = stat.total > 0 ? (failed / stat.total) * 100 : 0;
-    return {
-      topic,
-      total: stat.total,
-      failed,
-      correct: stat.correct,
-      failRate,
-      sources: Array.from(stat.sources)
-    };
-  }).sort((a, b) => b.failRate - a.failRate);
+  const diagnosticData = Object.keys(topicStatsMap)
+    .map((topic) => {
+      const stat = topicStatsMap[topic];
+      const failed = stat.total - stat.correct;
+      const failRate = stat.total > 0 ? (failed / stat.total) * 100 : 0;
+      return {
+        topic,
+        total: stat.total,
+        failed,
+        correct: stat.correct,
+        failRate,
+        sources: Array.from(stat.sources),
+      };
+    })
+    .sort((a, b) => b.failRate - a.failRate);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
       <div className="flex items-center gap-2 text-sm mb-4">
-        <button onClick={() => router.push('/learner/exams')} className="text-blue-600 hover:underline font-bold">Scheduled Mock Exams</button>
+        <button onClick={() => router.push('/learner/exams')} className="text-blue-600 hover:underline font-bold">
+          Scheduled Mock Exams
+        </button>
         <span className="text-slate-400">/</span>
         <span className="text-slate-600 font-bold">Post-Exam Analytics</span>
       </div>
@@ -352,7 +467,7 @@ export default function ExamReviewPage() {
             Grading Rule: <span className="text-blue-600 capitalize">{gradingLogicLabel}</span>
           </p>
         </div>
-        
+
         <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
           <div className="flex flex-col items-center sm:items-end w-full sm:w-auto">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
@@ -376,7 +491,7 @@ export default function ExamReviewPage() {
               {finalRawScore} / {finalMaxScore}
             </span>
             <span className={`text-[8px] uppercase font-bold tracking-wider mt-1 block border-t pt-1 ${scoreDividerClass}`}>
-              Final Exam Grade
+              {isUnattemptedClosed ? "Exam Unattempted" : "Final Exam Grade"}
             </span>
           </div>
         </div>
@@ -387,13 +502,17 @@ export default function ExamReviewPage() {
         <div className="flex bg-slate-200 p-1 rounded-lg w-full sm:w-auto">
           <button 
             onClick={() => setActiveTab('review')}
-            className={`flex-1 sm:flex-none px-5 py-2 text-sm font-bold rounded-md transition-colors ${activeTab === 'review' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
+            className={`flex-1 sm:flex-none px-5 py-2 text-sm font-bold rounded-md transition-colors ${
+              activeTab === 'review' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+            }`}
           >
             Question Review Deck
           </button>
           <button 
             onClick={() => setActiveTab('diagnostics')}
-            className={`flex-1 sm:flex-none px-5 py-2 text-sm font-bold rounded-md transition-colors ${activeTab === 'diagnostics' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
+            className={`flex-1 sm:flex-none px-5 py-2 text-sm font-bold rounded-md transition-colors ${
+              activeTab === 'diagnostics' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+            }`}
           >
             Topic Diagnostics
           </button>
@@ -406,13 +525,15 @@ export default function ExamReviewPage() {
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 bg-white flex justify-between items-center transition-colors hover:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-sm"
             >
               <span className="uppercase text-xs tracking-wider">
-                ATTEMPT {activeAttemptIndex + 1}/{maxAttempts} (SUBMITTED {formatAttemptDate(currentAttempt.takenAt).toUpperCase()})
+                {isUnattemptedClosed
+                  ? "UNATTEMPTED (CLOSED EXAM REVIEW)"
+                  : `ATTEMPT ${activeAttemptIndex + 1}/${maxAttempts} (SUBMITTED ${formatAttemptDate(currentAttempt.takenAt).toUpperCase()})`}
               </span>
               <svg className={`w-4 h-4 ml-2 transition-transform duration-200 text-slate-500 ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
-            
+
             {isDropdownOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setIsDropdownOpen(false)}></div>
@@ -423,13 +544,21 @@ export default function ExamReviewPage() {
                       <div 
                         key={idx}
                         onClick={() => { setActiveAttemptIndex(idx); setIsDropdownOpen(false); }}
-                        className={`flex justify-between items-center px-4 py-3 cursor-pointer transition-colors border-l-4 ${isSelected ? 'bg-blue-50 border-blue-600' : 'hover:bg-slate-50 border-transparent'}`}
+                        className={`flex justify-between items-center px-4 py-3 cursor-pointer transition-colors border-l-4 ${
+                          isSelected ? 'bg-blue-50 border-blue-600' : 'hover:bg-slate-50 border-transparent'
+                        }`}
                       >
                         <div>
-                          <div className={`text-sm font-bold ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>Attempt {idx + 1}</div>
-                          <div className={`text-xs font-bold mt-0.5 ${isSelected ? 'text-blue-600' : 'text-slate-500'}`}>Submitted {formatAttemptDate(att.takenAt)}</div>
+                          <div className={`text-sm font-bold ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>
+                            {att.attemptId === "unattempted" ? "Unattempted Review" : `Attempt ${idx + 1}`}
+                          </div>
+                          <div className={`text-xs font-bold mt-0.5 ${isSelected ? 'text-blue-600' : 'text-slate-500'}`}>
+                            {att.attemptId === "unattempted" ? "Exam Closed" : `Submitted ${formatAttemptDate(att.takenAt)}`}
+                          </div>
                         </div>
-                        <div className={`px-2.5 py-1 rounded text-xs font-bold shrink-0 border ${isSelected ? 'bg-emerald-500 border-emerald-600 text-white' : 'bg-emerald-100 border-emerald-200 text-emerald-800'}`}>
+                        <div className={`px-2.5 py-1 rounded text-xs font-bold shrink-0 border ${
+                          isSelected ? 'bg-emerald-500 border-emerald-600 text-white' : 'bg-emerald-100 border-emerald-200 text-emerald-800'
+                        }`}>
                           {att.rawScore} / {att.maxScore}
                         </div>
                       </div>
@@ -443,45 +572,57 @@ export default function ExamReviewPage() {
       </div>
 
       <div className="space-y-4 animate-in fade-in duration-500">
-        
         {/* TAB 1: QUESTION REVIEW DECK */}
         {activeTab === 'review' && (
-          <>
-            {currentAttempt.items.length === 0 ? (
-              <div className="p-12 text-center text-sm font-bold text-slate-500 bg-white border border-slate-200 rounded-xl mt-4">
-                No answer data could be loaded for this attempt.
-              </div>
-            ) : (
-              <div className="grid gap-6 mt-4">
-                {currentAttempt.items.map((item) => (
-                  <div
-                    key={item.qNum}
-                    className={`p-6 border rounded-xl bg-white shadow-sm flex flex-col gap-3 border-l-4 transition-all ${
-                      item.isCorrect ? "border-l-emerald-500" : "border-l-rose-500"
-                    }`}
-                  >
-                    <div className="flex justify-between items-center text-xs font-bold text-slate-400 mb-1">
-                      <span className="uppercase tracking-wider">Question {item.qNum}</span>
+          <div className="grid gap-6 mt-4">
+            {currentAttempt.items.map((item) => {
+              const isUnanswered = item.studentAnswer === "No Answer Selected";
+              const borderClass = canRetake
+                ? isUnanswered ? "border-l-slate-300" : "border-l-blue-500"
+                : item.isCorrect ? "border-l-emerald-500" : "border-l-rose-500";
+
+              return (
+                <div
+                  key={item.qNum}
+                  className={`p-6 border rounded-xl bg-white shadow-sm flex flex-col gap-3 border-l-4 transition-all ${borderClass}`}
+                >
+                  <div className="flex justify-between items-center text-xs font-bold text-slate-400 mb-1">
+                    <span className="uppercase tracking-wider">Question {item.qNum}</span>
+                    {canRetake ? (
+                      <span className="px-2 py-1 rounded-md text-[10px] uppercase tracking-wider font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                        {isUnanswered ? "— Unanswered" : "Answer Recorded"}
+                      </span>
+                    ) : (
                       <span
                         className={`px-2 py-1 rounded-md text-[10px] uppercase tracking-wider font-bold ${
-                          item.isCorrect ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                          item.isCorrect
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            : "bg-rose-50 text-rose-700 border border-rose-200"
                         }`}
                       >
-                        {item.isCorrect ? "✓ Correct" : "✗ Incorrect"}
+                        {item.isCorrect ? "✓ Correct" : isUnanswered ? "✗ Incorrect (Unanswered)" : "✗ Incorrect"}
                       </span>
-                    </div>
-                    
-                    <p className="text-base font-bold text-slate-800 leading-relaxed mb-2">
-                      {item.text}
-                    </p>
-                    
-                    <div className="space-y-2">
-                      {item.options.map((opt, i) => {
-                        const isSelected = normalizeForComparison(opt) === normalizeForComparison(item.studentAnswer);
-                        const isCorrect = normalizeForComparison(opt) === normalizeForComparison(item.correctAnswer);
-                        
-                        let baseStyle = "p-3 border rounded-lg text-sm font-bold flex justify-between items-center transition-colors ";
-                        
+                    )}
+                  </div>
+
+                  <p className="text-base font-bold text-slate-800 leading-relaxed mb-2">
+                    {item.text}
+                  </p>
+
+                  <div className="space-y-2">
+                    {item.options.map((opt, i) => {
+                      const isSelected = !isUnanswered && normalizeForComparison(opt) === normalizeForComparison(item.studentAnswer);
+                      const isCorrect = normalizeForComparison(opt) === normalizeForComparison(item.correctAnswer);
+
+                      let baseStyle = "p-3 border rounded-lg text-sm font-bold flex justify-between items-center transition-colors ";
+
+                      if (canRetake) {
+                        if (isSelected) {
+                          baseStyle += "bg-blue-50 border-blue-300 text-blue-900";
+                        } else {
+                          baseStyle += "bg-slate-50 border-slate-200 text-slate-600";
+                        }
+                      } else {
                         if (isSelected && isCorrect) {
                           baseStyle += "bg-emerald-100 border-emerald-300 text-emerald-900";
                         } else if (isSelected && !isCorrect) {
@@ -491,19 +632,30 @@ export default function ExamReviewPage() {
                         } else {
                           baseStyle += "bg-slate-50 border-slate-200 text-slate-600";
                         }
+                      }
 
-                        return (
-                          <div key={i} className={baseStyle}>
-                            <span>{opt}</span>
-                            <div className="flex gap-2 text-[10px] uppercase tracking-wider font-bold shrink-0">
-                              {isSelected && <span>(Your Answer)</span>}
-                              {isCorrect && <span>(Correct Answer)</span>}
-                            </div>
+                      return (
+                        <div key={i} className={baseStyle}>
+                          <span>{opt}</span>
+                          <div className="flex gap-2 text-[10px] uppercase tracking-wider font-bold shrink-0">
+                            {isSelected && <span>(Your Answer)</span>}
+                            {!canRetake && isCorrect && <span>(Correct Answer)</span>}
                           </div>
-                        );
-                      })}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {canRetake ? (
+                    <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-lg mt-3 flex items-center gap-2.5 text-amber-900">
+                      <svg className="w-4 h-4 shrink-0 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
+                      <span className="text-xs font-bold">
+                        Correct answers and rationales are hidden while retakes are available. Complete all remaining attempts or wait until the closing deadline to view answers.
+                      </span>
                     </div>
-                    
+                  ) : (
                     <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-lg mt-3 flex items-start gap-3">
                       <span className="text-lg shrink-0 mt-0.5">🧠</span>
                       <div>
@@ -515,11 +667,11 @@ export default function ExamReviewPage() {
                         </p>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
 
         {/* TAB 2: TOPIC DIAGNOSTICS */}
@@ -530,7 +682,7 @@ export default function ExamReviewPage() {
                 <h3 className="text-xl font-bold text-slate-800">Your Competency Diagnostics</h3>
                 <p className="text-sm text-slate-500 mt-1 font-bold">Topics from this attempt ranked by difficulty. Review the recommended sources to improve your mastery.</p>
               </div>
-              
+
               <div className="divide-y divide-slate-100">
                 {diagnosticData.length === 0 ? (
                   <div className="p-12 text-center text-sm font-bold text-slate-500">
@@ -539,7 +691,7 @@ export default function ExamReviewPage() {
                 ) : (
                   diagnosticData.map((item, index) => {
                     const statusColor = item.failRate >= 50 ? 'rose' : item.failRate >= 30 ? 'amber' : 'emerald';
-                    
+
                     return (
                       <div key={index} className="p-6 flex flex-col md:flex-row gap-6 hover:bg-slate-50 transition-colors">
                         <div className="flex-1 min-w-0">
@@ -551,12 +703,14 @@ export default function ExamReviewPage() {
                               {item.failed} / {item.total} Questions Missed
                             </span>
                           </div>
-                          
+
                           <p className="text-base font-bold text-slate-800 leading-snug mb-4">{item.topic}</p>
-                          
+
                           <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-lg">
                             <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                              </svg>
                               Recommended Study Sources
                             </span>
                             {item.sources.length > 0 ? (

@@ -85,7 +85,8 @@ export default function LearnerCalendarPage() {
           attempts:"Student Attempts" ( attempt_id, final_score )
         `)
         .in('exam_id', examIds)
-        .in('global_status', ['Active', 'Inactive']) 
+        .eq('is_visible', true)
+        .neq('global_status', 'Draft')
         .order('schedule_start', { ascending: true });
 
       if (error) {
@@ -228,7 +229,7 @@ export default function LearnerCalendarPage() {
         </div>
       )}
 
-      <h1 className="text-2xl font-bold text-slate-800">Weekly Activity</h1>
+      <h1 className="text-2xl font-bold text-slate-800">Home</h1>
       <p className="text-sm text-slate-500 mt-1 mb-6 font-bold">View your upcoming mock exams, mandatory simulations, and mapped source reference parameters.</p>
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -237,12 +238,12 @@ export default function LearnerCalendarPage() {
             <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
               Syncing calendar data...
             </div>
-          ) : weeklySchedule.length === 0 ? (
+          ) : weeklySchedule.filter(schedule => !['Completed', 'Closed', 'Finished', 'Past'].includes(schedule.status)).length === 0 ? (
             <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
-              No scheduled activities found.
+              No active exams scheduled right now. Check 'Scheduled Mock Exams' or 'Historical Performance' for past exams.
             </div>
           ) : (
-            weeklySchedule.map((schedule, idx) => (
+            weeklySchedule.filter(schedule => !['Completed', 'Closed', 'Finished', 'Past'].includes(schedule.status)).map((schedule, idx) => (
               <div key={idx} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between gap-4">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div>
