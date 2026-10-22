@@ -3,6 +3,9 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --input-text: #f8fafc;
+  --input-text: #0f172a;
+  --placeholder: #475569; 
 }
 
 @theme inline {
@@ -16,6 +19,8 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --input-text: #0f172a;
+    --placeholder: #94a3b8;    
   }
 }
 
@@ -26,11 +31,11 @@ body {
 }
 
 input, textarea {
-  color: #0f172a !important; /* text-slate-900 */
+  color: var(--input-text) !important;
 }
 
 input::placeholder, textarea::placeholder {
-  color: #475569 !important; /* text-slate-600 */
+  color: var(--placeholder) !important;
 }
 
 /* Global touch scrolling for all horizontal scroll containers */
