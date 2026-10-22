@@ -8,6 +8,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import { useDebounce } from "@/hooks/useDebounce";
 import { usePermissions } from "@/hooks/usePermissions";
 import { supabase } from "@/lib/supabaseClient";
+import { GlobalTable, GlobalPagination, ColumnDef } from '@/components/ui/GlobalTable';
 
 interface UserProfile {
   id: string;
@@ -49,6 +50,11 @@ export default function AdminUsersPage() {
 
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [dbCohorts, setDbCohorts] = useState<string[]>([]);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const USERS_PER_PAGE = 10;
+
   
   // Dynamic Loading States
   const [isLoading, setIsLoading] = useState(true);
@@ -187,6 +193,76 @@ export default function AdminUsersPage() {
       setSelectedUsers([...selectedUsers, id]);
     }
   };
+
+
+  const columns: ColumnDef<UserProfile>[] = [
+    {
+      header: 'User Details',
+      cell: (user) => (
+        <div>
+          <p className="font-bold text-slate-800">{user.name}</p>
+          <p className="text-xs font-bold text-slate-500">{user.email}</p>
+        </div>
+      )
+    },
+    {
+      header: 'Role',
+      cell: (user) => <p className="font-bold text-slate-600">{user.role}</p>
+    },
+    {
+      header: 'Cohort',
+      className: 'hidden md:table-cell',
+      headerClassName: 'hidden md:table-cell',
+      cell: (user) => <p className="font-bold text-slate-600">{user.cohort}</p>
+    },
+    {
+      header: 'Status',
+      cell: (user) => (
+        <Badge variant={user.status === "Active" ? "success" : "neutral"}>
+          {user.status}
+        </Badge>
+      )
+    },
+    {
+      header: 'Last Login',
+      className: 'text-slate-500 font-bold hidden md:table-cell',
+      headerClassName: 'hidden md:table-cell',
+      cell: (user) => <span>{user.lastLogin}</span>
+    },
+    {
+      header: 'Actions',
+      className: 'text-right whitespace-nowrap',
+      headerClassName: 'text-right',
+      cell: (user) => (
+        <div className="inline-flex gap-2 p-1.5 border border-slate-200 bg-slate-50 rounded-lg">
+          <button
+            onClick={(e) => { e.stopPropagation(); handleInitiatePasswordReset(user.id, user.email); }}
+            disabled={isProcessing}
+            className="px-3 py-1.5 bg-white border border-slate-200 text-xs font-bold text-blue-600 rounded hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
+          >
+            Reset Pass
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleInitiateStatusChange(user.id, user.status, user.email); }}
+            disabled={isProcessing}
+            className={`px-3 py-1.5 bg-white border border-slate-200 text-xs font-bold rounded hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50 ${user.status === "Active" ? "text-rose-600" : "text-emerald-600"}`}
+          >
+            {user.status === "Active" ? "Deactivate" : "Activate"}
+          </button>
+        </div>
+      )
+    }
+  ];
+
+  const totalPages = Math.ceil(filteredUsers.length / USERS_PER_PAGE);
+  const paginatedUsers = filteredUsers.slice(
+    (currentPage - 1) * USERS_PER_PAGE,
+    currentPage * USERS_PER_PAGE
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [userSearch, cohortFilter, roleFilter]);
 
   const toggleSelectAll = () => {
     if (
@@ -381,140 +457,30 @@ export default function AdminUsersPage() {
           </div>
         )}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[720px]">
-            <thead>
-              <tr className="bg-white border-b border-slate-200">
-                <th className="p-4 w-12 text-center">
-                  <input
-                    type="checkbox"
-                    checked={
-                      selectedUsers.length === filteredUsers.length &&
-                      filteredUsers.length > 0
-                    }
-                    onChange={toggleSelectAll}
-                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                  />
-                </th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">
-                  User Details
-                </th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Role
-                </th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell">
-                  Cohort
-                </th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Status
-                </th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell">
-                  Last Login
-                </th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-sm">
-              {isLoading ? (
-                <tr>
-                  <td
-                    colSpan={7}
-                    className="p-12 text-center text-slate-500 font-bold"
-                  >
-                    Loading users...
-                  </td>
-                </tr>
-              ) : filteredUsers.length === 0 ? (
-                <tr>
-                  <td colSpan={7}>
-                    <EmptyState
-                      title="No matching users"
-                      message="We could not find any users matching your current search criteria. Try adjusting your filters."
-                    />
-                  </td>
-                </tr>
-              ) : (
-                filteredUsers.map((user) => (
-                  <tr
-                    key={user.id}
-                    className={`transition-colors ${selectedUsers.includes(user.id) ? "bg-blue-50/50" : "hover:bg-slate-50"}`}
-                  >
-                    <td className="p-4 text-center">
-                      <input
-                        type="checkbox"
-                        checked={selectedUsers.includes(user.id)}
-                        onChange={() => toggleSelectUser(user.id)}
-                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
-                    </td>
-                    <td className="p-4">
-                      <p className="font-bold text-slate-800">{user.name}</p>
-                      <p className="text-xs font-bold text-slate-500">
-                        {user.email}
-                      </p>
-                    </td>
-                    <td className="p-4">
-                      <p className="font-bold text-slate-600">{user.role}</p>
-                    </td>
-                    <td className="p-4 hidden md:table-cell">
-                      <p className="font-bold text-slate-600">{user.cohort}</p>
-                    </td>
-                    <td className="p-4">
-                      <Badge
-                        variant={
-                          user.status === "Active" ? "success" : "neutral"
-                        }
-                      >
-                        {user.status}
-                      </Badge>
-                    </td>
-                    <td className="p-4 text-slate-500 font-bold hidden md:table-cell">
-                      {user.lastLogin}
-                    </td>
-                    <td className="p-4 text-right whitespace-nowrap">
-                      <div className="inline-flex gap-2 p-1.5 border border-slate-200 bg-slate-50 rounded-lg">
-                        <button
-                          onClick={() => handleInitiatePasswordReset(user.id, user.email)}
-                          disabled={isProcessing}
-                          className="px-3 py-1.5 bg-white border border-slate-200 text-xs font-bold text-blue-600 rounded hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
-                        >
-                          Reset Pass
-                        </button>
-                        <button
-                          onClick={() => handleInitiateStatusChange(user.id, user.status, user.email)}
-                          disabled={isProcessing}
-                          className={`px-3 py-1.5 bg-white border border-slate-200 text-xs font-bold rounded hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50 ${user.status === "Active" ? "text-rose-600" : "text-emerald-600"}`}
-                        >
-                          {user.status === "Active" ? "Deactivate" : "Activate"}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-between items-center text-sm font-bold text-slate-500">
-          <span>
-            Showing {filteredUsers.length > 0 ? "1" : "0"} to{" "}
-            {filteredUsers.length} of {allUsers.length} users
-          </span>
-          <div className="flex gap-2">
-            <button className="px-3 py-1 border border-slate-300 rounded bg-white text-slate-400 cursor-not-allowed shadow-sm">
-              Previous
-            </button>
-            <button className="px-3 py-1 border border-slate-300 rounded bg-blue-600 text-white shadow-sm">
-              1
-            </button>
-            <button className="px-3 py-1 border border-slate-300 rounded bg-white hover:bg-slate-100 text-slate-600 shadow-sm">
-              Next
-            </button>
-          </div>
-        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <GlobalTable
+            data={paginatedUsers}
+            columns={columns}
+            enableCheckboxes={true}
+            selectedIds={selectedUsers}
+            onSelectionChange={toggleSelectUser}
+            onSelectAll={toggleSelectAll}
+            keyExtractor={(item) => item.id}
+            isLoading={isLoading}
+            loadingMessage="Loading users..."
+            emptyMessage="We could not find any users matching your current search criteria. Try adjusting your filters."
+            emptyTitle="No matching users"
+          />
+          {filteredUsers.length > 0 && !isLoading && (
+            <GlobalPagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={allUsers.length}
+              itemsPerPage={USERS_PER_PAGE}
+              onPageChange={setCurrentPage}
+              filteredItemsCount={filteredUsers.length}
+            />
+          )}</div>
       </div>
 
       {/* Mandatory Deactivation Confirmation Modal with 5s Timer */}

@@ -4,7 +4,7 @@ import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import EmptyState from '@/components/ui/EmptyState';
-import { usePagination } from '@/hooks/usePagination';
+import { GlobalTable, GlobalPagination, ColumnDef } from '@/components/ui/GlobalTable';
 import { usePermissions } from '@/hooks/usePermissions';
 import { supabase } from '@/lib/supabaseClient'; 
 
@@ -80,17 +80,57 @@ export default function AdminLogsPage() {
     return matchesSearch && matchesType;
   });
 
-  const {
-    currentPage,
-    totalPages,
-    currentItems: currentLogs,
-    indexOfFirstItem: indexOfFirstLog,
-    indexOfLastItem: indexOfLastLog,
-    totalItems,
-    nextPage,
-    prevPage,
-    resetPage
-  } = usePagination(filteredLogs, 6);
+  const [currentPage, setCurrentPage] = useState(1);
+  const LOGS_PER_PAGE = 6;
+  const totalPages = Math.ceil(filteredLogs.length / LOGS_PER_PAGE);
+  const currentLogs = filteredLogs.slice((currentPage - 1) * LOGS_PER_PAGE, currentPage * LOGS_PER_PAGE);
+  const resetPage = () => setCurrentPage(1);
+
+
+  const columns: ColumnDef<any>[] = [
+    {
+      header: 'Event ID',
+      cell: (log) => <span className="font-mono font-bold text-blue-600 group-hover:underline">{log.id}</span>
+    },
+    {
+      header: 'Severity',
+      cell: (log) => (
+        <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+          log.severity === 'Critical' ? 'bg-red-100 text-red-800' :
+          log.severity === 'Warning' ? 'bg-amber-100 text-amber-800' :
+          'bg-slate-100 text-slate-600'
+        }`}>
+          {log.severity}
+        </span>
+      )
+    },
+    {
+      header: 'User Account',
+      cell: (log) => <span className="font-bold text-slate-800">{log.user}</span>
+    },
+    {
+      header: 'Role',
+      cell: (log) => (
+        <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+          log.role === 'Admin' ? 'bg-purple-50 text-purple-700' :
+          log.role === 'Teacher' ? 'bg-emerald-50 text-emerald-700' :
+          log.role === 'AI Engine' ? 'bg-indigo-50 text-indigo-700' :
+          log.role === 'System' ? 'bg-rose-50 text-rose-700' :
+          'bg-blue-50 text-blue-700'
+        }`}>
+          {log.role}
+        </span>
+      )
+    },
+    {
+      header: 'Action Performed',
+      cell: (log) => <span className="font-bold text-slate-600">{log.action}</span>
+    },
+    {
+      header: 'Timestamp',
+      cell: (log) => <span className="font-bold text-slate-500 whitespace-nowrap">{log.timestamp}</span>
+    }
+  ];
 
   const handleDateFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setLogDateFilter(e.target.value);
@@ -178,91 +218,28 @@ export default function AdminLogsPage() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[720px]">
-            <thead>
-              <tr className="bg-white border-b border-slate-200">
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Event ID</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Severity</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">User Account</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Role</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Action Performed</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Timestamp</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-xs md:text-sm text-slate-700">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={6} className="p-12 text-center text-slate-500 font-bold">
-                    Fetching system logs...
-                  </td>
-                </tr>
-              ) : currentLogs.length === 0 ? (
-                <tr>
-                  <td colSpan={6}>
-                    <EmptyState 
-                      title="No logs found" 
-                      message="No audit logs match your current search and filter criteria. Try adjusting your date range or event type." 
-                    />
-                  </td>
-                </tr>
-              ) : (
-                currentLogs.map((log) => (
-                  <tr 
-                    key={log.id} 
-                    onClick={() => setSelectedLog(log)}
-                    className="hover:bg-slate-50 transition-colors cursor-pointer group"
-                  >
-                    <td className="p-4 font-mono font-bold text-blue-600 group-hover:underline">{log.id}</td>
-                    <td className="p-4">
-                      <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
-                        log.severity === 'Critical' ? 'bg-red-100 text-red-800' :
-                        log.severity === 'Warning' ? 'bg-amber-100 text-amber-800' :
-                        'bg-slate-100 text-slate-600'
-                      }`}>
-                        {log.severity}
-                      </span>
-                    </td>
-                    <td className="p-4 font-bold text-slate-800">{log.user}</td>
-                    <td className="p-4">
-                      <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
-                        log.role === 'Admin' ? 'bg-purple-50 text-purple-700' :
-                        log.role === 'Teacher' ? 'bg-emerald-50 text-emerald-700' :
-                        log.role === 'AI Engine' ? 'bg-indigo-50 text-indigo-700' :
-                        log.role === 'System' ? 'bg-rose-50 text-rose-700' :
-                        'bg-blue-50 text-blue-700'
-                      }`}>
-                        {log.role}
-                      </span>
-                    </td>
-                    <td className="p-4 font-bold text-slate-600">{log.action}</td>
-                    <td className="p-4 font-bold text-slate-500 whitespace-nowrap">{log.timestamp}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-between items-center text-sm font-bold text-slate-500">
-          <span>Showing {filteredLogs.length > 0 ? indexOfFirstLog + 1 : 0} to {Math.min(indexOfLastLog, filteredLogs.length)} of {totalItems} events</span>
-          <div className="flex gap-2">
-            <button 
-              onClick={prevPage}
-              disabled={currentPage === 1}
-              className={`px-3 py-1.5 border rounded font-bold shadow-sm ${currentPage === 1 ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
-            >
-              Previous
-            </button>
-            <button 
-              onClick={nextPage}
-              disabled={currentPage === totalPages || totalPages === 0}
-              className={`px-3 py-1.5 border rounded font-bold shadow-sm ${currentPage === totalPages || totalPages === 0 ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
-            >
-              Next
-            </button>
-          </div>
-        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <GlobalTable
+            data={currentLogs}
+            columns={columns}
+            keyExtractor={(item) => item.id}
+            isLoading={isLoading}
+            loadingMessage="Fetching system logs..."
+            emptyMessage="No audit logs match your current search and filter criteria. Try adjusting your date range or event type."
+            emptyTitle="No logs found"
+            onRowClick={(log) => setSelectedLog(log)}
+            rowClassName={() => "hover:bg-slate-50 transition-colors cursor-pointer group"}
+          />
+          {filteredLogs.length > 0 && !isLoading && (
+            <GlobalPagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={auditLogs.length}
+              itemsPerPage={LOGS_PER_PAGE}
+              onPageChange={setCurrentPage}
+              filteredItemsCount={filteredLogs.length}
+            />
+          )}</div>
       </div>
 
       {selectedLog && (
