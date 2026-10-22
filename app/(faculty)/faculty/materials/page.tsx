@@ -5,6 +5,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useToast } from '@/components/ui/ToastContext';
+import { GlobalTable, GlobalPagination, ColumnDef } from '@/components/ui/GlobalTable';
 
 const BLEPP_SUBJECTS = [
   'Industrial-Organizational Psychology',
@@ -62,6 +63,115 @@ export default function FacultyMaterialsPage() {
     const savedTab = localStorage.getItem('facultyRagTab') as 'action' | 'active' | 'archive';
     if (savedTab) setActiveTab(savedTab);
   }, []);
+
+
+  const columns: ColumnDef<any>[] = [
+    {
+      header: 'File Name & Details',
+      cell: (file) => (
+        <div>
+          <p className={`font-bold ${file.status === 'File Purged' || file.status === 'Archived' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+            {file.title}
+          </p>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase tracking-wider border border-slate-200">
+              {file.file_name.split('.').pop()?.toUpperCase()}
+            </span>
+            <span className="text-xs font-medium text-slate-400">{file.file_size_mb} MB</span>
+          </div>
+        </div>
+      )
+    },
+    {
+      header: 'BLEPP Subject',
+      cell: (file) => (
+        <span className="px-2.5 py-1 bg-indigo-100/90 text-indigo-950 border border-indigo-300 rounded-md text-xs font-black tracking-tight whitespace-nowrap shadow-2xs">
+          {file.subject || (file.tags && file.tags[0]) || 'General Reference'}
+        </span>
+      )
+    },
+    {
+      header: 'Date Requested',
+      cell: (file) => <span className="text-slate-500 font-medium text-xs">{new Date(file.created_at).toLocaleDateString()}</span>
+    },
+    {
+      header: 'Status',
+      cell: (file) => (
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider cursor-default ${
+          file.status === 'Approved & Indexed' ? 'bg-emerald-100 text-emerald-800' :
+          file.status === 'Pending Admin Approval' ? 'bg-amber-100 text-amber-800' :
+          file.status === 'Archived' ? 'bg-purple-100 text-purple-800' :
+          file.status === 'File Purged' ? 'bg-slate-200 text-slate-500' :
+          'bg-slate-100 text-slate-600'
+        }`}>
+          {file.status === 'Processing' && <span className="h-2 w-2 bg-blue-500 rounded-full animate-pulse"></span>}
+          {file.status}
+        </span>
+      )
+    },
+    {
+      header: 'Actions',
+      className: 'text-right',
+      headerClassName: 'text-right',
+      cell: (file) => (
+        <div className="flex justify-end items-center gap-2">
+          {(file.status === 'Pending Admin Approval' || file.status === 'Approved & Indexed' || file.status === 'Processing') && (
+            <button
+              onClick={() => handleReview(file.file_path)}
+              className="text-slate-400 hover:text-blue-600 transition-colors p-1"
+              title="View Document"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            </button>
+          )}
+
+          <button
+            onClick={() => setViewDetailsModal(file)}
+            className="text-slate-400 hover:text-indigo-600 transition-colors p-1"
+            title="View Details"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+          </button>
+
+          {file.status === 'Pending Admin Approval' && (
+            <>
+              <div className="w-px h-4 bg-slate-200 mx-1"></div>
+              <button
+                onClick={() => {
+                  setEditSubjectModal({ id: file.id, currentSubject: file.subject || BLEPP_SUBJECTS[0] });
+                  setEditSubjectChoice(file.subject || BLEPP_SUBJECTS[0]);
+                }}
+                className="text-slate-400 hover:text-blue-600 transition-colors p-1"
+                title="Edit Subject"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </button>
+
+              <button
+                onClick={() => {
+                  setCancelModal({ id: file.id, path: file.file_path, title: file.title });
+                  setCountdown(5);
+                }}
+                className="text-red-500 hover:text-red-700 transition-colors p-1"
+                title="Cancel Request"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </>
+          )}
+        </div>
+      )
+    }
+  ];
 
   const handleTabChange = (tab: 'action' | 'active' | 'archive') => {
     setActiveTab(tab);
@@ -385,160 +495,26 @@ export default function FacultyMaterialsPage() {
 
       {/* Materials Table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[720px]">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">File Name & Details</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">BLEPP Subject</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Date Requested</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Status</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-              {paginatedFiles.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="p-12 text-center text-slate-500 font-bold">
-                    {searchQuery ? 'No documents match your search.' : 'No records found for this view.'}
-                  </td>
-                </tr>
-              ) : (
-                paginatedFiles.map((file) => (
-                  <tr key={file.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-4">
-                      <p className={`font-bold ${file.status === 'File Purged' || file.status === 'Archived' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
-                        {file.title}
-                      </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase tracking-wider border border-slate-200">
-                          {file.file_name.split('.').pop()?.toUpperCase()}
-                        </span>
-                        <span className="text-xs font-medium text-slate-400">{file.file_size_mb} MB</span>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      {/* High-Contrast Target BLEPP Subject Badge */}
-                      <span className="px-2.5 py-1 bg-indigo-100/90 text-indigo-950 border border-indigo-300 rounded-md text-xs font-black tracking-tight whitespace-nowrap shadow-2xs">
-                        {file.subject || (file.tags && file.tags[0]) || 'General Reference'}
-                      </span>
-                    </td>
-                    <td className="p-4 text-slate-500 font-medium text-xs">
-                      {new Date(file.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="p-4">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider cursor-default ${
-                        file.status === 'Approved & Indexed' ? 'bg-emerald-100 text-emerald-800' : 
-                        file.status === 'Pending Admin Approval' ? 'bg-amber-100 text-amber-800' : 
-                        file.status === 'Archived' ? 'bg-purple-100 text-purple-800' : 
-                        file.status === 'File Purged' ? 'bg-slate-200 text-slate-500' : 
-                        'bg-slate-100 text-slate-600'
-                      }`}>
-                        {file.status === 'Processing' && <span className="h-2 w-2 bg-blue-500 rounded-full animate-pulse"></span>}
-                        {file.status}
-                      </span>
-                    </td>
-                    <td className="p-4 text-right">
-                      <div className="flex justify-end items-center gap-2">
-                        {/* EYE ICON: View File */}
-                        {(file.status === 'Pending Admin Approval' || file.status === 'Approved & Indexed' || file.status === 'Processing') && (
-                          <button
-                            onClick={() => handleReview(file.file_path)}
-                            className="text-slate-400 hover:text-blue-600 transition-colors p-1"
-                            title="View Document"
-                          >
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                          </button>
-                        )}
-
-                        {/* NOTEBOOK ICON: View Details */}
-                        <button
-                          onClick={() => setViewDetailsModal(file)}
-                          className="text-slate-400 hover:text-indigo-600 transition-colors p-1"
-                          title="View Details"
-                        >
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                          </svg>
-                        </button>
-
-                        {/* Pending Controls: Edit Subject & Cancel Request */}
-                        {file.status === 'Pending Admin Approval' && (
-                          <>
-                            <div className="w-px h-4 bg-slate-200 mx-1"></div>
-                            {/* PENCIL ICON: Edit Subject */}
-                            <button 
-                              onClick={() => {
-                                setEditSubjectModal({ id: file.id, currentSubject: file.subject || BLEPP_SUBJECTS[0] });
-                                setEditSubjectChoice(file.subject || BLEPP_SUBJECTS[0]);
-                              }} 
-                              className="text-slate-400 hover:text-blue-600 transition-colors p-1"
-                              title="Edit Subject"
-                            >
-                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                              </svg>
-                            </button>
-
-                            {/* CANCEL REQUEST */}
-                            <button 
-                              onClick={() => {
-                                setCancelModal({ id: file.id, path: file.file_path, title: file.title });
-                                setCountdown(5);
-                              }} 
-                              className="text-red-500 hover:text-red-700 transition-colors p-1"
-                              title="Cancel Request"
-                            >
-                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination Footer (Limit: 10) */}
-        {filteredFiles.length > 0 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-200 bg-slate-50 gap-3 text-xs font-bold text-slate-600">
-            <span>
-              Showing {Math.min(filteredFiles.length, (currentPage - 1) * DOCS_PER_PAGE + 1)} to{' '}
-              {Math.min(filteredFiles.length, currentPage * DOCS_PER_PAGE)} of {filteredFiles.length} files
-            </span>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
-              >
-                &larr; Prev
-              </button>
-              <span className="px-2 font-bold text-slate-800">
-                Page {currentPage} of {totalPages}
-              </span>
-              <button
-                type="button"
-                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
-              >
-                Next &rarr;
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+        <GlobalTable
+          data={paginatedFiles}
+          columns={columns}
+          keyExtractor={(item) => item.id}
+          isLoading={isNavigating}
+          loadingMessage={loadingMessage}
+          emptyMessage={searchQuery ? 'No documents match your search.' : 'No records found for this view.'}
+          emptyTitle="No records found"
+          rowClassName={() => "hover:bg-slate-50/80 transition-colors"}
+        />
+        {filteredFiles.length > 0 && !isNavigating && (
+          <GlobalPagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={materials.length}
+            itemsPerPage={DOCS_PER_PAGE}
+            onPageChange={setCurrentPage}
+            filteredItemsCount={filteredFiles.length}
+          />
+        )}      </div>
 
       {/* Upload Modal with Fixed Font Colors */}
       {showUploadModal && uploadDocs && (

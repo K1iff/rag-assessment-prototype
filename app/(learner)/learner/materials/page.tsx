@@ -4,6 +4,7 @@ import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/components/ui/ToastContext';
+import { GlobalTable, GlobalPagination, ColumnDef } from '@/components/ui/GlobalTable';
 
 interface StudentMaterial {
   id: string; // Cohort_Materials ID
@@ -33,6 +34,11 @@ export default function LearnerMaterialsPage() {
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSubject, setSelectedSubject] = useState('All');
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const DOCS_PER_PAGE = 10;
+
 
   useEffect(() => {
     const fetchCohortMaterials = async () => {
@@ -181,6 +187,66 @@ export default function LearnerMaterialsPage() {
     });
   }, [materials, searchQuery, selectedSubject]);
 
+
+  const columns: ColumnDef<StudentMaterial>[] = [
+    {
+      header: 'File Name',
+      className: 'pr-6',
+      cell: (file) => (
+        <p className="font-bold text-slate-800 line-clamp-2 leading-relaxed" title={file.title}>
+          {file.title}
+        </p>
+      )
+    },
+    {
+      header: 'BLEPP Subject',
+      className: 'w-72 whitespace-nowrap',
+      headerClassName: 'w-72 whitespace-nowrap',
+      cell: (file) => (
+        <span className="inline-block px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md text-xs font-bold">
+          {file.subject}
+        </span>
+      )
+    },
+    {
+      header: 'Actions',
+      className: 'text-right w-28 whitespace-nowrap',
+      headerClassName: 'text-right w-28 whitespace-nowrap',
+      cell: (file) => (
+        <div className="flex justify-end items-center gap-2">
+          <button
+            onClick={() => handleOpenFile(file.file_path)}
+            className="text-slate-400 hover:text-blue-600 transition-colors p-1.5 rounded-lg hover:bg-blue-50"
+            title="Read Document"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+          </button>
+          <button
+            onClick={() => handleDownloadFile(file.file_path, file.file_name)}
+            className="text-slate-400 hover:text-emerald-600 transition-colors p-1.5 rounded-lg hover:bg-emerald-50"
+            title="Download Document"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+          </button>
+        </div>
+      )
+    }
+  ];
+
+  const totalPages = Math.ceil(filteredMaterials.length / DOCS_PER_PAGE);
+  const paginatedMaterials = filteredMaterials.slice(
+    (currentPage - 1) * DOCS_PER_PAGE,
+    currentPage * DOCS_PER_PAGE
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedSubject]);
+
   if (hasNoCohort) {
     return (
       <div className="space-y-6 max-w-4xl">
@@ -265,82 +331,26 @@ export default function LearnerMaterialsPage() {
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[720px]">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">
-                    File Name
-                  </th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 w-72 whitespace-nowrap">
-                    BLEPP Subject
-                  </th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right w-28 whitespace-nowrap">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {filteredMaterials.map((file) => (
-                  <tr key={file.id} className="hover:bg-slate-50 transition-colors">
-                    {/* File Name: flexible width, clamped to 2 lines max, with hover tooltip */}
-                    <td className="p-4 pr-6">
-                      <p 
-                        className="font-bold text-slate-800 line-clamp-2 leading-relaxed" 
-                        title={file.title}
-                      >
-                        {file.title}
-                      </p>
-                    </td>
-
-                    {/* Subject: fixed width, never wraps or squishes */}
-                    <td className="p-4 w-72 whitespace-nowrap">
-                      <span className="inline-block px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md text-xs font-bold">
-                        {file.subject}
-                      </span>
-                    </td>
-
-                    {/* Actions: fixed width with Open Book icon */}
-                    <td className="p-4 text-right w-28 whitespace-nowrap">
-                      <div className="flex justify-end items-center gap-2">
-                        {/* Open Book Icon (Read / View Document) */}
-                        <button
-                          onClick={() => handleOpenFile(file.file_path)}
-                          className="text-slate-400 hover:text-blue-600 transition-colors p-1.5 rounded-lg hover:bg-blue-50"
-                          title="Read Document"
-                        >
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path 
-                              strokeLinecap="round" 
-                              strokeLinejoin="round" 
-                              strokeWidth={2} 
-                              d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" 
-                            />
-                          </svg>
-                        </button>
-
-                        {/* Download Icon (Save to disk) */}
-                        <button
-                          onClick={() => handleDownloadFile(file.file_path, file.file_name)}
-                          className="text-slate-400 hover:text-emerald-600 transition-colors p-1.5 rounded-lg hover:bg-emerald-50"
-                          title="Download Document"
-                        >
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path 
-                              strokeLinecap="round" 
-                              strokeLinejoin="round" 
-                              strokeWidth={2} 
-                              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" 
-                            />
-                          </svg>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <GlobalTable
+            data={paginatedMaterials}
+            columns={columns}
+            keyExtractor={(item) => item.id}
+            isLoading={isLoading}
+            loadingMessage="Loading your assigned review files..."
+            emptyMessage={materials.length === 0 ? 'No review materials have been assigned to your cohort yet.' : 'No documents match your current filter or search criteria.'}
+            emptyTitle="No records found"
+            rowClassName={() => "hover:bg-slate-50 transition-colors"}
+          />
+          {filteredMaterials.length > 0 && !isLoading && (
+            <GlobalPagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={materials.length}
+              itemsPerPage={DOCS_PER_PAGE}
+              onPageChange={setCurrentPage}
+              filteredItemsCount={filteredMaterials.length}
+            />
+          )}
         </div>
       )}
     </div>
