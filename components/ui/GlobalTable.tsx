@@ -1,4 +1,6 @@
-import React from 'react';
+"use client";
+
+import React, { useState } from 'react';
 
 export interface ColumnDef<T> {
   header: React.ReactNode;
@@ -144,43 +146,146 @@ export function GlobalPagination({
   onPageChange,
   filteredItemsCount
 }: GlobalPaginationProps) {
+  const [showJumpModal, setShowJumpModal] = useState(false);
+  const [jumpPage, setJumpPage] = useState("");
+
+  const getPageNumbers = () => {
+    if (totalPages <= 5) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+
+    const pages: (number | string)[] = [];
+
+    // Always show 3 consecutive pages around the current page
+    let startPage = Math.max(1, currentPage - 1);
+    let endPage = Math.min(totalPages, currentPage + 1);
+
+    // Adjust if we are at the beginning
+    if (currentPage === 1) {
+      endPage = Math.min(totalPages, 3);
+    }
+    // Adjust if we are at the end
+    else if (currentPage === totalPages) {
+      startPage = Math.max(1, totalPages - 2);
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
+    }
+
+    // If the gap between endPage and totalPages > 1, add ellipsis
+    if (endPage < totalPages - 1) {
+      pages.push('...');
+    }
+
+    // Always add the last page if it's not already in the array
+    if (endPage < totalPages) {
+      pages.push(totalPages);
+    }
+
+    return pages;
+  };
+
+  const handleJumpSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const pageNum = parseInt(jumpPage, 10);
+    if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {
+      onPageChange(pageNum);
+    }
+    setShowJumpModal(false);
+    setJumpPage("");
+  };
+
   return (
-    <div className="bg-slate-50 p-4 border-t border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 text-sm font-bold text-slate-500">
-      <span>
-        Showing {filteredItemsCount > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} to{" "}
-        {Math.min(currentPage * itemsPerPage, filteredItemsCount)} of {filteredItemsCount} items
-        {filteredItemsCount !== totalItems && ` (filtered from ${totalItems})`}
-      </span>
-      <div className="flex gap-2">
-        <button
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage === 1 || totalPages === 0}
-          className="px-3 py-1 border border-slate-300 rounded bg-white text-slate-600 hover:bg-slate-100 shadow-sm disabled:text-slate-400 disabled:cursor-not-allowed disabled:hover:bg-white"
-        >
-          Previous
-        </button>
-        {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-          <button
-            key={page}
-            onClick={() => onPageChange(page)}
-            className={`hidden md:block px-3 py-1 border border-slate-300 rounded shadow-sm ${
-              currentPage === page ? "bg-blue-600 text-white border-blue-600" : "bg-white hover:bg-slate-100 text-slate-600"
-            }`}
-          >
-            {page}
-          </button>
-        ))}
-        <span className="md:hidden px-3 py-1 bg-white border border-slate-200 rounded font-bold text-slate-700">
-          {currentPage} / {totalPages || 1}
+    <>
+      <div className="bg-slate-50 p-4 border-t border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 text-sm font-bold text-slate-500">
+        <span>
+          Showing {filteredItemsCount > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} to{" "}
+          {Math.min(currentPage * itemsPerPage, filteredItemsCount)} of {filteredItemsCount} items
+          {filteredItemsCount !== totalItems && ` (filtered from ${totalItems})`}
         </span>
-        <button
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage === totalPages || totalPages === 0}
-          className="px-3 py-1 border border-slate-300 rounded bg-white text-slate-600 hover:bg-slate-100 shadow-sm disabled:text-slate-400 disabled:cursor-not-allowed disabled:hover:bg-white"
-        >
-          Next
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={currentPage === 1 || totalPages === 0}
+            className="px-3 py-1 border border-slate-300 rounded bg-white text-slate-600 hover:bg-slate-100 shadow-sm disabled:text-slate-400 disabled:cursor-not-allowed disabled:hover:bg-white"
+          >
+            Previous
+          </button>
+
+          <div className="hidden md:flex gap-2">
+            {getPageNumbers().map((page, idx) => (
+              page === '...' ? (
+                <button
+                  key={`ellipsis-${idx}`}
+                  onClick={() => setShowJumpModal(true)}
+                  className="px-3 py-1 border border-transparent bg-transparent text-slate-600 hover:bg-slate-100 rounded"
+                >
+                  ...
+                </button>
+              ) : (
+                <button
+                  key={`page-${page}`}
+                  onClick={() => onPageChange(page as number)}
+                  className={`px-3 py-1 border border-slate-300 rounded shadow-sm ${
+                    currentPage === page ? "bg-blue-600 text-white border-blue-600" : "bg-white hover:bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {page}
+                </button>
+              )
+            ))}
+          </div>
+
+          <span className="md:hidden px-3 py-1 bg-white border border-slate-200 rounded font-bold text-slate-700 cursor-pointer" onClick={() => setShowJumpModal(true)}>
+            {currentPage} / {totalPages || 1}
+          </span>
+
+          <button
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={currentPage === totalPages || totalPages === 0}
+            className="px-3 py-1 border border-slate-300 rounded bg-white text-slate-600 hover:bg-slate-100 shadow-sm disabled:text-slate-400 disabled:cursor-not-allowed disabled:hover:bg-white"
+          >
+            Next
+          </button>
+        </div>
       </div>
-    </div>
+
+      {showJumpModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 border border-slate-200">
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Jump to Page</h3>
+            <p className="text-sm text-slate-500 mb-4">Enter a page number between 1 and {totalPages}</p>
+            <form onSubmit={handleJumpSubmit}>
+              <input
+                type="number"
+                min="1"
+                max={totalPages}
+                value={jumpPage}
+                onChange={(e) => setJumpPage(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 focus:outline-none focus:border-blue-500 mb-4"
+                autoFocus
+                required
+              />
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowJumpModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm"
+                >
+                  Go
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
