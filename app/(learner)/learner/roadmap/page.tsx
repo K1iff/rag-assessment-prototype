@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabaseClient';
 const CORE_SUBJECTS = [
   "Abnormal Psychology",
   "Psychological Assessment",
-  "Industrial Organizational Psychology",
+  "Industrial-Organizational Psychology",
   "Developmental Psychology"
 ];
 
@@ -16,6 +16,10 @@ export default function RoadmapPage() {
   const [expandedPhase, setExpandedPhase] = useState<number>(1);
   const [showCelebration, setShowCelebration] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Active Cohort Metadata
+  const [cohortName, setCohortName] = useState<string>('Assigned Review Batch');
+  const [cohortStatus, setCohortStatus] = useState<'Active' | 'Archived'>('Active');
 
   // Unified Progress Engine State
   const [progressStats, setProgressStats] = useState({
@@ -28,9 +32,35 @@ export default function RoadmapPage() {
   useEffect(() => {
     const fetchProgressAndEvaluate = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        setIsLoading(false);
+        return;
+      }
 
-      // 1. Fetch current Roadmap Phase
+      // 1. Fetch user's currently assigned active cohort
+      const { data: userData } = await supabase
+        .from('Users')
+        .select('cohort_id')
+        .eq('user_id', user.id)
+        .single();
+
+      const studentCohortId = userData?.cohort_id || null;
+
+      // Fetch Cohort name & status if available
+      if (studentCohortId) {
+        const { data: cohortData } = await supabase
+          .from('Cohorts')
+          .select('cohort_name, status')
+          .eq('cohort_id', studentCohortId)
+          .single();
+
+        if (cohortData) {
+          setCohortName(cohortData.cohort_name);
+          setCohortStatus((cohortData.status as 'Active' | 'Archived') || 'Active');
+        }
+      }
+
+      // 2. Fetch current stored Roadmap Phase
       const { data: roadmapData } = await supabase
         .from('Roadmap Progress')
         .select('current_phase')
@@ -39,19 +69,25 @@ export default function RoadmapPage() {
 
       let dbPhase = roadmapData?.current_phase || 1;
 
-      // 2. Fetch real student attempts with Title, Subject, and PASSING SCORE for the Progress Engine
-      const { data: attempts, error: attemptsError } = await supabase
+      // 3. Fetch student attempts strictly scoped to the active cohort
+      let attemptsQuery = supabase
         .from('Student Attempts')
         .select(`
           attempt_id,
           final_score,
           completed_at,
           exam_id,
-          exam:Exams!inner ( exam_title, exam_subject, global_status, grading_logic, passing_score, passing_percentage )
+          cohort_id,
+          exam:Exams!inner ( exam_title, exam_subject, global_status, grading_logic, passing_score, passing_percentage, is_visible )
         `)
         .eq('student_id', user.id)
-        .eq('exam_status', 'completed')
-        .neq('exam.global_status', 'Hidden');
+        .eq('exam_status', 'completed');
+
+      if (studentCohortId) {
+        attemptsQuery = attemptsQuery.eq('cohort_id', studentCohortId);
+      }
+
+      const { data: attempts, error: attemptsError } = await attemptsQuery;
 
       const stats = {
         diagnosticPassed: false,
@@ -61,8 +97,14 @@ export default function RoadmapPage() {
       };
 
       if (!attemptsError && attempts && attempts.length > 0) {
-        // Group by exam_id to apply grading logic
-        const groupedAttempts = attempts.reduce((acc, curr) => {
+        // Filter out Hidden or Draft exams
+        const validAttempts = attempts.filter((a: any) => {
+          const ex = Array.isArray(a.exam) ? a.exam[0] : a.exam;
+          return ex && ex.is_visible !== false && ex.global_status !== 'Hidden' && ex.global_status !== 'Draft';
+        });
+
+        // Group by exam_id to apply grading logic per assessment
+        const groupedAttempts = validAttempts.reduce((acc, curr) => {
           if (!acc[curr.exam_id]) acc[curr.exam_id] = [];
           acc[curr.exam_id].push(curr);
           return acc;
@@ -72,20 +114,24 @@ export default function RoadmapPage() {
           const group = groupedAttempts[examId];
           group.sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
           
-          const examData = group[0].exam;
+          const rawExam = group[0].exam;
+          const examData = Array.isArray(rawExam) ? rawExam[0] : rawExam;
           const logic = examData?.grading_logic || 'highest';
           const title = (examData?.exam_title || '').toLowerCase();
           const subject = examData?.exam_subject || '';
           
-          // Use passing_percentage if available, otherwise fallback to passing_score or 75
           const passingTarget = examData?.passing_percentage || examData?.passing_score || 75;
           
           let calculatedScore = 0;
-          if (logic === 'highest') calculatedScore = Math.max(...group.map(a => a.final_score || 0));
-          else if (logic === 'average') calculatedScore = group.reduce((s, a) => s + (a.final_score || 0), 0) / group.length;
-          else calculatedScore = group[0].final_score || 0; // 'latest'
+          if (logic === 'highest') {
+            calculatedScore = Math.max(...group.map(a => a.final_score || 0));
+          } else if (logic === 'average') {
+            calculatedScore = group.reduce((s, a) => s + (a.final_score || 0), 0) / group.length;
+          } else {
+            calculatedScore = group[0].final_score || 0; // 'latest'
+          }
 
-          // The Progress Engine Evaluator
+          // Evaluate Active Milestone Targets
           if (calculatedScore >= passingTarget) {
             if (title.includes('diagnostic')) {
               stats.diagnosticPassed = true;
@@ -95,7 +141,7 @@ export default function RoadmapPage() {
               stats.coreSubjectsPassed.add(subject);
             }
             
-            // Count any non-diagnostic, non-full-length exam towards the adaptive pool
+            // Count any modular or adaptive exams towards the adaptive pool
             if (!title.includes('diagnostic') && !title.includes('full length') && !title.includes('board simulation')) {
               stats.adaptivePassedCount++;
             }
@@ -111,35 +157,36 @@ export default function RoadmapPage() {
         fullLengthPassed: stats.fullLengthPassed,
       });
 
-      // 3. Automatic Phase Progression Logic
-      let updatedPhase = dbPhase;
+      // 4. Milestone Progression Engine
+      let calculatedPhase = 1;
+      if (stats.diagnosticPassed) calculatedPhase = 2;
+      if (stats.diagnosticPassed && coreArray.length >= 4) calculatedPhase = 3;
+      if (stats.diagnosticPassed && coreArray.length >= 4 && stats.adaptivePassedCount >= 3) calculatedPhase = 4;
+      if (stats.diagnosticPassed && coreArray.length >= 4 && stats.adaptivePassedCount >= 3 && stats.fullLengthPassed) calculatedPhase = 5;
 
-      if (dbPhase === 1 && stats.diagnosticPassed) updatedPhase = 2;
-      else if (dbPhase === 2 && coreArray.length >= 4) updatedPhase = 3;
-      else if (dbPhase === 3 && stats.adaptivePassedCount >= 3) updatedPhase = 4;
-      else if (dbPhase === 4 && stats.fullLengthPassed) updatedPhase = 5;
+      // Allow progress to advance or reset to accurate active cohort baseline
+      const targetPhase = Math.max(calculatedPhase, dbPhase === 1 ? calculatedPhase : Math.min(dbPhase, calculatedPhase));
 
-      if (updatedPhase > dbPhase) {
-        // Attempt database save
+      if (targetPhase !== dbPhase) {
         const { error: upsertError } = await supabase
           .from('Roadmap Progress')
           .upsert({ 
             student_id: user.id, 
-            current_phase: updatedPhase 
+            current_phase: targetPhase 
           }, { 
             onConflict: 'student_id' 
           });
           
         if (upsertError) console.error("Roadmap save error:", upsertError);
         
-        // Bulletproof Check: Ensure celebration only triggers once per phase locally
-        const celebratedKey = `celebrated_${user.id}_phase_${updatedPhase}`;
-        if (!localStorage.getItem(celebratedKey)) {
+        // Trigger celebration scoped to the active cohort cycle
+        const celebratedKey = `celebrated_${user.id}_cohort_${studentCohortId || 'default'}_phase_${targetPhase}`;
+        if (targetPhase > dbPhase && !localStorage.getItem(celebratedKey)) {
           setShowCelebration(true);
           localStorage.setItem(celebratedKey, 'true');
         }
           
-        dbPhase = updatedPhase;
+        dbPhase = targetPhase;
       }
 
       setCurrentDbPhase(dbPhase);
@@ -151,11 +198,11 @@ export default function RoadmapPage() {
   }, []);
 
   const baseSteps = [
-    { step: 1, title: 'Diagnostic Baseline', description: 'Establish foundational knowledge metrics.', content: 'Your first objective is to take and pass the initial Diagnostic Assessment to map your starting knowledge.' },
-    { step: 2, title: 'Core Subject Drills', description: 'Complete dedicated modules for all major board topics.', content: 'Focus on individual subjects. You must pass one assessment in each of the 4 core domains.' },
-    { step: 3, title: 'Adaptive Simulation', description: 'Surpass the passing threshold on dynamic exams.', content: `Active Goal requires you to pass three dynamic exams. Current progress is ${progressStats.adaptivePassedCount} out of 3 completed.` },
-    { step: 4, title: 'Full Length Board Simulation', description: 'Simulate the exact timing and constraints of the actual PRC exam.', content: 'You are ready for the final test. Take and pass the Full Length Board Simulation to get certified.' },
-    { step: 5, title: 'PRC Board Readiness Certified', description: 'Final clearance badge achieved.', content: 'Congratulations. You have completed the entire roadmap and are certified ready for the PRC Board Exam.' },
+    { step: 1, title: 'Diagnostic Baseline', description: 'Establish foundational knowledge metrics.', content: 'Your first objective is to take and pass the initial Diagnostic Assessment to map your starting knowledge across all competencies.' },
+    { step: 2, title: 'Core Subject Drills', description: 'Complete dedicated modules for all major board topics.', content: 'Focus on individual subjects. You must achieve a passing score in each of the 4 core licensure domains.' },
+    { step: 3, title: 'Adaptive Simulation', description: 'Surpass the passing threshold on dynamic exams.', content: `Active Goal requires you to pass 3 specialized or adaptive practice exams. Current progress: ${progressStats.adaptivePassedCount} / 3 completed.` },
+    { step: 4, title: 'Full Length Board Simulation', description: 'Simulate the exact timing and constraints of the actual PRC exam.', content: 'Test your endurance under authentic conditions. Take and pass the Full Length Board Simulation to earn final readiness clearance.' },
+    { step: 5, title: 'PRC Board Readiness Certified', description: 'Final clearance badge achieved.', content: 'Congratulations! You have completed all prerequisite milestones in this review batch and are certified ready for the licensure exam.' },
   ];
 
   const roadmapSteps = baseSteps.map(step => ({
@@ -167,8 +214,30 @@ export default function RoadmapPage() {
 
   return (
     <div className="space-y-6 relative pb-24">
-      <h1 className="text-2xl font-bold text-slate-800">Interactive Progress Roadmap</h1>
-      <p className="text-sm text-slate-500 mt-1 mb-6 font-bold">Monitor your milestone progression mapped directly against the official board exam syllabus.</p>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Interactive Progress Roadmap</h1>
+          <p className="text-sm text-slate-500 mt-1 font-bold">Monitor your milestone progression mapped directly against the official board exam syllabus.</p>
+        </div>
+        
+        {/* POLISHED ACTIVE BATCH PILL */}
+        <div className="inline-flex items-center gap-2.5 bg-white pl-3.5 pr-2.5 py-1.5 border border-slate-200/90 rounded-xl shadow-xs">
+          <div className="flex items-center gap-1.5 text-slate-400">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Batch:</span>
+          </div>
+          <span className="text-xs font-bold text-slate-800">{cohortName}</span>
+          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+            cohortStatus === 'Archived' 
+              ? 'bg-slate-100 text-slate-600 border border-slate-200' 
+              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+          }`}>
+            {cohortStatus}
+          </span>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
         <div className="lg:col-span-2 bg-white p-8 md:p-12 rounded-xl border border-slate-200 shadow-sm">
@@ -227,28 +296,27 @@ export default function RoadmapPage() {
           </div>
         </div>
 
-        {/* DYNAMIC SIDEBAR CHECKLIST */}
+        {/* SIDEBAR ACTIVE TARGETS */}
         <div className="lg:col-span-1 space-y-6">
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
             <h3 className="font-bold text-base text-slate-800 border-b border-slate-100 pb-2 mb-3">Roadmap Logic</h3>
             <p className="text-xs text-slate-500 leading-relaxed font-bold">
-              Passing any simulation unlocks the next phase. Failing items triggers automatic AI updates.
+              Milestone requirements are evaluated against your active batch attempts. Completing required examinations automatically advances your phase.
             </p>
           </div>
 
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
             <h3 className="font-bold text-base text-slate-800">Active Target Requirements</h3>
-            <p className="text-sm text-slate-500 mt-2 font-bold">To clear Phase {currentDbPhase} you must achieve the following specific goals.</p>
+            <p className="text-sm text-slate-500 mt-2 font-bold">To clear Phase {currentDbPhase} in {cohortName}, fulfill the following criteria:</p>
             
             <ul className="mt-5 space-y-4 text-sm text-slate-600 font-bold">
-              
               {currentDbPhase === 1 && (
                 <li className="flex items-start gap-3">
                   <span className={progressStats.diagnosticPassed ? "text-emerald-500 mt-0.5" : "text-blue-500 mt-0.5"}>
                     {progressStats.diagnosticPassed ? '✓' : '●'}
                   </span> 
                   <span className={progressStats.diagnosticPassed ? 'text-emerald-700' : ''}>
-                    Pass an exam titled "Diagnostic".
+                    Pass an exam titled &quot;Diagnostic&quot;.
                   </span>
                 </li>
               )}
@@ -290,7 +358,7 @@ export default function RoadmapPage() {
                     {progressStats.fullLengthPassed ? '✓' : '●'}
                   </span> 
                   <span className={progressStats.fullLengthPassed ? 'text-emerald-700' : ''}>
-                    Pass a "Full Length" or "Board Simulation" exam.
+                    Pass a &quot;Full Length&quot; or &quot;Board Simulation&quot; exam.
                   </span>
                 </li>
               )}
@@ -301,7 +369,6 @@ export default function RoadmapPage() {
                   <span className="text-emerald-700">All requirements met. You are Board Ready.</span>
                 </li>
               )}
-
             </ul>
           </div>
         </div>
@@ -315,7 +382,7 @@ export default function RoadmapPage() {
             <div className="text-6xl mb-4 animate-bounce mt-4">🎉</div>
             <h2 className="text-2xl font-black text-slate-800 mb-2">Phase Completed!</h2>
             <p className="text-slate-600 font-bold text-sm mb-8 leading-relaxed">
-              Outstanding work. You have successfully cleared the requirements for Phase {currentDbPhase - 1} and unlocked your next milestone.
+              Outstanding work! You have successfully cleared the milestone requirements for Phase {currentDbPhase - 1} and unlocked your next objective in {cohortName}.
             </p>
             
             <button 

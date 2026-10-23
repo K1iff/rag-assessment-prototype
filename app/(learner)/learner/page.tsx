@@ -24,6 +24,8 @@ export default function LearnerCalendarPage() {
   const [weeklySchedule, setWeeklySchedule] = useState<ScheduleItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([]);
+  const [cohortName, setCohortName] = useState<string>('Assigned Review Batch');
+  const [cohortStatus, setCohortStatus] = useState<'Active' | 'Archived'>('Active');
 
   // Load dismissed notifications from localStorage on initial render
   useEffect(() => {
@@ -40,12 +42,15 @@ export default function LearnerCalendarPage() {
   useEffect(() => {
     const fetchSchedule = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        setIsLoading(false);
+        return;
+      }
 
-      // 1. Explicitly fetch the student's cohort_id
+      // 1. Fetch student's cohort and its operational status
       const { data: userData } = await supabase
         .from('Users')
-        .select('cohort_id')
+        .select('cohort_id, Cohorts ( cohort_name, status )')
         .eq('user_id', user.id)
         .single();
 
@@ -54,11 +59,19 @@ export default function LearnerCalendarPage() {
         return;
       }
 
-      // 2. Fetch Exam IDs strictly linked to this student's cohort
+      const rawCohort = (userData as any)?.Cohorts;
+      const userCohort = Array.isArray(rawCohort) ? rawCohort[0] : rawCohort;
+      const studentCohortId = userData.cohort_id;
+      const cStatus: 'Active' | 'Archived' = (userCohort?.status as 'Active' | 'Archived') || 'Active';
+
+      setCohortName(userCohort?.cohort_name || 'Assigned Review Batch');
+      setCohortStatus(cStatus);
+
+      // 2. Fetch Exam IDs strictly linked to this student's active cohort
       const { data: cohortExams } = await supabase
         .from('Exam_Cohorts')
         .select('exam_id')
-        .eq('cohort_id', userData.cohort_id);
+        .eq('cohort_id', studentCohortId);
 
       const examIds = cohortExams?.map(ce => ce.exam_id) || [];
 
@@ -68,7 +81,7 @@ export default function LearnerCalendarPage() {
         return;
       }
 
-      // 3. Safely fetch ONLY the exams for this cohort that are or were available to students
+      // 3. Safely fetch visible published exams for this cohort
       const { data: exams, error } = await supabase
         .from('Exams')
         .select(`
@@ -82,11 +95,12 @@ export default function LearnerCalendarPage() {
           global_status,
           passing_score,
           passing_percentage,
-          attempts:"Student Attempts" ( attempt_id, final_score )
+          attempts:"Student Attempts" ( attempt_id, final_score, student_id, cohort_id )
         `)
         .in('exam_id', examIds)
         .eq('is_visible', true)
         .neq('global_status', 'Draft')
+        .neq('global_status', 'Pending')
         .order('schedule_start', { ascending: true });
 
       if (error) {
@@ -95,46 +109,48 @@ export default function LearnerCalendarPage() {
         return;
       }
 
-      // Format the raw database data to match UI requirements
-      const formattedSchedule = exams.map((exam) => {
+      const formattedSchedule: ScheduleItem[] = (exams || []).map((exam) => {
         const examDate = new Date(exam.schedule_start);
         const examEndDate = exam.schedule_end ? new Date(exam.schedule_end) : null;
         const now = new Date();
         
-        const attempts = exam.attempts || [];
-        const attemptCount = exam.attempts?.length || 0;
+        // Scope attempts strictly to this user and this cohort
+        const myAttempts = (exam.attempts || []).filter(
+          (a: any) => a.student_id === user.id && (!a.cohort_id || a.cohort_id === studentCohortId)
+        );
+        const attemptCount = myAttempts.length;
         const maxAttempts = exam.max_attempts || 1;
         
-        // Use passing_percentage if available, otherwise fallback to passing_score or 75
         const targetPercentage = exam.passing_percentage || exam.passing_score || 75;
 
-        // Find their best score out of all attempts
-        let highestScore = null;
+        let highestScore: number | null = null;
         if (attemptCount > 0) {
-          highestScore = Math.max(...attempts.map((a: any) => a.final_score || 0));
+          const scores = myAttempts.map((a: any) => a.final_score).filter((s: any) => s !== null && s !== undefined);
+          if (scores.length > 0) highestScore = Math.max(...scores);
         }
         
-        // Determine the dynamic status based on attempt limits and time
+        // Determine dynamic status
         let currentStatus = 'Upcoming';
         
-        if (attemptCount >= maxAttempts) {
+        if (cStatus === 'Archived') {
+          currentStatus = attemptCount > 0 ? 'Completed' : 'Closed';
+        } else if (attemptCount >= maxAttempts) {
           currentStatus = 'Completed';
         } else if (exam.global_status === 'Inactive' || (examEndDate && exam.close_after_deadline && now > examEndDate)) {
           currentStatus = 'Closed';
         } else if (now >= examDate) {
           if (exam.global_status === 'Active') {
-            currentStatus = 'Available';
+            currentStatus = attemptCount > 0 ? 'Retake Available' : 'Available';
           } else {
             currentStatus = 'Awaiting Teacher Activation';
           }
         }
 
-        // Evaluate if the goal was met (comparing score percentage against target percentage)
         let goalMet: boolean | null = null;
         if (currentStatus === 'Completed') {
           goalMet = highestScore !== null && highestScore >= targetPercentage;
         } else if (currentStatus === 'Closed') {
-          goalMet = false; 
+          goalMet = highestScore !== null ? highestScore >= targetPercentage : false;
         }
 
         let parsedRefs = ['Standard Syllabus Guide'];
@@ -166,7 +182,6 @@ export default function LearnerCalendarPage() {
   const handleDismissNotification = (examId: string) => {
     setDismissedNotifications(prev => {
       const updatedList = [...prev, examId];
-      // Save the updated list permanently to the browser
       localStorage.setItem('dismissedMissedExams', JSON.stringify(updatedList));
       return updatedList;
     });
@@ -189,10 +204,9 @@ export default function LearnerCalendarPage() {
         const day = parseInt(match[0]);
         const existingStatus = examDaysMap.get(day);
 
-        // Priority Hierarchy
         if (schedule.status === 'Closed') {
           examDaysMap.set(day, 'Closed'); 
-        } else if ((schedule.status === 'Available' || schedule.status === 'Upcoming' || schedule.status === 'Awaiting Teacher Activation') && existingStatus !== 'Closed') {
+        } else if ((schedule.status === 'Available' || schedule.status === 'Retake Available' || schedule.status === 'Upcoming' || schedule.status === 'Awaiting Teacher Activation') && existingStatus !== 'Closed') {
           examDaysMap.set(day, 'Available'); 
         } else if (!existingStatus) {
           examDaysMap.set(day, 'Completed'); 
@@ -201,12 +215,15 @@ export default function LearnerCalendarPage() {
     });
 
   const missedExams = weeklySchedule.filter(
-    (exam) => exam.status === 'Closed' && exam.id && !dismissedNotifications.includes(exam.id)
+    (exam) => exam.status === 'Closed' && exam.id && !dismissedNotifications.includes(exam.id) && exam.goalMet === false
+  );
+
+  const activeUpcomingSchedule = weeklySchedule.filter(
+    schedule => !['Completed', 'Closed', 'Finished', 'Past'].includes(schedule.status)
   );
 
   return (
     <div className="space-y-6 pb-24">
-
       {missedExams.length > 0 && (
         <div className="space-y-3 mb-6 animate-in fade-in slide-in-from-top-4 duration-300">
           {missedExams.map((exam) => (
@@ -214,7 +231,7 @@ export default function LearnerCalendarPage() {
               <div className="flex items-center gap-3">
                 <span className="text-2xl">⚠️</span>
                 <div>
-                  <p className="text-sm font-bold">You missed an exam: {exam.task}</p>
+                  <p className="text-sm font-bold">You missed an assessment deadline: {exam.task}</p>
                   <p className="text-xs text-rose-600 font-bold mt-0.5">This closed on {exam.day}, {exam.date} at {exam.time}.</p>
                 </div>
               </div>
@@ -229,8 +246,30 @@ export default function LearnerCalendarPage() {
         </div>
       )}
 
-      <h1 className="text-2xl font-bold text-slate-800">Home</h1>
-      <p className="text-sm text-slate-500 mt-1 mb-6 font-bold">View your upcoming mock exams, mandatory simulations, and mapped source reference parameters.</p>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Home</h1>
+          <p className="text-sm text-slate-500 mt-1 font-bold">View your upcoming mock exams, mandatory simulations, and mapped source reference parameters.</p>
+        </div>
+
+        {/* POLISHED ACTIVE BATCH PILL */}
+        <div className="inline-flex items-center gap-2.5 bg-white pl-3.5 pr-2.5 py-1.5 border border-slate-200/90 rounded-xl shadow-xs">
+          <div className="flex items-center gap-1.5 text-slate-400">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Batch:</span>
+          </div>
+          <span className="text-xs font-bold text-slate-800">{cohortName}</span>
+          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+            cohortStatus === 'Archived' 
+              ? 'bg-slate-100 text-slate-600 border border-slate-200' 
+              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+          }`}>
+            {cohortStatus}
+          </span>
+        </div>
+      </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
@@ -238,12 +277,12 @@ export default function LearnerCalendarPage() {
             <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
               Syncing calendar data...
             </div>
-          ) : weeklySchedule.filter(schedule => !['Completed', 'Closed', 'Finished', 'Past'].includes(schedule.status)).length === 0 ? (
+          ) : activeUpcomingSchedule.length === 0 ? (
             <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
-              No active exams scheduled right now. Check 'Scheduled Mock Exams' or 'Historical Performance' for past exams.
+              No active exams scheduled right now. Check &apos;Scheduled Mock Exams&apos; or &apos;Historical Performance&apos; for completed exams.
             </div>
           ) : (
-            weeklySchedule.filter(schedule => !['Completed', 'Closed', 'Finished', 'Past'].includes(schedule.status)).map((schedule, idx) => (
+            activeUpcomingSchedule.map((schedule, idx) => (
               <div key={idx} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between gap-4">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div>
@@ -253,6 +292,7 @@ export default function LearnerCalendarPage() {
                   <span className={`px-3 py-1.5 rounded-full text-xs font-bold shrink-0 ${
                     schedule.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' : 
                     schedule.status === 'Available' ? 'bg-blue-100 text-blue-800' : 
+                    schedule.status === 'Retake Available' ? 'bg-amber-100 text-amber-800' :
                     schedule.status === 'Closed' ? 'bg-rose-100 text-rose-800' :
                     schedule.status === 'Awaiting Teacher Activation' ? 'bg-amber-100 text-amber-800' :
                     'bg-slate-100 text-slate-600'
@@ -278,9 +318,9 @@ export default function LearnerCalendarPage() {
                       View Performance Dashboard
                     </button>
                   )}
-                  {schedule.status === 'Available' && (
+                  {(schedule.status === 'Available' || schedule.status === 'Retake Available') && (
                     <button onClick={() => router.push(`/learner/exams/${schedule.id}`)} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm">
-                      Start Exam
+                      {schedule.status === 'Retake Available' ? 'Retake Exam' : 'Start Exam'}
                     </button>
                   )}
                   {schedule.status === 'Awaiting Teacher Activation' && (
@@ -305,14 +345,12 @@ export default function LearnerCalendarPage() {
         </div>
 
         <div className="lg:col-span-1 space-y-6">
-          
           <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
             <h3 className="font-bold text-slate-800 mb-4">{currentMonthName} {currentYear} Schedule</h3>
             <div className="grid grid-cols-7 gap-1 text-center text-xs font-bold text-slate-400 mb-2">
               <div>Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div>
             </div>
             <div className="grid grid-cols-7 gap-1 text-center text-sm font-bold text-slate-700">
-              
               {Array.from({ length: firstDayOfMonth }).map((_, i) => (
                 <div key={`empty-${i}`} className="p-1.5"></div>
               ))}
@@ -368,7 +406,7 @@ export default function LearnerCalendarPage() {
 
           <div className="bg-blue-50 p-6 rounded-xl border border-blue-100">
             <h3 className="font-bold text-blue-800 mb-2">Study Tip</h3>
-            <p className="text-sm text-blue-900 leading-relaxed font-bold">Consistency is important. Make sure to log in every day to keep your review habits intact and monitor new mock exam schedules.</p>
+            <p className="text-sm text-blue-900 leading-relaxed font-bold">Consistency is key. Complete your weekly practice assessments early to identify knowledge gaps before final board simulations.</p>
           </div>
         </div>
       </div>

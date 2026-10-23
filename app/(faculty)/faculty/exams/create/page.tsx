@@ -50,7 +50,11 @@ type CustomBlock = {
   customSettingInput: string;
 };
 
-type Cohort = { id: string; name: string };
+type Cohort = { 
+  id: string; 
+  name: string;
+  status: 'Active' | 'Archived';
+};
 
 const getSourceFromPath = (path: string) => path.split('/').pop() || path;
 
@@ -76,9 +80,8 @@ export default function CreateExamPage() {
 
   // Form State - Step 1 (Details)
   const [examTitle, setExamTitle] = useState('');
-  const [selectedCohorts, setSelectedCohorts] = useState<string[]>([]);
+  const [selectedCohort, setSelectedCohort] = useState<string>('');
   const [cohorts, setCohorts] = useState<Cohort[]>([]);
-  const [isCohortDropdownOpen, setIsCohortDropdownOpen] = useState(false);
   const [scheduleStart, setScheduleStart] = useState('');
   const [scheduleEnd, setScheduleEnd] = useState('');
   const [passingScorePercent, setPassingScorePercent] = useState<number>(75);
@@ -117,22 +120,32 @@ export default function CreateExamPage() {
     }
   }, [genStatus, genMessage, router, addToast]);
 
-  // Initialization: Fetch Cohorts & Indexed Materials
+  // Initialization: Fetch Active Cohorts & Indexed Materials
   useEffect(() => {
     const fetchInitialData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // Query cohorts assigned to teacher with active status check
       const { data: cohortData } = await supabase
         .from('Cohort Teachers')
-        .select('cohort_id, Cohorts(cohort_name)')
+        .select('cohort_id, Cohorts(cohort_id, cohort_name, status)')
         .eq('teacher_id', user.id);
       
       if (cohortData) {
-        setCohorts(cohortData.map((ct: any) => ({
-          id: ct.cohort_id,
-          name: ct.Cohorts.cohort_name
-        })));
+        // Filter strictly to Active cohorts
+        const activeOnly: Cohort[] = cohortData
+          .filter((ct: any) => ct.Cohorts?.status === 'Active')
+          .map((ct: any) => ({
+            id: ct.cohort_id,
+            name: ct.Cohorts.cohort_name,
+            status: ct.Cohorts.status
+          }));
+
+        setCohorts(activeOnly);
+        if (activeOnly.length > 0) {
+          setSelectedCohort(activeOnly[0].id);
+        }
       }
 
       const { data: materialData } = await supabase
@@ -167,14 +180,12 @@ export default function CreateExamPage() {
   // Heartbeat verification
   const checkWorkerHeartbeat = async (): Promise<boolean> => {
     try {
-      // 1. Primary check: Use the same telemetry endpoint as AdminOverviewPage
       try {
         const telRes = await fetch('/api/telemetry');
         if (telRes.ok) {
           const telData = await telRes.json();
           const workerStatus = telData.backendHealth?.aiWorker?.toLowerCase();
           if (workerStatus === 'operational') {
-            console.log('[Heartbeat Verified via /api/telemetry]: Operational');
             return true;
           }
         }
@@ -182,7 +193,6 @@ export default function CreateExamPage() {
         console.warn('[/api/telemetry check bypassed, falling back to Supabase]:', e);
       }
 
-      // 2. Secondary check: Query Worker_Health table directly
       const { data, error } = await supabase
         .from('Worker_Health')
         .select('*')
@@ -191,28 +201,14 @@ export default function CreateExamPage() {
         .limit(1)
         .maybeSingle();
 
-      if (error) {
-        console.error('[Worker_Health DB Error]:', error);
-        return false;
-      }
+      if (error || !data) return false;
 
-      if (!data) {
-        console.warn('[Worker_Health]: No heartbeat record found.');
-        return false;
-      }
-
-      // Case-insensitive status check
       const isStatusOk = data.status?.toLowerCase() === 'operational';
-      if (!isStatusOk) {
-        console.warn(`[Worker_Health Status Mismatch]: Expected operational, got "${data.status}"`);
-        return false;
-      }
+      if (!isStatusOk) return false;
 
-      // Timestamp check with a 5-minute safety window for clock skew
       const lastBeatTime = new Date(data.last_heartbeat).getTime();
       const diffMinutes = (Date.now() - lastBeatTime) / (1000 * 60);
 
-      console.log(`[Worker Heartbeat Verified]: Last pulse was ${diffMinutes.toFixed(1)} mins ago.`);
       return diffMinutes <= 5;
     } catch (err) {
       console.error('[Heartbeat Check Exception]:', err);
@@ -232,11 +228,6 @@ export default function CreateExamPage() {
       uploaderName.toLowerCase().includes(query)
     );
   });
-
-  const toggleCohortSelection = (cohortId: string) => {
-    setSelectedCohorts(prev => prev.includes(cohortId) ? prev.filter(id => id !== cohortId) : [...prev, cohortId]);
-    setErrors({...errors, cohort: false});
-  };
 
   const handleAddBlock = () => setCustomBlocks([
     ...customBlocks, 
@@ -258,8 +249,8 @@ export default function CreateExamPage() {
     let newErrors: { [key: string]: boolean } = {};
 
     if (currentStep === 1) {
-      if (!examTitle) newErrors.title = true;
-      if (selectedCohorts.length === 0) newErrors.cohort = true;
+      if (!examTitle.trim()) newErrors.title = true;
+      if (!selectedCohort) newErrors.cohort = true;
       if (!scheduleStart) newErrors.start = true;
       if (!scheduleEnd) newErrors.end = true;
       if (!timeLimit || timeLimit <= 0) newErrors.time = true;
@@ -299,7 +290,6 @@ export default function CreateExamPage() {
   };
 
   const handleGenerate = async () => {
-    // 1. Single-click guard: Block duplicate requests
     if (isSubmitting || isFormLocked) return;
 
     if (selectedMaterials.length === 0) {
@@ -310,7 +300,6 @@ export default function CreateExamPage() {
     setErrors({});
     setIsSubmitting(true);
 
-    // 2. Pre-check worker heartbeat before committing to Supabase
     const isWorkerAlive = await checkWorkerHeartbeat();
     if (!isWorkerAlive) {
       setIsSubmitting(false);
@@ -328,7 +317,7 @@ export default function CreateExamPage() {
     const scheduleStartUTC = localToUTC(scheduleStart);
     const scheduleEndUTC = localToUTC(scheduleEnd);
 
-    // 3. Insert parent record
+    // 1. Insert parent record
     const { error: dbError } = await supabase.from('Exams').insert({
       exam_id: sessionUUID,
       exam_title: examTitle,
@@ -342,7 +331,8 @@ export default function CreateExamPage() {
       global_status: 'Generating',
       max_attempts: maxAttempts,
       close_after_deadline: closeAfterDeadline,
-      grading_logic: gradingLogic
+      grading_logic: gradingLogic,
+      is_visible: false // Drafts default to hidden
     });
 
     if (dbError) {
@@ -351,21 +341,21 @@ export default function CreateExamPage() {
       return;
     }
 
-    // 4. Map cohorts
-    const cohortPayload = selectedCohorts.map(cohortId => ({
-      exam_id: sessionUUID,
-      cohort_id: cohortId
-    }));
-
-    const { error: junctionError } = await supabase.from('Exam_Cohorts').insert(cohortPayload);
+    // 2. Map single cohort strictly 1:1
+    const { error: junctionError } = await supabase
+      .from('Exam_Cohorts')
+      .insert([{
+        exam_id: sessionUUID,
+        cohort_id: selectedCohort
+      }]);
     
     if (junctionError) {
-      setErrors({ database: `Failed to assign cohorts: ${junctionError.message}` });
+      setErrors({ database: `Failed to assign cohort: ${junctionError.message}` });
       setIsSubmitting(false);
       return;
     }
 
-    // 5. Audit log
+    // 3. Audit log
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       const { data: userData } = await supabase
@@ -388,7 +378,7 @@ export default function CreateExamPage() {
         {
           user_email: userEmail,
           role: roleName,
-          action: `Created new exam: "${examTitle}" (${subject})`,
+          action: `Created new exam: "${examTitle}" (${subject}) assigned to cohort ID: ${selectedCohort}`,
           type: 'AI Engine',
           severity: 'Info',
           ip_address: 'Internal',
@@ -397,10 +387,9 @@ export default function CreateExamPage() {
       ]);
     }
 
-    // Show progress modal
     setShowProgressModal(true);
 
-    // 6. Trigger generation task
+    // 4. Trigger generation task
     if (generationMode === 'strict') {
       const blueprintMap: Record<string, string> = {
         "Abnormal Psychology": "1",
@@ -513,62 +502,40 @@ export default function CreateExamPage() {
                   />
                 </div>
                 
-                <div className="relative">
-                  <label className={`block text-sm font-bold mb-2 transition-colors ${errors.cohort ? 'text-red-600' : 'text-slate-700'}`}>Target Cohort(s)</label>
-                  <div 
-                    onClick={() => !isFormLocked && setIsCohortDropdownOpen(!isCohortDropdownOpen)}
-                    className={`min-h-[46px] w-full px-3 py-2 border rounded-lg flex flex-wrap gap-2 items-center cursor-pointer bg-white transition-colors ${errors.cohort ? 'border-red-400 bg-red-50 ring-1 ring-red-400' : 'border-slate-300 hover:border-blue-400'} ${isFormLocked ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                {/* SINGLE COHORT ASSIGNMENT DROPDOWN */}
+                <div>
+                  <label className={`block text-sm font-bold mb-2 transition-colors ${errors.cohort ? 'text-red-600' : 'text-slate-700'}`}>
+                    Target Cohort Assignment
+                  </label>
+                  <select
+                    value={selectedCohort}
+                    onChange={(e) => {
+                      setSelectedCohort(e.target.value);
+                      setErrors({ ...errors, cohort: false });
+                    }}
+                    disabled={isFormLocked}
+                    className={`w-full px-4 py-3 border rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-1 transition-colors bg-white disabled:bg-slate-50 disabled:text-slate-500 ${
+                      errors.cohort 
+                        ? 'border-red-400 focus:border-red-500 focus:ring-red-500 bg-red-50' 
+                        : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500'
+                    }`}
                   >
-                    {selectedCohorts.length === 0 ? (
-                      <span className="text-sm font-bold text-slate-400 px-1">Select assigned cohorts...</span>
+                    {cohorts.length === 0 ? (
+                      <option value="" disabled>No active cohorts assigned to you</option>
                     ) : (
-                      selectedCohorts.map(id => {
-                        const cohort = cohorts.find(c => c.id === id);
-                        return (
-                          <span key={id} className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 border border-blue-200 text-blue-900 text-xs font-bold rounded-md z-10">
-                            {cohort?.name}
-                            <button 
-                              type="button" 
-                              onClick={(e) => { e.stopPropagation(); toggleCohortSelection(id); }}
-                              className="text-blue-500 hover:text-blue-800 bg-white rounded-full p-0.5 transition-colors"
-                            >
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                          </span>
-                        );
-                      })
+                      <>
+                        <option value="" disabled>Select an active cohort...</option>
+                        {cohorts.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </>
                     )}
-                    <div className="ml-auto px-1">
-                      <svg className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isCohortDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                    </div>
-                  </div>
-
-                  {isCohortDropdownOpen && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setIsCohortDropdownOpen(false)}></div>
-                      <div className="absolute z-20 w-full mt-2 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-auto py-1 animate-in fade-in slide-in-from-top-2">
-                        {cohorts.length === 0 ? (
-                          <div className="p-4 text-sm text-slate-500 font-bold text-center">No active cohorts assigned to you.</div>
-                        ) : (
-                          cohorts.map(c => {
-                            const isSelected = selectedCohorts.includes(c.id);
-                            return (
-                              <div 
-                                key={c.id} 
-                                onClick={() => toggleCohortSelection(c.id)}
-                                className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
-                              >
-                                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 bg-white'}`}>
-                                  {isSelected && <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
-                                </div>
-                                <span className={`text-sm font-bold ${isSelected ? 'text-blue-900' : 'text-slate-700'}`}>{c.name}</span>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </>
-                  )}
+                  </select>
+                  <p className="text-xs font-bold text-slate-400 mt-1.5">
+                    Exams map to a single cohort instance. You can deploy this exam to another batch later via &quot;Duplicate to Cohort&quot;.
+                  </p>
                 </div>
               </div>
 
@@ -767,7 +734,6 @@ export default function CreateExamPage() {
                       )}
                       
                       <div className="mt-6 space-y-4">
-                        {/* Row 1: Topic, Bloom, Count */}
                         <div className="flex flex-col md:flex-row gap-5">
                           <div className="flex-1 space-y-2">
                             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Topic Filter (TOS)</label>
@@ -820,7 +786,6 @@ export default function CreateExamPage() {
                           </div>
                         </div>
 
-                        {/* Row 2: Operational Context / Domain Setting */}
                         <div className="pt-3 border-t border-slate-100">
                           <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                             Operational Context / Vignette Setting (Optional)
@@ -974,7 +939,7 @@ export default function CreateExamPage() {
                   {isFormLocked ? (
                     <><svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Queuing...</>
                   ) : (
-                    <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022.547l-2.387.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg> Generate Exam</>
+                    <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg> Generate Exam</>
                   )}
                 </button>
               )}

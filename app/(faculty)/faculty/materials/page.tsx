@@ -15,6 +15,7 @@ const BLEPP_SUBJECTS = [
 ];
 
 const DOCS_PER_PAGE = 10;
+const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB Supabase storage ceiling
 
 export default function FacultyMaterialsPage() {
   // Security Hook
@@ -253,6 +254,23 @@ export default function FacultyMaterialsPage() {
     setCurrentPage(1);
   }, [searchQuery, activeTab]);
 
+  // Client-Side File Validation Handler
+  const validateAndSetFile = (file: File): boolean => {
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+      addToast(
+        `File size (${sizeMB} MB) exceeds the 50 MB storage limit. Please compress the file or choose a smaller document.`,
+        'error'
+      );
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return false;
+    }
+
+    setSelectedFile(file);
+    return true;
+  };
+
   const executeEditSubject = async () => {
     if (!editSubjectModal) return;
 
@@ -328,6 +346,12 @@ export default function FacultyMaterialsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile || !uploadDocs) return;
+
+    if (selectedFile.size > MAX_FILE_SIZE_BYTES) {
+      const sizeMB = (selectedFile.size / (1024 * 1024)).toFixed(1);
+      addToast(`Upload blocked: File size (${sizeMB} MB) exceeds the 50 MB limit.`, 'error');
+      return;
+    }
     
     setLoadingMessage('Uploading file to system...');
     setIsUploading(true);
@@ -404,7 +428,9 @@ export default function FacultyMaterialsPage() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files?.[0]) setSelectedFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files?.[0]) {
+      validateAndSetFile(e.dataTransfer.files[0]);
+    }
   };
 
   return (
@@ -495,28 +521,156 @@ export default function FacultyMaterialsPage() {
 
       {/* Materials Table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <GlobalTable
-          data={paginatedFiles}
-          columns={columns}
-          keyExtractor={(item) => item.id}
-          isLoading={isNavigating}
-          loadingMessage={loadingMessage}
-          emptyMessage={searchQuery ? 'No documents match your search.' : 'No records found for this view.'}
-          emptyTitle="No records found"
-          rowClassName={() => "hover:bg-slate-50/80 transition-colors"}
-        />
-        {filteredFiles.length > 0 && !isNavigating && (
-          <GlobalPagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalItems={materials.length}
-            itemsPerPage={DOCS_PER_PAGE}
-            onPageChange={setCurrentPage}
-            filteredItemsCount={filteredFiles.length}
-          />
-        )}      </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[720px]">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200">
+                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">File Name & Details</th>
+                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">BLEPP Subject</th>
+                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Date Requested</th>
+                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Status</th>
+                <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
+              {paginatedFiles.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-12 text-center text-slate-500 font-bold">
+                    {searchQuery ? 'No documents match your search.' : 'No records found for this view.'}
+                  </td>
+                </tr>
+              ) : (
+                paginatedFiles.map((file) => (
+                  <tr key={file.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="p-4">
+                      <p className={`font-bold ${file.status === 'File Purged' || file.status === 'Archived' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                        {file.title}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase tracking-wider border border-slate-200">
+                          {file.file_name.split('.').pop()?.toUpperCase()}
+                        </span>
+                        <span className="text-xs font-medium text-slate-400">{file.file_size_mb} MB</span>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <span className="px-2.5 py-1 bg-indigo-100/90 text-indigo-950 border border-indigo-300 rounded-md text-xs font-black tracking-tight whitespace-nowrap shadow-2xs">
+                        {file.subject || (file.tags && file.tags[0]) || 'General Reference'}
+                      </span>
+                    </td>
+                    <td className="p-4 text-slate-500 font-medium text-xs">
+                      {new Date(file.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="p-4">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider cursor-default ${
+                        file.status === 'Approved & Indexed' ? 'bg-emerald-100 text-emerald-800' : 
+                        file.status === 'Pending Admin Approval' ? 'bg-amber-100 text-amber-800' : 
+                        file.status === 'Archived' ? 'bg-purple-100 text-purple-800' : 
+                        file.status === 'File Purged' ? 'bg-slate-200 text-slate-500' : 
+                        'bg-slate-100 text-slate-600'
+                      }`}>
+                        {file.status === 'Processing' && <span className="h-2 w-2 bg-blue-500 rounded-full animate-pulse"></span>}
+                        {file.status}
+                      </span>
+                    </td>
+                    <td className="p-4 text-right">
+                      <div className="flex justify-end items-center gap-2">
+                        {(file.status === 'Pending Admin Approval' || file.status === 'Approved & Indexed' || file.status === 'Processing') && (
+                          <button
+                            onClick={() => handleReview(file.file_path)}
+                            className="text-slate-400 hover:text-blue-600 transition-colors p-1"
+                            title="View Document"
+                          >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </button>
+                        )}
 
-      {/* Upload Modal with Fixed Font Colors */}
+                        <button
+                          onClick={() => setViewDetailsModal(file)}
+                          className="text-slate-400 hover:text-indigo-600 transition-colors p-1"
+                          title="View Details"
+                        >
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                          </svg>
+                        </button>
+
+                        {file.status === 'Pending Admin Approval' && (
+                          <>
+                            <div className="w-px h-4 bg-slate-200 mx-1"></div>
+                            <button 
+                              onClick={() => {
+                                setEditSubjectModal({ id: file.id, currentSubject: file.subject || BLEPP_SUBJECTS[0] });
+                                setEditSubjectChoice(file.subject || BLEPP_SUBJECTS[0]);
+                              }} 
+                              className="text-slate-400 hover:text-blue-600 transition-colors p-1"
+                              title="Edit Subject"
+                            >
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                            </button>
+
+                            <button 
+                              onClick={() => {
+                                setCancelModal({ id: file.id, path: file.file_path, title: file.title });
+                                setCountdown(5);
+                              }} 
+                              className="text-red-500 hover:text-red-700 transition-colors p-1"
+                              title="Cancel Request"
+                            >
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination Footer (Limit: 10) */}
+        {filteredFiles.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-200 bg-slate-50 gap-3 text-xs font-bold text-slate-600">
+            <span>
+              Showing {Math.min(filteredFiles.length, (currentPage - 1) * DOCS_PER_PAGE + 1)} to{' '}
+              {Math.min(filteredFiles.length, currentPage * DOCS_PER_PAGE)} of {filteredFiles.length} files
+            </span>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+              >
+                &larr; Prev
+              </button>
+              <span className="px-2 font-bold text-slate-800">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+              >
+                Next &rarr;
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Upload Modal with File Validation */}
       {showUploadModal && uploadDocs && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 border border-slate-200">
@@ -538,23 +692,41 @@ export default function FacultyMaterialsPage() {
                   {selectedFile ? (
                     <div className="mb-4">
                       <h4 className="text-sm font-bold text-emerald-600 mb-1">File Attached!</h4>
-                      <p className="text-xs font-bold text-slate-800">{selectedFile.name}</p>
+                      <p className="text-xs font-bold text-slate-800 break-all">{selectedFile.name}</p>
+                      <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                        <span>{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB / 50 MB</span>
+                      </div>
                     </div>
                   ) : (
                     <>
                       <h4 className="text-sm font-bold text-slate-800 mb-1">Drag and drop your file here</h4>
-                      <p className="text-xs font-bold text-slate-500 mb-4">Supports PDF, PPTX, and DOCX up to 50MB</p>
+                      <p className="text-xs font-bold text-slate-500 mb-2">Supports PDF, PPTX, and DOCX</p>
+                      <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-bold mb-4">
+                        <svg className="w-3.5 h-3.5 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <span>Maximum file size: 50 MB (Supabase Storage Ceiling)</span>
+                      </div>
                     </>
                   )}
                   <div className="flex items-center justify-center">
                     <span className="px-2 bg-slate-50 text-xs font-bold text-slate-400 uppercase relative z-10">Or</span>
                     <div className="absolute left-10 right-10 top-auto h-px bg-slate-200"></div>
                   </div>
-                  <input type="file" className="hidden" ref={fileInputRef} onChange={(e) => { if (e.target.files?.[0]) setSelectedFile(e.target.files[0]); }} />
+                  <input 
+                    type="file" 
+                    className="hidden" 
+                    ref={fileInputRef} 
+                    onChange={(e) => { 
+                      if (e.target.files?.[0]) {
+                        validateAndSetFile(e.target.files[0]);
+                      }
+                    }} 
+                  />
                   <button type="button" onClick={() => fileInputRef.current?.click()} className="mt-4 px-5 py-2 border border-slate-300 text-slate-800 text-sm font-bold rounded-lg bg-white hover:bg-slate-50 transition-colors shadow-sm relative z-20">Browse Files</button>
                 </div>
 
-                {/* Target BLEPP Subject Dropdown with High-Contrast Text */}
+                {/* Target BLEPP Subject Dropdown */}
                 <div>
                   <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1.5">
                     Target BLEPP Subject

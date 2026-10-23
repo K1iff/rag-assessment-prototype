@@ -1,10 +1,11 @@
 'use client';
 
 import FullScreenLoader from '@/components/ui/FullScreenLoader';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import EmptyState from '@/components/ui/EmptyState';
 import { usePagination } from '@/hooks/usePagination';
 import { supabase } from '@/lib/supabaseClient';
+import { useToast } from '@/components/ui/ToastContext';
 import Link from 'next/link';
 
 interface Student {
@@ -24,7 +25,7 @@ interface Cohort {
   name: string;
   description: string;
   color: string;
-  account_status: string;
+  status: 'Active' | 'Archived';
   dateRange: string;
   start_date: string;
   end_date: string;
@@ -39,10 +40,23 @@ interface PendingRemoval {
   email: string;
 }
 
+interface PendingTransferStudent {
+  id: string;
+  name: string;
+  email: string;
+  currentCohortName: string;
+}
+
+interface PendingTransfer {
+  students: PendingTransferStudent[];
+  allUserIdsToEnroll: string[];
+}
+
 export default function AdminCohortsPage() {
+  const { addToast } = useToast();
   const [selectedCohort, setSelectedCohort] = useState<string | null>(null);
   const [studentSearch, setStudentSearch] = useState('');
-  const [cohortTab, setCohortTab] = useState('active');
+  const [cohortTab, setCohortTab] = useState<'active' | 'archived'>('active');
   
   // Dynamic Loading States
   const [isLoading, setIsLoading] = useState(false);
@@ -52,6 +66,9 @@ export default function AdminCohortsPage() {
   // Destructive Confirmation Modal & Timer States
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
   const [countdown, setCountdown] = useState(5);
+
+  // Transfer Confirmation State
+  const [pendingTransfer, setPendingTransfer] = useState<PendingTransfer | null>(null);
 
   // Modals State
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -65,6 +82,7 @@ export default function AdminCohortsPage() {
   const [cohortDesc, setCohortDesc] = useState('');
   const [cohortStart, setCohortStart] = useState('');
   const [cohortEnd, setCohortEnd] = useState('');
+  const [cohortStatus, setCohortStatus] = useState<'Active' | 'Archived'>('Active');
   const [batchEmails, setBatchEmails] = useState('');
 
   const [availableStudentSearch, setAvailableStudentSearch] = useState('');
@@ -87,7 +105,6 @@ export default function AdminCohortsPage() {
     setIsLoading(true);
     setLoadingMessage('Syncing workspace data...');
     
-    // Fetch Cohorts, Users, and the new junction table
     const [cohortsRes, usersRes, teachersRes] = await Promise.all([
       supabase.from('Cohorts').select('*').order('created_at', { ascending: false }),
       supabase.from('Users').select('user_id, name, email, role_id, cohort_id'),
@@ -96,6 +113,7 @@ export default function AdminCohortsPage() {
 
     if (cohortsRes.error) {
       console.error("Error fetching cohorts:", cohortsRes.error);
+      addToast('Failed to load cohorts.', 'error');
       setIsLoading(false);
       return;
     }
@@ -137,7 +155,7 @@ export default function AdminCohortsPage() {
         name: cohort.cohort_name,
         description: cohort.description || 'No description provided.',
         color: colors[index % colors.length],
-        account_status: cohort.account_status,
+        status: (cohort.status as 'Active' | 'Archived') || 'Active',
         dateRange: displayDate,
         start_date: rawStart,
         end_date: rawEnd,
@@ -172,10 +190,6 @@ export default function AdminCohortsPage() {
     setLoadingMessage('Creating new cohort...');
     setIsSubmitting(true);
 
-    const now = new Date();
-    const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const calculatedStatus = cohortEnd < currentYearMonth ? 'Archived' : 'Active';
-
     const { error } = await supabase
       .from('Cohorts')
       .insert([{
@@ -183,25 +197,26 @@ export default function AdminCohortsPage() {
         description: cohortDesc,
         start_date: `${cohortStart}-01`, 
         end_date: `${cohortEnd}-01`,
-        account_status: calculatedStatus 
+        status: 'Active'
       }]);
 
     if (!error) {
-      await logWorkspaceAction(`Created new cohort: ${cohortName} (${calculatedStatus})`);
+      await logWorkspaceAction(`Created new cohort: ${cohortName} (Active)`);
+      addToast('Cohort successfully created.', 'success');
       await fetchCohortsData();
       closeModals();
+    } else {
+      addToast(`Error creating cohort: ${error.message}`, 'error');
     }
     setIsSubmitting(false);
   };
 
   const handleEditCohortSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedCohort) return;
+
     setLoadingMessage('Saving workspace details...');
     setIsSubmitting(true);
-
-    const now = new Date();
-    const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const calculatedStatus = cohortEnd < currentYearMonth ? 'Archived' : 'Active';
 
     const { error } = await supabase
       .from('Cohorts')
@@ -210,19 +225,31 @@ export default function AdminCohortsPage() {
         description: cohortDesc,
         start_date: `${cohortStart}-01`, 
         end_date: `${cohortEnd}-01`,
-        account_status: calculatedStatus 
+        status: cohortStatus
       })
       .eq('cohort_id', selectedCohort);
 
     if (!error) {
-      await logWorkspaceAction(`Updated cohort details for: ${cohortName}`);
-      await fetchCohortsData();
+      setCohorts(prev => prev.map(c => c.id === selectedCohort ? {
+        ...c,
+        name: cohortName,
+        description: cohortDesc,
+        start_date: cohortStart,
+        end_date: cohortEnd,
+        status: cohortStatus
+      } : c));
+
+      await logWorkspaceAction(`Updated cohort details for ${cohortName} (Status: ${cohortStatus})`);
+      addToast(`Cohort updated successfully to ${cohortStatus}.`, 'success');
       setShowEditModal(false);
+      fetchCohortsData();
+    } else {
+      addToast(`Error updating cohort: ${error.message}`, 'error');
     }
     setIsSubmitting(false);
   };
 
-  // --- Workspace Actions ---
+  // --- Teacher Assignment ---
   const handleAssignTeacher = async (teacherId: string) => {
     setLoadingMessage('Assigning faculty to workspace...');
     setIsLoading(true);
@@ -232,6 +259,7 @@ export default function AdminCohortsPage() {
     const { data: cohort } = await supabase.from('Cohorts').select('cohort_name').eq('cohort_id', selectedCohort).single();
     
     await logWorkspaceAction(`Assigned teacher ${teacher?.name} to cohort ${cohort?.cohort_name}`);
+    addToast('Teacher assigned successfully.', 'success');
     await fetchCohortsData();
     setIsLoading(false);
   };
@@ -245,21 +273,65 @@ export default function AdminCohortsPage() {
     const { data: cohort } = await supabase.from('Cohorts').select('cohort_name').eq('cohort_id', selectedCohort).single();
     
     await logWorkspaceAction(`Removed teacher ${teacher?.name} from cohort ${cohort?.cohort_name}`, 'Warning');
+    addToast('Teacher removed from cohort.', 'info');
     await fetchCohortsData();
     setIsLoading(false);
   };
 
-  const handleAddStudent = async (studentId: string) => {
-    setLoadingMessage('Enrolling student...');
-    setIsLoading(true);
-    await supabase.from('Users').update({ cohort_id: selectedCohort }).eq('user_id', studentId);
-    
-    const { data: student } = await supabase.from('Users').select('name').eq('user_id', studentId).single();
-    const { data: cohort } = await supabase.from('Cohorts').select('cohort_name').eq('cohort_id', selectedCohort).single();
-    
-    await logWorkspaceAction(`Manually enrolled student ${student?.name} into cohort ${cohort?.cohort_name}`);
+  // --- Student Enrollment & Transfer Execution ---
+  const executeEnrollment = async (userIds: string[], transferredStudents: PendingTransferStudent[] = []) => {
+    if (!selectedCohort || userIds.length === 0) return;
+
+    setLoadingMessage('Updating student enrollment...');
+    setIsSubmitting(true);
+
+    const { error } = await supabase
+      .from('Users')
+      .update({ cohort_id: selectedCohort })
+      .in('user_id', userIds);
+
+    if (error) {
+      addToast(`Enrollment failed: ${error.message}`, 'error');
+      setIsSubmitting(false);
+      return;
+    }
+
+    const cohort = cohorts.find(c => c.id === selectedCohort);
+    if (transferredStudents.length > 0) {
+      const summary = transferredStudents.map(s => `${s.name} (from ${s.currentCohortName})`).join(', ');
+      await logWorkspaceAction(`Transferred student(s) into cohort ${cohort?.name}: ${summary}`, 'Warning');
+      addToast(`Transferred ${transferredStudents.length} student(s) to ${cohort?.name}.`, 'success');
+    } else {
+      await logWorkspaceAction(`Enrolled ${userIds.length} student(s) into cohort ${cohort?.name}`);
+      addToast(`Successfully enrolled student(s) into ${cohort?.name}.`, 'success');
+    }
+
+    setShowAddStudentModal(false);
+    setShowBatchModal(false);
+    setPendingTransfer(null);
+    setBatchEmails('');
     await fetchCohortsData();
-    setIsLoading(false);
+    setIsSubmitting(false);
+  };
+
+  // Triggered when clicking "Add" or "Transfer" on an individual student
+  const handleStudentSelection = (student: any) => {
+    if (student.cohort_id && student.cohort_id !== selectedCohort) {
+      const sourceCohort = cohorts.find(c => c.id === student.cohort_id);
+      setPendingTransfer({
+        students: [{
+          id: student.user_id,
+          name: student.name,
+          email: student.email || 'No email',
+          currentCohortName: sourceCohort ? sourceCohort.name : 'Another Cohort'
+        }],
+        allUserIdsToEnroll: [student.user_id]
+      });
+      return;
+    }
+
+    // Direct enrollment if student is unassigned
+    executeEnrollment([student.user_id], []);
   };
 
   const executeRemoveStudent = async (studentId: string) => {
@@ -271,6 +343,7 @@ export default function AdminCohortsPage() {
     const { data: cohort } = await supabase.from('Cohorts').select('cohort_name').eq('cohort_id', selectedCohort).single();
     
     await logWorkspaceAction(`Removed student ${student?.name} from cohort ${cohort?.cohort_name}`, 'Warning');
+    addToast('Student removed from cohort.', 'info');
     await fetchCohortsData();
     setIsLoading(false);
   };
@@ -288,25 +361,38 @@ export default function AdminCohortsPage() {
   };
 
   const handleBatchImport = async () => {
-    setLoadingMessage('Processing batch enrollment...');
-    setIsSubmitting(true);
     const emailList = batchEmails.split(/[,\n]+/).map(e => e.trim()).filter(e => e !== '');
-    
     const studentsToUpdate = allUsersDB.filter(u => u.role_id === 1 && emailList.includes(u.email));
     const userIds = studentsToUpdate.map(u => u.user_id);
 
-    if (userIds.length > 0) {
-      await supabase.from('Users').update({ cohort_id: selectedCohort }).in('user_id', userIds);
-      
-      const { data: cohort } = await supabase.from('Cohorts').select('cohort_name').eq('cohort_id', selectedCohort).single();
-      
-      await logWorkspaceAction(`Batch assigned ${userIds.length} students to cohort ${cohort?.cohort_name}`);
-      await fetchCohortsData();
+    if (userIds.length === 0) {
+      addToast('No matching registered students found for the provided emails.', 'error');
+      return;
     }
-    
-    setShowBatchModal(false);
-    setBatchEmails('');
-    setIsSubmitting(false);
+
+    // Check if any students in the batch already belong to a different cohort
+    const studentsToTransfer: PendingTransferStudent[] = studentsToUpdate
+      .filter(u => u.cohort_id && u.cohort_id !== selectedCohort)
+      .map(u => {
+        const sourceCohort = cohorts.find(c => c.id === u.cohort_id);
+        return {
+          id: u.user_id,
+          name: u.name,
+          email: u.email || 'No email',
+          currentCohortName: sourceCohort ? sourceCohort.name : 'Another Cohort'
+        };
+      });
+
+    if (studentsToTransfer.length > 0) {
+      setPendingTransfer({
+        students: studentsToTransfer,
+        allUserIdsToEnroll: userIds
+      });
+      return;
+    }
+
+    // No existing cohort assignments; proceed immediately
+    await executeEnrollment(userIds, []);
   };
 
   const openEditModal = (cohort: Cohort) => {
@@ -314,6 +400,7 @@ export default function AdminCohortsPage() {
     setCohortDesc(cohort.description);
     setCohortStart(cohort.start_date);
     setCohortEnd(cohort.end_date);
+    setCohortStatus(cohort.status);
     setShowEditModal(true);
   };
 
@@ -323,6 +410,7 @@ export default function AdminCohortsPage() {
     setCohortDesc('');
     setCohortStart('');
     setCohortEnd('');
+    setCohortStatus('Active');
   };
 
   const currentCohort = cohorts.find(c => c.id === selectedCohort);
@@ -337,18 +425,20 @@ export default function AdminCohortsPage() {
     indexOfFirstItem: indexOfFirstStudent, indexOfLastItem: indexOfLastStudent, totalItems, nextPage, prevPage, resetPage
   } = usePagination(filteredStudents, 5);
 
-  const displayedCohorts = cohorts.filter(c => 
-    cohortTab === 'active' ? c.account_status === 'Active' : c.account_status === 'Archived'
-  );
+  const activeCohortsList = cohorts.filter(c => c.status === 'Active');
+  const archivedCohortsList = cohorts.filter(c => c.status === 'Archived');
+  const displayedCohorts = cohortTab === 'active' ? activeCohortsList : archivedCohortsList;
 
   const availableTeachers = allUsersDB.filter(u => u.role_id === 2 && !currentCohort?.teachers.some(t => t.id === u.user_id));
+  
+  // Available students (everyone not currently enrolled in this specific cohort)
   const availableStudents = allUsersDB.filter(u => u.role_id === 1 && u.cohort_id !== selectedCohort);
   const filteredAvailableStudents = availableStudents.filter(u =>
     u.name.toLowerCase().includes(availableStudentSearch.toLowerCase()) ||
     (u.email && u.email.toLowerCase().includes(availableStudentSearch.toLowerCase()))
   );
 
-  // Confirmation Modal JSX Component
+  // Destructive Removal Modal
   const renderRemovalModal = () => {
     if (!pendingRemoval) return null;
     const isTeacher = pendingRemoval.type === 'teacher';
@@ -396,6 +486,68 @@ export default function AdminCohortsPage() {
     );
   };
 
+  // Transfer Confirmation Modal
+  const renderTransferModal = () => {
+    if (!pendingTransfer) return null;
+    const isSingle = pendingTransfer.students.length === 1;
+
+    return (
+      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+          <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mb-4">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+
+          <h3 className="text-lg font-bold text-slate-800">
+            {isSingle ? 'Confirm Student Transfer' : 'Confirm Batch Student Transfer'}
+          </h3>
+          <p className="text-xs text-slate-500 font-bold mt-1">
+            {isSingle 
+              ? 'This student is already actively enrolled in another cohort:' 
+              : `${pendingTransfer.students.length} student(s) are already actively enrolled in another cohort:`}
+          </p>
+
+          <div className="my-4 max-h-44 overflow-y-auto divide-y divide-slate-100 bg-slate-50 rounded-xl p-3 border border-slate-200">
+            {pendingTransfer.students.map((student) => (
+              <div key={student.id} className="py-2 text-xs first:pt-1 last:pb-1">
+                <span className="font-bold text-slate-800 block">{student.name}</span>
+                <span className="text-slate-500 block text-[11px]">{student.email}</span>
+                <span className="text-amber-700 font-bold text-[11px] mt-0.5 inline-block">
+                  Current Cohort: {student.currentCohortName}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-xs font-bold leading-relaxed mb-6">
+            ⚠️ Transferring will move their enrollment to <span className="text-amber-950 font-black">{currentCohort?.name}</span>. They will no longer be able to take tests or access unattempted exams in their previous cohort.
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setPendingTransfer(null)}
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => executeEnrollment(pendingTransfer.allUserIdsToEnroll, pendingTransfer.students)}
+              className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm disabled:opacity-50"
+            >
+              {isSubmitting ? 'Transferring...' : 'Confirm Transfer'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ==========================================
   // VIEW 1: INSIDE A SPECIFIC COHORT
   // ==========================================
@@ -419,17 +571,24 @@ export default function AdminCohortsPage() {
               </svg>
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-800">{currentCohort.name}</h1>
-              <p className="text-sm text-slate-500 font-bold">{currentCohort.description}</p>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold text-slate-800">{currentCohort.name}</h1>
+                {currentCohort.status === 'Archived' && (
+                  <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                    (Archived)
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-slate-500 font-bold mt-0.5">{currentCohort.description}</p>
               <div className="flex gap-2 mt-2">
-                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
-                  currentCohort.account_status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
-                 }`}>
-                  {currentCohort.account_status}
-                 </span>
-                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 uppercase tracking-wider">
-                   {currentCohort.dateRange}
-                 </span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
+                  currentCohort.status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {currentCohort.status}
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 uppercase tracking-wider">
+                  {currentCohort.dateRange}
+                </span>
               </div>
             </div>
           </div>
@@ -514,7 +673,7 @@ export default function AdminCohortsPage() {
                 <input 
                   type="text" 
                   placeholder="Search enrolled students..." 
-                  value={studentSearch}
+                  value={studentSearch} 
                   onChange={(e) => { setStudentSearch(e.target.value); resetPage(); }}
                   className="w-full text-xs font-bold px-3 py-2 border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 outline-none" 
                 />
@@ -570,15 +729,46 @@ export default function AdminCohortsPage() {
             <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6">
               <h3 className="text-xl font-bold text-slate-800 mb-4 border-b pb-2">Edit Cohort Details</h3>
               <form onSubmit={handleEditCohortSubmit} className="space-y-4">
-                <input type="text" value={cohortName} onChange={(e) => setCohortName(e.target.value)} required className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:ring-1 focus:ring-blue-500" />
-                <textarea value={cohortDesc} onChange={(e) => setCohortDesc(e.target.value)} rows={3} className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:ring-1 focus:ring-blue-500 resize-none" />
-                <div className="grid grid-cols-2 gap-4">
-                  <input type="month" value={cohortStart} onChange={(e) => setCohortStart(e.target.value)} required className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold" />
-                  <input type="month" value={cohortEnd} onChange={(e) => setCohortEnd(e.target.value)} required className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold" />
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Cohort Name</label>
+                  <input type="text" value={cohortName} onChange={(e) => setCohortName(e.target.value)} required className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:ring-1 focus:ring-blue-500" />
                 </div>
-                <div className="flex justify-end gap-3 pt-4">
-                  <button type="button" onClick={() => setShowEditModal(false)} className="px-5 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg">Cancel</button>
-                  <button type="submit" disabled={isSubmitting} className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg">Save Changes</button>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Description</label>
+                  <textarea value={cohortDesc} onChange={(e) => setCohortDesc(e.target.value)} rows={3} className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:ring-1 focus:ring-blue-500 resize-none" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Start Month</label>
+                    <input type="month" value={cohortStart} onChange={(e) => setCohortStart(e.target.value)} required className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">End Month</label>
+                    <input type="month" value={cohortEnd} onChange={(e) => setCohortEnd(e.target.value)} required className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold" />
+                  </div>
+                </div>
+
+                {/* Cohort Status Selector */}
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1.5">Cohort Status</label>
+                  <select
+                    value={cohortStatus}
+                    onChange={(e) => setCohortStatus(e.target.value as 'Active' | 'Archived')}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-xs cursor-pointer"
+                  >
+                    <option value="Active" className="text-slate-900 font-bold py-1">Active (Ongoing Review Cycle)</option>
+                    <option value="Archived" className="text-slate-900 font-bold py-1">Archived (Concluded & Frozen)</option>
+                  </select>
+                  <p className="text-xs text-slate-500 font-bold mt-1.5 leading-relaxed">
+                    Archiving freezes student attempts and prevents teachers from assigning new mock exams to this cohort.
+                  </p>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t">
+                  <button type="button" onClick={() => setShowEditModal(false)} className="px-5 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors">Cancel</button>
+                  <button type="submit" disabled={isSubmitting} className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">Save Changes</button>
                 </div>
               </form>
             </div>
@@ -606,6 +796,7 @@ export default function AdminCohortsPage() {
           </div>
         )}
 
+        {/* Add Student Modal with Cohort Badging & Transfer Routing */}
         {showAddStudentModal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 flex flex-col max-h-[80vh]">
@@ -615,7 +806,7 @@ export default function AdminCohortsPage() {
               </div>
               <div className="mb-4">
                 <p className="text-xs text-slate-500 font-bold mb-3">
-                  If you want to add a new student, please go to the <Link href="/admin/users/add" className="text-blue-600 hover:underline">user directory</Link> to add a user.
+                  If you want to register a brand new student, go to the <Link href="/admin/users/add" className="text-blue-600 hover:underline">user directory</Link>.
                 </p>
                 <input
                   type="text"
@@ -628,12 +819,40 @@ export default function AdminCohortsPage() {
               <div className="overflow-y-auto flex-1 space-y-2">
                 {filteredAvailableStudents.length === 0 ? (
                   <p className="text-sm text-slate-500 text-center py-4">No available students found.</p>
-                ) : filteredAvailableStudents.map(u => (
-                  <div key={u.user_id} className="flex justify-between items-center p-3 bg-slate-50 border rounded-lg">
-                    <div><p className="text-sm font-bold">{u.name}</p><p className="text-xs text-slate-500">{u.email}</p></div>
-                    <button onClick={() => handleAddStudent(u.user_id)} className="px-3 py-1 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700">Add</button>
-                  </div>
-                ))}
+                ) : filteredAvailableStudents.map(u => {
+                  const isEnrolledElsewhere = u.cohort_id && u.cohort_id !== selectedCohort;
+                  const sourceCohort = isEnrolledElsewhere ? cohorts.find(c => c.id === u.cohort_id) : null;
+
+                  return (
+                    <div key={u.user_id} className="flex justify-between items-center p-3 bg-slate-50 border rounded-lg hover:bg-slate-100/60 transition-colors">
+                      <div className="pr-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-bold text-slate-800">{u.name}</p>
+                          {isEnrolledElsewhere ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              In: {sourceCohort?.name || 'Another Cohort'}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                              Unassigned
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 font-medium">{u.email}</p>
+                      </div>
+                      <button 
+                        onClick={() => handleStudentSelection(u)} 
+                        className={`px-3 py-1.5 text-xs font-bold rounded transition-colors shadow-2xs shrink-0 ${
+                          isEnrolledElsewhere 
+                            ? 'bg-amber-600 hover:bg-amber-700 text-white' 
+                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        }`}
+                      >
+                        {isEnrolledElsewhere ? 'Transfer' : 'Add'}
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -652,13 +871,16 @@ export default function AdminCohortsPage() {
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm font-bold focus:ring-1 focus:ring-blue-500 resize-none mb-4" 
               />
               <div className="flex justify-end gap-3">
-                <button onClick={() => { setShowBatchModal(false); setBatchEmails(''); }} className="px-5 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg">Cancel</button>
-                <button onClick={handleBatchImport} disabled={isSubmitting || !batchEmails} className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg disabled:opacity-50">Assign Users</button>
+                <button onClick={() => { setShowBatchModal(false); setBatchEmails(''); }} className="px-5 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors">Cancel</button>
+                <button onClick={handleBatchImport} disabled={isSubmitting || !batchEmails} className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">Assign Users</button>
               </div>
             </div>
           </div>
         )}
+
         {renderRemovalModal()}
+        {renderTransferModal()}
+
         <FullScreenLoader 
           isOpen={isLoading || isSubmitting} 
           message={loadingMessage} 
@@ -667,6 +889,9 @@ export default function AdminCohortsPage() {
     );
   }
 
+  // ==========================================
+  // VIEW 2: COHORTS LIST (ACTIVE / ARCHIVED)
+  // ==========================================
   return (
     <div className="space-y-6 relative">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
@@ -682,19 +907,30 @@ export default function AdminCohortsPage() {
         </button>
       </div>
 
+      {/* Tabs with Dynamic Counts */}
       <div className="mb-6 border-b border-slate-200">
         <div className="flex gap-6">
           <button 
             onClick={() => setCohortTab('active')} 
-            className={`pb-3 border-b-2 text-sm font-bold ${cohortTab === 'active' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            className={`pb-3 border-b-2 text-sm font-bold flex items-center gap-2 transition-colors ${
+              cohortTab === 'active' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
           >
-            Active Cohorts
+            <span>Active Cohorts</span>
+            <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">
+              {activeCohortsList.length}
+            </span>
           </button>
           <button 
             onClick={() => setCohortTab('archived')} 
-            className={`pb-3 border-b-2 text-sm font-bold ${cohortTab === 'archived' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            className={`pb-3 border-b-2 text-sm font-bold flex items-center gap-2 transition-colors ${
+              cohortTab === 'archived' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
           >
-            Archived
+            <span>Archived</span>
+            <span className="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600 border border-slate-200">
+              {archivedCohortsList.length}
+            </span>
           </button>
         </div>
       </div>
@@ -703,7 +939,10 @@ export default function AdminCohortsPage() {
         <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">Loading cohorts...</div>
       ) : displayedCohorts.length === 0 ? (
         <div className="p-12 text-center bg-white rounded-xl border border-slate-200">
-          <EmptyState title="No Cohorts Found" message="Create a new cohort to start organizing your users." />
+          <EmptyState 
+            title={cohortTab === 'active' ? 'No Active Cohorts Found' : 'No Archived Cohorts Found'} 
+            message={cohortTab === 'active' ? 'Create a new cohort workspace to start organizing your users.' : 'Archived cohorts will appear here once their review cycles have concluded.'} 
+          />
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 w-full">
@@ -713,11 +952,18 @@ export default function AdminCohortsPage() {
               <div className="p-6 flex-1 flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-start mb-4">
-                    <h3 className="font-bold text-lg text-slate-800 leading-snug pr-3">{cohort.name}</h3>
+                    <div className="pr-3">
+                      <h3 className="font-bold text-lg text-slate-800 leading-snug">{cohort.name}</h3>
+                      {cohort.status === 'Archived' && (
+                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 mt-1 inline-block">
+                          (Archived)
+                        </span>
+                      )}
+                    </div>
                     <span className={`shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
-                      cohort.account_status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                      cohort.status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
                     }`}>
-                      {cohort.account_status}
+                      {cohort.status}
                     </span>
                   </div>
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Schedule</p>
@@ -762,14 +1008,17 @@ export default function AdminCohortsPage() {
                 </div>
               </div>
               <div className="flex justify-end gap-3 pt-6 border-t mt-2">
-                <button type="button" onClick={closeModals} className="px-5 py-2.5 bg-slate-100 text-slate-700 text-sm font-bold rounded-lg">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg disabled:opacity-50">Create Workspace</button>
+                <button type="button" onClick={closeModals} className="px-5 py-2.5 bg-slate-100 text-slate-700 text-sm font-bold rounded-lg hover:bg-slate-200 transition-colors">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">Create Workspace</button>
               </div>
             </form>
           </div>
         </div>
       )}
+
       {renderRemovalModal()}
+      {renderTransferModal()}
+
       <FullScreenLoader 
         isOpen={isLoading || isSubmitting} 
         message={loadingMessage} 
