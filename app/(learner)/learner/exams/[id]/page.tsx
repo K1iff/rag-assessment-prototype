@@ -16,6 +16,7 @@ export default function LearnerExamDetailsPage() {
   
   const [examData, setExamData] = useState<any>(null);
   const [attemptsData, setAttemptsData] = useState<any[]>([]);
+  const [userCohortId, setUserCohortId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchDetails = async () => {
@@ -29,10 +30,23 @@ export default function LearnerExamDetailsPage() {
         return;
       }
 
-      // Fetch Exam Rules
+      // Fetch student active cohort
+      const { data: userData } = await supabase
+        .from('Users')
+        .select('cohort_id')
+        .eq('user_id', user.id)
+        .single();
+
+      const activeStudentCohortId = userData?.cohort_id || null;
+      setUserCohortId(activeStudentCohortId);
+
+      // Fetch Exam Rules & Assigned Cohort Information
       const { data: exam, error } = await supabase
         .from('Exams')
-        .select('exam_id, exam_title, exam_subject, schedule_end, time_limit_mins, max_attempts, grading_logic, global_status, close_after_deadline')
+        .select(`
+          exam_id, exam_title, exam_subject, schedule_end, time_limit_mins, max_attempts, grading_logic, global_status, close_after_deadline,
+          Exam_Cohorts ( cohort_id, Cohorts ( cohort_id, cohort_name, status ) )
+        `)
         .eq('exam_id', examId)
         .single();
 
@@ -42,15 +56,29 @@ export default function LearnerExamDetailsPage() {
         return;
       }
 
-      // Fetch Past Attempts for this specific student
-      const { data: attempts } = await supabase
-        .from('Student Attempts')
-        .select('final_score')
-        .eq('exam_id', examId)
-        .eq('student_id', user.id)
-        .order('completed_at', { ascending: true });
+      const rawCohort = (exam as any)?.Exam_Cohorts?.[0]?.Cohorts;
+      const assignedCohort = Array.isArray(rawCohort) ? rawCohort[0] : rawCohort;
+      const assignedCohortId = (exam as any)?.Exam_Cohorts?.[0]?.cohort_id;
 
-      setExamData(exam);
+      // Fetch Past Attempts scoped to this student and this specific cohort instance
+      let attemptsQuery = supabase
+        .from('Student Attempts')
+        .select('final_score, cohort_id')
+        .eq('exam_id', examId)
+        .eq('student_id', user.id);
+
+      if (assignedCohortId) {
+        attemptsQuery = attemptsQuery.eq('cohort_id', assignedCohortId);
+      }
+
+      const { data: attempts } = await attemptsQuery.order('completed_at', { ascending: true });
+
+      setExamData({
+        ...exam,
+        cohortId: assignedCohortId,
+        cohortName: assignedCohort?.cohort_name || 'Assigned Cohort',
+        cohortStatus: (assignedCohort?.status as 'Active' | 'Archived') || 'Active'
+      });
       setAttemptsData(attempts || []);
       setIsLoading(false);
     };
@@ -62,11 +90,17 @@ export default function LearnerExamDetailsPage() {
   const maxAttempts = examData?.max_attempts || 1;
   const attemptsRemaining = Math.max(0, maxAttempts - attemptsCompleted);
 
-  // Evaluate Retake Rules
+  // Evaluate Retake & Authorization Rules
   let allowRetake = true;
   let blockReason = "";
 
-  if (examData?.global_status !== 'Active') {
+  if (examData?.cohortStatus === 'Archived') {
+    allowRetake = false;
+    blockReason = "Cohort has concluded (Archived)";
+  } else if (examData?.cohortId && userCohortId && userCohortId !== examData.cohortId) {
+    allowRetake = false;
+    blockReason = "Not enrolled in this cohort";
+  } else if (examData?.global_status !== 'Active') {
     allowRetake = false;
     blockReason = "Exam is no longer active";
   } else if (examData?.close_after_deadline && examData?.schedule_end) {
@@ -75,12 +109,13 @@ export default function LearnerExamDetailsPage() {
       blockReason = "Deadline has passed";
     }
   }
-  if (attemptsCompleted >= maxAttempts) {
+  
+  if (allowRetake && attemptsCompleted >= maxAttempts) {
     allowRetake = false;
     blockReason = "Max attempts reached";
   }
 
-  // Calculate current score if they have taken it at least once
+  // Calculate current score if they have taken it at least once in this cohort
   let calculatedFinalGrade = 0;
   if (attemptsCompleted > 0) {
     const scores = attemptsData.map(a => a.final_score || 0);
@@ -107,9 +142,16 @@ export default function LearnerExamDetailsPage() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full">
         <div className="bg-slate-50 border-b border-slate-200 p-8 md:p-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div>
-            <h2 className="text-3xl font-bold text-slate-800">
-              {examData?.exam_title}
-            </h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-3xl font-bold text-slate-800">
+                {examData?.exam_title}
+              </h2>
+              {examData?.cohortStatus === 'Archived' && (
+                <span className="px-2.5 py-1 bg-slate-200 text-slate-700 text-xs font-bold rounded-md">
+                  (Archived Cohort)
+                </span>
+              )}
+            </div>
             <p className="text-slate-500 mt-3 text-sm font-bold">
               Review the exam details and your current progress below before starting.
             </p>
@@ -130,11 +172,22 @@ export default function LearnerExamDetailsPage() {
               <p className="text-slate-800 font-bold text-lg">{examData?.exam_subject || 'General Comprehensive'}</p>
             </div>
             <div>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Assigned Cohort</h4>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-800 font-bold text-lg">{examData?.cohortName}</span>
+                {examData?.cohortStatus === 'Archived' && (
+                  <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 uppercase tracking-wider">
+                    Archived
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-6 border-t border-slate-100">
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Duration</h4>
               <p className="text-slate-800 font-bold text-lg">{examData?.time_limit_mins || 60} Minutes</p>
             </div>
-            
-            <div className="md:col-span-2 pt-6 border-t border-slate-100">
+            <div className="pt-6 border-t border-slate-100">
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Deadline</h4>
               <p className="text-slate-800 font-bold text-lg">{formattedDeadline}</p>
             </div>
@@ -196,7 +249,7 @@ export default function LearnerExamDetailsPage() {
                 Cancel
               </button>
               <button
-                onClick={() => router.push(`/learner/exams/${examData.exam_id}/take`)}
+                onClick={() => router.push(`/learner/exams/${examData.exam_id}/take?cohortId=${examData.cohortId}`)}
                 className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm"
               >
                 Confirm and Start

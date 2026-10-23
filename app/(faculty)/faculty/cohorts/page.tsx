@@ -18,7 +18,7 @@ interface CohortSummary {
   cohort_id: string;
   cohort_name: string;
   description: string | null;
-  account_status: string;
+  status: 'Active' | 'Archived';
   start_date: string | null;
   end_date: string | null;
   student_count: number;
@@ -88,6 +88,7 @@ export default function FacultyCohortsPage() {
   const [cohorts, setCohorts] = useState<CohortSummary[]>([]);
   const [selectedCohort, setSelectedCohort] = useState<CohortSummary | null>(null);
   const [cohortSearch, setCohortSearch] = useState('');
+  const [cohortTab, setCohortTab] = useState<'active' | 'archived'>('active');
 
   // Detail View State
   const [activeTab, setActiveTab] = useState<'materials' | 'students' | 'exams' | 'analytics'>('materials');
@@ -135,7 +136,7 @@ export default function FacultyCohortsPage() {
 
     const cohortList: CohortSummary[] = await Promise.all(
       userCohorts.map(async (row: any) => {
-        const c = row.Cohorts;
+        const c = Array.isArray(row.Cohorts) ? row.Cohorts[0] : row.Cohorts;
         
         const { count: studentCount } = await supabase
           .from('Users')
@@ -156,7 +157,7 @@ export default function FacultyCohortsPage() {
           cohort_id: c.cohort_id,
           cohort_name: c.cohort_name,
           description: c.description,
-          account_status: c.account_status || 'Active',
+          status: (c.status as 'Active' | 'Archived') || 'Active',
           start_date: c.start_date,
           end_date: c.end_date,
           student_count: studentCount || 0,
@@ -174,7 +175,7 @@ export default function FacultyCohortsPage() {
     fetchTeacherCohorts();
   }, []);
 
-  // Fetch Macro Cohort Analytics with Multi-Attempt & Rule-Based Resolution
+  // Fetch Macro Cohort Analytics
   const fetchCohortAnalytics = async (cohortId: string) => {
     setIsAnalyticsLoading(true);
 
@@ -188,7 +189,7 @@ export default function FacultyCohortsPage() {
       const studentList = enrolledStudents || [];
       const studentIds = studentList.map(s => s.user_id);
 
-      // 2. Get all exams assigned to this cohort with their grading logic
+      // 2. Get all exams assigned to this cohort
       const { data: examLinks } = await supabase
         .from('Exam_Cohorts')
         .select(`
@@ -244,15 +245,17 @@ export default function FacultyCohortsPage() {
         correctAnswer: q.correct_answer || ''
       }));
 
-      // 4. Case-Insensitive Fetch for Completed Student Attempts
+      // 4. Fetch Completed Student Attempts strictly for this cohort
       const { data: allStudentAttempts } = await supabase
         .from('Student Attempts')
-        .select('attempt_id, student_id, exam_id, final_score, exam_status, completed_at')
+        .select('attempt_id, student_id, exam_id, final_score, exam_status, completed_at, cohort_id')
         .in('student_id', studentIds)
         .in('exam_id', assignedExamIds)
         .order('completed_at', { ascending: true });
 
-      const safeRawAttempts = allStudentAttempts || [];
+      const safeRawAttempts = (allStudentAttempts || []).filter(
+        a => !a.cohort_id || a.cohort_id === cohortId
+      );
       const completedAttempts = safeRawAttempts.filter(
         a => a.exam_status?.toLowerCase() === 'completed'
       );
@@ -269,7 +272,7 @@ export default function FacultyCohortsPage() {
         answersData = ans || [];
       }
 
-      // 6. Group Attempts by [Student -> Exam] & Resolve According to Grading Rules
+      // 6. Group Attempts by Student & Apply Grading Rules
       const qualifyingAttemptsForCohort: any[] = [];
       let totalCohortTOSSum = 0;
       let evaluatedStudentsCount = 0;
@@ -290,14 +293,12 @@ export default function FacultyCohortsPage() {
           };
         }
 
-        // Group student's attempts by exam_id
         const examBuckets: Record<string, any[]> = {};
         studentRawAttempts.forEach(att => {
           if (!examBuckets[att.exam_id]) examBuckets[att.exam_id] = [];
           examBuckets[att.exam_id].push(att);
         });
 
-        // Resolve one qualifying score per exam using each exam's specific grading rule
         const qualifyingExamScores: { rawScorePct: number; tosScore: number; attempt: any }[] = [];
 
         Object.entries(examBuckets).forEach(([eId, attemptsForExam]) => {
@@ -322,7 +323,6 @@ export default function FacultyCohortsPage() {
           } else if (rule === 'latest') {
             qualifying = evaluatedAttempts[evaluatedAttempts.length - 1];
           } else {
-            // Average rule
             const avgRaw = Math.round(evaluatedAttempts.reduce((acc, c) => acc + c.rawScorePct, 0) / evaluatedAttempts.length);
             const avgTOS = Number((evaluatedAttempts.reduce((acc, c) => acc + c.tosScore, 0) / evaluatedAttempts.length).toFixed(1));
             qualifying = {
@@ -372,7 +372,7 @@ export default function FacultyCohortsPage() {
       setCohortAvgTOS(finalAvgTOS);
       setStudentReadinessList(readinessRoster);
 
-      // 8. Calculate BLEPP 4-Domain Mastery Using Qualifying Attempts
+      // 8. Calculate BLEPP 4-Domain Mastery
       const qualifyingAttemptIds = qualifyingAttemptsForCohort.map(a => a.attempt_id);
       const qualifyingAnswers = answersData.filter(a => qualifyingAttemptIds.includes(a.attempt_id));
 
@@ -400,7 +400,7 @@ export default function FacultyCohortsPage() {
       });
       setDomainBreakdown(domainFinal);
 
-      // 9. Extract Cohort Weak Spots (Top 6 Lowest-Scoring Areas)
+      // 9. Extract Cohort Weak Spots
       const attemptScoreObjects: StudentAttemptScore[] = qualifyingAttemptsForCohort.map(att => {
         const attAns = qualifyingAnswers.filter(a => a.attempt_id === att.attempt_id);
         return {
@@ -500,7 +500,6 @@ export default function FacultyCohortsPage() {
     fetchCohortDetails(cohort.cohort_id);
   };
 
-  // Open modal and fetch unassigned approved materials
   const handleOpenAssignModal = async () => {
     if (!selectedCohort) return;
     setModalSearchQuery('');
@@ -639,15 +638,17 @@ export default function FacultyCohortsPage() {
     }
   };
 
-  // Filtered cohorts for main directory view
+  const activeCohortsList = useMemo(() => cohorts.filter(c => c.status === 'Active'), [cohorts]);
+  const archivedCohortsList = useMemo(() => cohorts.filter(c => c.status === 'Archived'), [cohorts]);
+  const tabScopedCohorts = cohortTab === 'active' ? activeCohortsList : archivedCohortsList;
+
   const filteredCohorts = useMemo(() => {
-    return cohorts.filter(c => 
+    return tabScopedCohorts.filter(c => 
       c.cohort_name.toLowerCase().includes(cohortSearch.toLowerCase()) ||
       (c.description && c.description.toLowerCase().includes(cohortSearch.toLowerCase()))
     );
-  }, [cohorts, cohortSearch]);
+  }, [tabScopedCohorts, cohortSearch]);
 
-  // Filtered roster for analytics table
   const filteredRoster = useMemo(() => {
     return studentReadinessList.filter(s =>
       s.name.toLowerCase().includes(rosterSearch.toLowerCase()) ||
@@ -655,18 +656,12 @@ export default function FacultyCohortsPage() {
     );
   }, [studentReadinessList, rosterSearch]);
 
-  // Aggregate stats across all cohorts for the header strip
-  const totalStudentsAcrossCohorts = useMemo(() => cohorts.reduce((acc, c) => acc + c.student_count, 0), [cohorts]);
-  const totalExamsAcrossCohorts = useMemo(() => cohorts.reduce((acc, c) => acc + c.exam_count, 0), [cohorts]);
-  const totalMaterialsAcrossCohorts = useMemo(() => cohorts.reduce((acc, c) => acc + c.material_count, 0), [cohorts]);
-
   // ==========================================
   // DETAIL VIEW
   // ==========================================
   if (selectedCohort) {
     return (
       <div className="space-y-6 pb-24">
-        {/* Navigation Breadcrumb */}
         <div className="flex items-center gap-2 text-sm mb-2">
           <button 
             onClick={() => setSelectedCohort(null)} 
@@ -678,17 +673,20 @@ export default function FacultyCohortsPage() {
           <span className="text-slate-800 font-bold">{selectedCohort.cohort_name}</span>
         </div>
 
-        {/* Cohort Header Card */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-black text-slate-800">{selectedCohort.cohort_name}</h1>
-              <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-bold uppercase tracking-wider">
-                {selectedCohort.account_status}
+              <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                selectedCohort.status === 'Active' 
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                  : 'bg-slate-100 text-slate-600 border border-slate-200'
+              }`}>
+                {selectedCohort.status}
               </span>
             </div>
             <p className="text-sm text-slate-500 font-medium mt-1 max-w-xl">
-              {selectedCohort.description || 'No specific description provided for this cohort.'}
+              {selectedCohort.description || 'General batch group enrolled in the licensure review training curriculum.'}
             </p>
           </div>
 
@@ -710,7 +708,6 @@ export default function FacultyCohortsPage() {
           </div>
         </div>
 
-        {/* Tab Navigation */}
         <div className="bg-slate-900 text-white rounded-t-xl flex gap-8 px-8 pt-5 border-b border-slate-700 overflow-x-auto scrollbar-hide">
           <button 
             onClick={() => setActiveTab('materials')} 
@@ -747,7 +744,6 @@ export default function FacultyCohortsPage() {
         </div>
 
         <div className="bg-white border border-slate-200 rounded-b-xl p-8 shadow-sm min-h-[500px]">
-          {/* TAB 1: REVIEW MATERIALS WITH ICON ACTIONS */}
           {activeTab === 'materials' && (
             <div className="space-y-5">
               <div className="flex justify-between items-center">
@@ -755,12 +751,14 @@ export default function FacultyCohortsPage() {
                   <h3 className="text-lg font-bold text-slate-800">Assigned Cohort Textbooks & Outlines</h3>
                   <p className="text-xs text-slate-500 font-bold">Students enrolled in this cohort can access these reference files for remediation.</p>
                 </div>
-                <button 
-                  onClick={handleOpenAssignModal}
-                  className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-1.5"
-                >
-                  <span>+</span> Assign Reference Files
-                </button>
+                {selectedCohort.status === 'Active' && (
+                  <button 
+                    onClick={handleOpenAssignModal}
+                    className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-1.5"
+                  >
+                    <span>+</span> Assign Reference Files
+                  </button>
+                )}
               </div>
 
               <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
@@ -803,7 +801,6 @@ export default function FacultyCohortsPage() {
                             {new Date(mat.created_at).toLocaleDateString()}
                           </td>
                           <td className="p-4 text-right">
-                            {/* Action Icons: Eye & Trash Can */}
                             <div className="flex justify-end gap-2 items-center">
                               <button 
                                 onClick={() => handlePreviewMaterial(mat.file_path)}
@@ -815,15 +812,17 @@ export default function FacultyCohortsPage() {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                 </svg>
                               </button>
-                              <button 
-                                onClick={() => handleUnassignSingle(mat.id, mat.title)}
-                                title="Remove from Cohort"
-                                className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-rose-50 hover:border-rose-300 text-slate-400 hover:text-rose-600 flex items-center justify-center transition-colors shadow-xs"
-                              >
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                              </button>
+                              {selectedCohort.status === 'Active' && (
+                                <button 
+                                  onClick={() => handleUnassignSingle(mat.id, mat.title)}
+                                  title="Remove from Cohort"
+                                  className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-rose-50 hover:border-rose-300 text-slate-400 hover:text-rose-600 flex items-center justify-center transition-colors shadow-xs"
+                                >
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -836,7 +835,6 @@ export default function FacultyCohortsPage() {
             </div>
           )}
 
-          {/* TAB 2: ENROLLED STUDENTS */}
           {activeTab === 'students' && (
             <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
               <div className="overflow-x-auto w-full">
@@ -876,7 +874,6 @@ export default function FacultyCohortsPage() {
             </div>
           )}
 
-          {/* TAB 3: ASSIGNED EXAMS WITH ACTION ICON */}
           {activeTab === 'exams' && (
             <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
               <div className="overflow-x-auto w-full">
@@ -914,7 +911,6 @@ export default function FacultyCohortsPage() {
                           </span>
                         </td>
                         <td className="p-4 text-right">
-                          {/* Manage Exam Icon Button */}
                           <button
                             onClick={() => router.push(`/faculty/exams?examId=${exam.exam_id}&cohortId=${selectedCohort.cohort_id}`)}
                             title="Manage Exam & Gradebook"
@@ -935,7 +931,6 @@ export default function FacultyCohortsPage() {
             </div>
           )}
 
-          {/* TAB 4: COHORT ANALYTICS (MACRO VIEW) */}
           {activeTab === 'analytics' && (
             <div className="space-y-8 animate-in fade-in duration-300">
               {isAnalyticsLoading ? (
@@ -945,7 +940,6 @@ export default function FacultyCohortsPage() {
                 </div>
               ) : (
                 <>
-                  {/* 1. Macro KPI Cards */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
                       <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
@@ -993,7 +987,6 @@ export default function FacultyCohortsPage() {
                     </div>
                   </div>
 
-                  {/* 2. BLEPP 4-Domain Mastery Meters */}
                   <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
                     <div>
                       <h3 className="text-base font-bold text-slate-800">BLEPP 4-Domain Mastery Overview</h3>
@@ -1044,7 +1037,6 @@ export default function FacultyCohortsPage() {
                     </div>
                   </div>
 
-                  {/* 3. Areas to Focus: Cohort Remediation Agenda */}
                   <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
                     <div className="flex items-center gap-2">
                       <span className="text-lg">🎯</span>
@@ -1091,7 +1083,6 @@ export default function FacultyCohortsPage() {
                     )}
                   </div>
 
-                  {/* 4. Student Licensure Readiness Roster (Scroll-Capped & Searchable) */}
                   <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                       <div>
@@ -1099,7 +1090,6 @@ export default function FacultyCohortsPage() {
                         <p className="text-xs text-slate-500 font-bold">Monitor student-level completion, raw averages, and TOS board predictions.</p>
                       </div>
 
-                      {/* Roster Search Bar */}
                       <div className="relative w-full sm:w-64">
                         <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -1114,7 +1104,6 @@ export default function FacultyCohortsPage() {
                       </div>
                     </div>
 
-                    {/* Scroll-Capped Table Container */}
                     <div className="overflow-x-auto max-h-[460px] overflow-y-auto">
                       <table className="w-full text-left border-collapse min-w-[720px]">
                         <thead className="sticky top-0 bg-slate-50 shadow-2xs z-10">
@@ -1287,7 +1276,7 @@ export default function FacultyCohortsPage() {
   }
 
   // ==========================================
-  // MAIN COHORTS DIRECTORY (REVAMPED GRID)
+  // MAIN COHORTS DIRECTORY (WITH ACTIVE / ARCHIVED TABS)
   // ==========================================
   const accentPalettes = [
     'from-blue-500 to-indigo-600',
@@ -1320,46 +1309,31 @@ export default function FacultyCohortsPage() {
         </div>
       </div>
 
-      {/* Aggregate Header KPI Summary Strip */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-black text-lg">
-            🏢
-          </div>
-          <div>
-            <span className="text-lg font-black text-slate-800 block leading-tight">{cohorts.length}</span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active Cohorts</span>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-black text-lg">
-            👥
-          </div>
-          <div>
-            <span className="text-lg font-black text-slate-800 block leading-tight">{totalStudentsAcrossCohorts}</span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Learners</span>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-lg">
-            📚
-          </div>
-          <div>
-            <span className="text-lg font-black text-slate-800 block leading-tight">{totalMaterialsAcrossCohorts}</span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Shared Files</span>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center font-black text-lg">
-            📝
-          </div>
-          <div>
-            <span className="text-lg font-black text-slate-800 block leading-tight">{totalExamsAcrossCohorts}</span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Deployed Exams</span>
-          </div>
+      {/* Cohort Navigation Tabs (Active vs Archived) */}
+      <div className="border-b border-slate-200">
+        <div className="flex gap-6">
+          <button 
+            onClick={() => setCohortTab('active')} 
+            className={`pb-3 border-b-2 text-sm font-bold flex items-center gap-2 transition-colors ${
+              cohortTab === 'active' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <span>Active Cohorts</span>
+            <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">
+              {activeCohortsList.length}
+            </span>
+          </button>
+          <button 
+            onClick={() => setCohortTab('archived')} 
+            className={`pb-3 border-b-2 text-sm font-bold flex items-center gap-2 transition-colors ${
+              cohortTab === 'archived' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <span>Archived</span>
+            <span className="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600 border border-slate-200">
+              {archivedCohortsList.length}
+            </span>
+          </button>
         </div>
       </div>
 
@@ -1367,10 +1341,11 @@ export default function FacultyCohortsPage() {
         <FullScreenLoader isOpen={isLoading} message="Loading your assigned cohorts..." />
       ) : filteredCohorts.length === 0 ? (
         <div className="p-16 text-center text-sm font-bold text-slate-500 bg-white rounded-2xl border border-slate-200">
-          No cohorts found matching your search.
+          {cohortTab === 'active' 
+            ? 'No active cohorts found matching your search.' 
+            : 'No archived cohorts found.'}
         </div>
       ) : (
-        /* Modernized Cohort Cards Grid */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredCohorts.map((c, index) => {
             const gradient = accentPalettes[index % accentPalettes.length];
@@ -1381,16 +1356,26 @@ export default function FacultyCohortsPage() {
                 className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between group hover:-translate-y-0.5"
               >
                 <div>
-                  {/* Color Accent Top Bar */}
                   <div className={`h-2 w-full bg-gradient-to-r ${gradient}`}></div>
 
                   <div className="p-6">
                     <div className="flex justify-between items-start gap-2 mb-2">
-                      <h3 className="font-bold text-lg text-slate-800 leading-snug group-hover:text-blue-600 transition-colors">
-                        {c.cohort_name}
-                      </h3>
-                      <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[10px] font-bold uppercase tracking-wider shrink-0">
-                        {c.account_status}
+                      <div className="pr-2">
+                        <h3 className="font-bold text-lg text-slate-800 leading-snug group-hover:text-blue-600 transition-colors">
+                          {c.cohort_name}
+                        </h3>
+                        {c.status === 'Archived' && (
+                          <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 mt-1 inline-block">
+                            (Archived Batch)
+                          </span>
+                        )}
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider shrink-0 ${
+                        c.status === 'Active' 
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                          : 'bg-slate-100 text-slate-600 border border-slate-200'
+                      }`}>
+                        {c.status}
                       </span>
                     </div>
 
@@ -1398,7 +1383,6 @@ export default function FacultyCohortsPage() {
                       {c.description || 'General batch group enrolled in the licensure review training curriculum.'}
                     </p>
 
-                    {/* Stats Metric Box */}
                     <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
                       <div className="p-1">
                         <span className="text-base font-black text-slate-800 block leading-none">{c.student_count}</span>
@@ -1416,7 +1400,6 @@ export default function FacultyCohortsPage() {
                   </div>
                 </div>
 
-                {/* Cohort Hub Action Button */}
                 <div className="p-4 bg-slate-50/70 border-t border-slate-100">
                   <button
                     onClick={() => handleSelectCohort(c)}

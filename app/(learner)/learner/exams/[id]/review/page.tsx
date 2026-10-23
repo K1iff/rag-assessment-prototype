@@ -145,6 +145,10 @@ export default function ExamReviewPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   const [examTitle, setExamTitle] = useState("");
+  const [cohortName, setCohortName] = useState("");
+  const [cohortStatus, setCohortStatus] = useState<'Active' | 'Archived'>('Active');
+  const [isAntiCheatLocked, setIsAntiCheatLocked] = useState(false);
+
   const [attempts, setAttempts] = useState<AttemptRecord[]>([]);
   const [maxAttempts, setMaxAttempts] = useState(1);
   const [gradingLogic, setGradingLogic] = useState("highest");
@@ -164,10 +168,22 @@ export default function ExamReviewPage() {
         return;
       }
 
-      // 1. Fetch Exam Configuration
+      // Fetch user profile to check active cohort
+      const { data: userData } = await supabase
+        .from("Users")
+        .select("cohort_id")
+        .eq("user_id", user.id)
+        .single();
+
+      const userActiveCohortId = userData?.cohort_id || null;
+
+      // 1. Fetch Exam Configuration and Cohort Attachment
       const { data: examData, error: examError } = await supabase
         .from("Exams")
-        .select("exam_title, global_status, max_attempts, close_after_deadline, schedule_end, grading_logic, passing_percentage, passing_score")
+        .select(`
+          exam_title, global_status, max_attempts, close_after_deadline, schedule_end, grading_logic, passing_percentage, passing_score,
+          Exam_Cohorts ( cohort_id, Cohorts ( cohort_id, cohort_name, status ) )
+        `)
         .eq("exam_id", examId)
         .single();
 
@@ -183,18 +199,65 @@ export default function ExamReviewPage() {
         return;
       }
 
+      const rawCohort = (examData as any)?.Exam_Cohorts?.[0]?.Cohorts;
+      const assignedCohort = Array.isArray(rawCohort) ? rawCohort[0] : rawCohort;
+      const assignedCohortId = (examData as any)?.Exam_Cohorts?.[0]?.cohort_id;
+      const assignedCohortStatus: 'Active' | 'Archived' = (assignedCohort?.status as 'Active' | 'Archived') || 'Active';
+
       setExamTitle(examData.exam_title);
+      setCohortName(assignedCohort?.cohort_name || "Assigned Cohort");
+      setCohortStatus(assignedCohortStatus);
       setMaxAttempts(examData.max_attempts || 1);
       setGradingLogic(examData.grading_logic || "highest");
       setPassingScoreTarget(examData.passing_percentage || examData.passing_score || 75);
 
-      // 2. Fetch Master Exam Questions via exam_session_id
+      // Anti-Cheat Check: If inspecting past/other cohort, is this exam currently active & unfinished in active cohort?
+      let antiCheatLockTriggered = false;
+      if (assignedCohortId && userActiveCohortId && assignedCohortId !== userActiveCohortId) {
+        const { data: activeLinks } = await supabase
+          .from("Exam_Cohorts")
+          .select("exam_id")
+          .eq("cohort_id", userActiveCohortId);
+
+        const activeExamIds = activeLinks?.map(l => l.exam_id) || [];
+        if (activeExamIds.length > 0) {
+          const { data: activeExams } = await supabase
+            .from("Exams")
+            .select(`
+              exam_id, exam_title, max_attempts,
+              attempts:"Student Attempts" ( student_id, cohort_id )
+            `)
+            .in("exam_id", activeExamIds)
+            .eq("global_status", "Active")
+            .eq("is_visible", true);
+
+          const currentNormalizedTitle = examData.exam_title.replace(/\s*\(Clone\)\s*/gi, "").trim().toLowerCase();
+
+          const hasUnfinishedMatch = (activeExams || []).some((ae: any) => {
+            const normalizedActiveTitle = ae.exam_title.replace(/\s*\(Clone\)\s*/gi, "").trim().toLowerCase();
+            if (normalizedActiveTitle === currentNormalizedTitle) {
+              const myAttempts = (ae.attempts || []).filter(
+                (a: any) => a.student_id === user.id && a.cohort_id === userActiveCohortId
+              );
+              return myAttempts.length < (ae.max_attempts || 1);
+            }
+            return false;
+          });
+
+          if (hasUnfinishedMatch) {
+            antiCheatLockTriggered = true;
+          }
+        }
+      }
+
+      setIsAntiCheatLocked(antiCheatLockTriggered);
+
+      // 2. Fetch Master Exam Questions
       let { data: masterQuestions } = await supabase
         .from("Mock Exam Items")
         .select("id, question, correct_answer, rationale, options, competency, citations")
         .eq("exam_session_id", examId);
 
-      // Fallback in case items were keyed under exam_id
       if (!masterQuestions || masterQuestions.length === 0) {
         const { data: altQuestions } = await supabase
           .from("Mock Exam Items")
@@ -207,25 +270,41 @@ export default function ExamReviewPage() {
 
       const questionsList = masterQuestions || [];
 
-      // 3. Fetch Student Attempts
-      const { data: attemptsData } = await supabase
+      // 3. Fetch Student Attempts scoped to student & this cohort
+      let attemptsQuery = supabase
         .from("Student Attempts")
         .select(`
           attempt_id,
           final_score,
           exam_status,
-          completed_at
+          completed_at,
+          cohort_id
         `)
         .eq("exam_id", examId)
-        .eq("student_id", user.id)
-        .order("completed_at", { ascending: true });
+        .eq("student_id", user.id);
+
+      if (assignedCohortId) {
+        attemptsQuery = attemptsQuery.eq("cohort_id", assignedCohortId);
+      }
+
+      const { data: attemptsData } = await attemptsQuery.order("completed_at", { ascending: true });
 
       const isExamClosed =
+        assignedCohortStatus === 'Archived' ||
         examData.global_status !== 'Active' ||
         (examData.close_after_deadline && examData.schedule_end && Date.now() > new Date(examData.schedule_end).getTime());
 
-      // 4. Handle Case: Exam Closed with 0 Completed Attempts
+      // Hard Lock: Transferred students who never completed this test can NEVER view the questions
+      const isStudentTransferredOut = assignedCohortId && userActiveCohortId && assignedCohortId !== userActiveCohortId;
+
       if (!attemptsData || attemptsData.length === 0) {
+        if (isStudentTransferredOut) {
+          addToast("You did not attempt this exam prior to transferring batches. Review is restricted.", "error");
+          router.push('/learner/exams');
+          return;
+        }
+
+        // Only generate a synthetic review deck if the student is STILL enrolled in this cohort
         if (isExamClosed && questionsList.length > 0) {
           const unattemptedItems: ReviewItem[] = questionsList.map((q, idx) => ({
             qNum: idx + 1,
@@ -255,7 +334,11 @@ export default function ExamReviewPage() {
 
       // 5. Evaluate Retake Eligibility
       let allowRetake = true;
-      if (examData.global_status !== 'Active') {
+      if (assignedCohortStatus === 'Archived') {
+        allowRetake = false;
+      } else if (assignedCohortId && userActiveCohortId && assignedCohortId !== userActiveCohortId) {
+        allowRetake = false;
+      } else if (examData.global_status !== 'Active') {
         allowRetake = false;
       } else if (examData.close_after_deadline && examData.schedule_end) {
         const deadline = new Date(examData.schedule_end).getTime();
@@ -270,7 +353,7 @@ export default function ExamReviewPage() {
 
       setCanRetake(allowRetake);
 
-      // 6. Assemble Attempt Review Items (Merging Master Questions with Answers)
+      // 6. Assemble Attempt Review Items
       const formattedAttempts: AttemptRecord[] = await Promise.all(
         attemptsData.map(async (attempt) => {
           const { data: answersData } = await supabase
@@ -415,6 +498,7 @@ export default function ExamReviewPage() {
 
   const currentAttempt = attempts[activeAttemptIndex] || attempts[0];
   const attemptsLeft = isUnattemptedClosed ? 0 : Math.max(0, maxAttempts - attempts.length);
+  const hideAnswers = canRetake || isAntiCheatLocked;
 
   // Topic Diagnostics Processing
   const topicStatsMap: Record<string, { total: number; correct: number; sources: Set<string> }> = {};
@@ -460,9 +544,16 @@ export default function ExamReviewPage() {
       {/* Top Header */}
       <div className="bg-white p-4 md:p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">
-            {examTitle} Results
-          </h2>
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-xl font-bold text-slate-800">
+              {examTitle} Results
+            </h2>
+            {cohortStatus === 'Archived' && (
+              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold uppercase tracking-wider">
+                {cohortName} (Archived)
+              </span>
+            )}
+          </div>
           <p className="text-xs text-slate-500 font-bold mt-1">
             Grading Rule: <span className="text-blue-600 capitalize">{gradingLogicLabel}</span>
           </p>
@@ -473,7 +564,11 @@ export default function ExamReviewPage() {
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
               Attempts Remaining: {attemptsLeft}
             </span>
-            {canRetake ? (
+            {isAntiCheatLocked ? (
+              <div className="w-full sm:w-44 px-3 py-2 bg-amber-50 text-amber-800 text-xs font-bold rounded-lg border border-amber-200 shadow-2xs text-center whitespace-nowrap cursor-not-allowed">
+                Review Locked (Active Batch)
+              </div>
+            ) : canRetake ? (
               <button
                 onClick={() => router.push(`/learner/exams/${params?.id}`)}
                 className="w-full sm:w-44 px-0 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm text-center whitespace-nowrap"
@@ -482,7 +577,7 @@ export default function ExamReviewPage() {
               </button>
             ) : (
               <div className="w-full sm:w-44 px-0 py-2.5 bg-slate-100 text-slate-500 text-xs font-bold rounded-lg border border-slate-200 shadow-sm text-center whitespace-nowrap cursor-not-allowed">
-                Cannot Retake
+                {cohortStatus === 'Archived' ? 'Batch Concluded' : 'Cannot Retake'}
               </div>
             )}
           </div>
@@ -496,6 +591,23 @@ export default function ExamReviewPage() {
           </div>
         </div>
       </div>
+
+      {/* Cross-Cohort Anti-Cheat Warning Banner */}
+      {isAntiCheatLocked && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+          <svg className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+          <div>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900 mb-0.5">
+              Review Rationales Temporarily Locked
+            </h4>
+            <p className="text-xs text-amber-800 font-bold leading-relaxed">
+              This exam is currently active and uncompleted in your current review batch. Correct answers and AI-generated rationales are locked to maintain assessment integrity until your active cohort attempt is finalized.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Shared Dropdown & Tabs Control */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mt-8 gap-4">
@@ -577,7 +689,7 @@ export default function ExamReviewPage() {
           <div className="grid gap-6 mt-4">
             {currentAttempt.items.map((item) => {
               const isUnanswered = item.studentAnswer === "No Answer Selected";
-              const borderClass = canRetake
+              const borderClass = hideAnswers
                 ? isUnanswered ? "border-l-slate-300" : "border-l-blue-500"
                 : item.isCorrect ? "border-l-emerald-500" : "border-l-rose-500";
 
@@ -588,7 +700,7 @@ export default function ExamReviewPage() {
                 >
                   <div className="flex justify-between items-center text-xs font-bold text-slate-400 mb-1">
                     <span className="uppercase tracking-wider">Question {item.qNum}</span>
-                    {canRetake ? (
+                    {hideAnswers ? (
                       <span className="px-2 py-1 rounded-md text-[10px] uppercase tracking-wider font-bold bg-blue-50 text-blue-700 border border-blue-200">
                         {isUnanswered ? "— Unanswered" : "Answer Recorded"}
                       </span>
@@ -616,7 +728,7 @@ export default function ExamReviewPage() {
 
                       let baseStyle = "p-3 border rounded-lg text-sm font-bold flex justify-between items-center transition-colors ";
 
-                      if (canRetake) {
+                      if (hideAnswers) {
                         if (isSelected) {
                           baseStyle += "bg-blue-50 border-blue-300 text-blue-900";
                         } else {
@@ -639,14 +751,23 @@ export default function ExamReviewPage() {
                           <span>{opt}</span>
                           <div className="flex gap-2 text-[10px] uppercase tracking-wider font-bold shrink-0">
                             {isSelected && <span>(Your Answer)</span>}
-                            {!canRetake && isCorrect && <span>(Correct Answer)</span>}
+                            {!hideAnswers && isCorrect && <span>(Correct Answer)</span>}
                           </div>
                         </div>
                       );
                     })}
                   </div>
 
-                  {canRetake ? (
+                  {isAntiCheatLocked ? (
+                    <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-lg mt-3 flex items-center gap-2.5 text-amber-900">
+                      <svg className="w-4 h-4 shrink-0 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
+                      <span className="text-xs font-bold">
+                        Correct answers and rationales are locked because this assessment is currently active in your current batch. Complete your active cohort attempts to unlock review details.
+                      </span>
+                    </div>
+                  ) : canRetake ? (
                     <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-lg mt-3 flex items-center gap-2.5 text-amber-900">
                       <svg className="w-4 h-4 shrink-0 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
@@ -677,77 +798,91 @@ export default function ExamReviewPage() {
         {/* TAB 2: TOPIC DIAGNOSTICS */}
         {activeTab === 'diagnostics' && (
           <div className="mt-4">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="p-6 border-b border-slate-200 bg-slate-50">
-                <h3 className="text-xl font-bold text-slate-800">Your Competency Diagnostics</h3>
-                <p className="text-sm text-slate-500 mt-1 font-bold">Topics from this attempt ranked by difficulty. Review the recommended sources to improve your mastery.</p>
+            {isAntiCheatLocked ? (
+              <div className="p-12 text-center text-sm font-bold text-slate-500 bg-white rounded-xl border border-slate-200">
+                <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                </div>
+                <p className="text-slate-800 font-bold text-base mb-1">Topic Diagnostics Locked</p>
+                <p className="max-w-md mx-auto text-xs text-slate-500 font-normal">
+                  Detailed failure rates and topic breakdowns are restricted while this exam is active in your current batch.
+                </p>
               </div>
+            ) : (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="p-6 border-b border-slate-200 bg-slate-50">
+                  <h3 className="text-xl font-bold text-slate-800">Your Competency Diagnostics</h3>
+                  <p className="text-sm text-slate-500 mt-1 font-bold">Topics from this attempt ranked by difficulty. Review the recommended sources to improve your mastery.</p>
+                </div>
 
-              <div className="divide-y divide-slate-100">
-                {diagnosticData.length === 0 ? (
-                  <div className="p-12 text-center text-sm font-bold text-slate-500">
-                    No diagnostic data could be generated for this attempt.
-                  </div>
-                ) : (
-                  diagnosticData.map((item, index) => {
-                    const statusColor = item.failRate >= 50 ? 'rose' : item.failRate >= 30 ? 'amber' : 'emerald';
+                <div className="divide-y divide-slate-100">
+                  {diagnosticData.length === 0 ? (
+                    <div className="p-12 text-center text-sm font-bold text-slate-500">
+                      No diagnostic data could be generated for this attempt.
+                    </div>
+                  ) : (
+                    diagnosticData.map((item, index) => {
+                      const statusColor = item.failRate >= 50 ? 'rose' : item.failRate >= 30 ? 'amber' : 'emerald';
 
-                    return (
-                      <div key={index} className="p-6 flex flex-col md:flex-row gap-6 hover:bg-slate-50 transition-colors">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-3 mb-2">
-                            <span className={`text-[10px] px-2.5 py-1 border rounded-md uppercase font-bold tracking-wider bg-${statusColor}-100 text-${statusColor}-700 border-${statusColor}-200`}>
-                              {item.failRate >= 50 ? 'Critical Struggle' : item.failRate >= 30 ? 'Needs Review' : 'Mastered'}
-                            </span>
-                            <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded">
-                              {item.failed} / {item.total} Questions Missed
-                            </span>
+                      return (
+                        <div key={index} className="p-6 flex flex-col md:flex-row gap-6 hover:bg-slate-50 transition-colors">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-3 mb-2">
+                              <span className={`text-[10px] px-2.5 py-1 border rounded-md uppercase font-bold tracking-wider bg-${statusColor}-100 text-${statusColor}-700 border-${statusColor}-200`}>
+                                {item.failRate >= 50 ? 'Critical Struggle' : item.failRate >= 30 ? 'Needs Review' : 'Mastered'}
+                              </span>
+                              <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded">
+                                {item.failed} / {item.total} Questions Missed
+                              </span>
+                            </div>
+
+                            <p className="text-base font-bold text-slate-800 leading-snug mb-4">{item.topic}</p>
+
+                            <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-lg">
+                              <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                </svg>
+                                Recommended Study Sources
+                              </span>
+                              {item.sources.length > 0 ? (
+                                <ul className="text-sm font-bold text-blue-950 list-none space-y-2">
+                                  {item.sources.map((src, i) => (
+                                    <li key={i} className="flex items-start gap-2">
+                                      <span className="text-blue-400 mt-0.5">•</span>
+                                      <span>{src}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="text-sm font-bold text-blue-950 italic">No specific sources tagged for this topic.</p>
+                              )}
+                            </div>
                           </div>
 
-                          <p className="text-base font-bold text-slate-800 leading-snug mb-4">{item.topic}</p>
-
-                          <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-lg">
-                            <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                              </svg>
-                              Recommended Study Sources
-                            </span>
-                            {item.sources.length > 0 ? (
-                              <ul className="text-sm font-bold text-blue-950 list-none space-y-2">
-                                {item.sources.map((src, i) => (
-                                  <li key={i} className="flex items-start gap-2">
-                                    <span className="text-blue-400 mt-0.5">•</span>
-                                    <span>{src}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p className="text-sm font-bold text-blue-950 italic">No specific sources tagged for this topic.</p>
-                            )}
+                          <div className="w-full md:w-64 shrink-0 flex items-center">
+                            <div className="w-full">
+                              <div className="flex justify-between mb-1.5">
+                                <span className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">Failure Rate</span>
+                                <span className="text-[12px] font-bold text-slate-700">{item.failRate.toFixed(1)}%</span>
+                              </div>
+                              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                                <div 
+                                  className={`h-full transition-all duration-1000 bg-${statusColor}-500`} 
+                                  style={{ width: `${item.failRate}%` }}
+                                ></div>
+                              </div>
+                            </div>
                           </div>
                         </div>
-
-                        <div className="w-full md:w-64 shrink-0 flex items-center">
-                          <div className="w-full">
-                            <div className="flex justify-between mb-1.5">
-                              <span className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">Failure Rate</span>
-                              <span className="text-[12px] font-bold text-slate-700">{item.failRate.toFixed(1)}%</span>
-                            </div>
-                            <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-                              <div 
-                                className={`h-full transition-all duration-1000 bg-${statusColor}-500`} 
-                                style={{ width: `${item.failRate}%` }}
-                              ></div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
+                      );
+                    })
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>

@@ -36,6 +36,7 @@ export default function LearnerActiveExamPage() {
   const [timeLeft, setTimeLeft] = useState(0);
   const [questions, setQuestions] = useState<Question[]>([]);
   
+  const [assignedCohortId, setAssignedCohortId] = useState<string | null>(null);
   const [examStartTime, setExamStartTime] = useState<string>('');
 
   useEffect(() => {
@@ -50,9 +51,22 @@ export default function LearnerActiveExamPage() {
         return;
       }
 
+      // 1. Fetch student's assigned cohort
+      const { data: userData } = await supabase
+        .from('Users')
+        .select('cohort_id, email, Roles ( role_name )')
+        .eq('user_id', user.id)
+        .single();
+
+      const studentCohortId = userData?.cohort_id || null;
+
+      // 2. Fetch Exam Rules, Schedule, and Assigned Cohort
       const { data: exam, error: examError } = await supabase
         .from('Exams')
-        .select('exam_title, time_limit_mins, global_status, schedule_end, close_after_deadline, max_attempts')
+        .select(`
+          exam_title, time_limit_mins, global_status, schedule_end, close_after_deadline, max_attempts,
+          Exam_Cohorts ( cohort_id, Cohorts ( cohort_id, cohort_name, status ) )
+        `)
         .eq('exam_id', examId)
         .single();
 
@@ -63,12 +77,35 @@ export default function LearnerActiveExamPage() {
         return;
       }
 
+      const rawCohort = (exam as any)?.Exam_Cohorts?.[0]?.Cohorts;
+      const assignedCohort = Array.isArray(rawCohort) ? rawCohort[0] : rawCohort;
+      const targetCohortId = (exam as any)?.Exam_Cohorts?.[0]?.cohort_id || studentCohortId;
+      const targetCohortStatus: 'Active' | 'Archived' = (assignedCohort?.status as 'Active' | 'Archived') || 'Active';
+
+      setAssignedCohortId(targetCohortId);
+
+      // Guardrail A: Concluded / Archived Cohort Check
+      if (targetCohortStatus === 'Archived') {
+        addToast("This cohort review cycle has concluded. No active attempts permitted.", "error");
+        router.push('/learner/exams');
+        return;
+      }
+
+      // Guardrail B: Student Enrollment Check
+      if (studentCohortId && targetCohortId && studentCohortId !== targetCohortId) {
+        addToast("You are not currently enrolled in the assigned cohort for this exam.", "error");
+        router.push('/learner/exams');
+        return;
+      }
+
+      // Guardrail C: Exam Lifecycle Status
       if (exam.global_status !== 'Active') {
         addToast("This exam is currently unavailable.", "error");
         router.push('/learner/exams');
         return;
       }
 
+      // Guardrail D: Closing Deadline Check
       if (exam.close_after_deadline && exam.schedule_end) {
         const deadline = new Date(exam.schedule_end).getTime();
         if (Date.now() > deadline) {
@@ -78,11 +115,18 @@ export default function LearnerActiveExamPage() {
         }
       }
 
-      const { count: attemptCount, error: countError } = await supabase
+      // Guardrail E: Attempt Limits Scoped to Active Cohort
+      let attemptQuery = supabase
         .from('Student Attempts')
         .select('attempt_id', { count: 'exact', head: true })
         .eq('exam_id', examId)
         .eq('student_id', user.id);
+
+      if (targetCohortId) {
+        attemptQuery = attemptQuery.eq('cohort_id', targetCohortId);
+      }
+
+      const { count: attemptCount, error: countError } = await attemptQuery;
 
       if (!countError && attemptCount !== null && attemptCount >= (exam.max_attempts || 1)) {
         addToast(`You have reached the maximum allowed attempts (${exam.max_attempts}) for this exam.`, "error");
@@ -92,6 +136,7 @@ export default function LearnerActiveExamPage() {
 
       setExamTitle(exam.exam_title);
 
+      // 3. Fetch Mock Exam Items
       const { data: dbQuestions, error: qError } = await supabase
         .from('Mock Exam Items')
         .select('id, question, options, correct_answer')
@@ -138,7 +183,7 @@ export default function LearnerActiveExamPage() {
         }
 
         if (parsedOptions.length === 0) {
-           parsedOptions = ["Error: Option A missing", "Error: Option B missing"]; 
+          parsedOptions = ["Error: Option A missing", "Error: Option B missing"]; 
         }
 
         return {
@@ -153,7 +198,7 @@ export default function LearnerActiveExamPage() {
       
       const endTimeKey = `exam_endtime_${examId}`;
       const startTimeKey = `exam_starttime_${examId}`;
-      const loggedKey = `exam_started_logged_${examId}_${user.id}`; // Prevents duplicate logging on refresh
+      const loggedKey = `exam_started_logged_${examId}_${user.id}`;
       
       let storedEndTime = sessionStorage.getItem(endTimeKey);
       let storedStartTime = sessionStorage.getItem(startTimeKey);
@@ -173,14 +218,8 @@ export default function LearnerActiveExamPage() {
         sessionStorage.setItem(endTimeKey, endTime.toString());
       }
 
-      // ---> NEW: Log the exam initiation to AuditLogs (only once per session)
+      // Log exam initiation to AuditLogs once per session
       if (!sessionStorage.getItem(loggedKey)) {
-        const { data: userData } = await supabase
-          .from('Users')
-          .select('email, Roles ( role_name )')
-          .eq('user_id', user.id)
-          .single();
-
         const userEmail = userData?.email || user.email || 'System';
         
         let roleName = 'Learner';
@@ -196,7 +235,7 @@ export default function LearnerActiveExamPage() {
           {
             user_email: userEmail,
             role: roleName,
-            action: `Initiated active exam session: "${exam.exam_title}"`,
+            action: `Initiated active exam session: "${exam.exam_title}" (Cohort: ${assignedCohort?.cohort_name || 'Assigned'})`,
             type: 'User Activity',
             severity: 'Info',
             ip_address: 'Internal',
@@ -204,7 +243,6 @@ export default function LearnerActiveExamPage() {
           }
         ]);
         
-        // Mark it as logged in this session to prevent spamming the logs if they refresh the page
         sessionStorage.setItem(loggedKey, 'true');
       }
 
@@ -301,7 +339,6 @@ export default function LearnerActiveExamPage() {
       let correctCount = 0;
       questions.forEach((q) => {
         const studentChoice = answers[q.id];
-        // The strings are perfectly clean in state, so direct === works flawlessly
         if (studentChoice && studentChoice === q.correctAnswer) {
           correctCount++;
         }
@@ -309,11 +346,13 @@ export default function LearnerActiveExamPage() {
 
       const finalPercentageScore = Math.round((correctCount / questions.length) * 100);
 
+      // Stamping cohort_id upon insertion
       const { data: attemptData, error: attemptError } = await supabase
         .from('Student Attempts')
         .insert({
           exam_id: examId,
           student_id: user.id,
+          cohort_id: assignedCohortId,
           exam_status: 'completed',
           final_score: finalPercentageScore,
           started_at: examStartTime || new Date().toISOString(),
@@ -584,12 +623,12 @@ export default function LearnerActiveExamPage() {
       
       {isSubmitting && (
         <div className="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
-           <svg className="animate-spin h-10 w-10 text-blue-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-           </svg>
-           <p className="text-slate-800 font-bold text-lg">Evaluating and saving your answers...</p>
-           <p className="text-slate-500 font-bold text-sm mt-1">Please do not close the browser</p>
+          <svg className="animate-spin h-10 w-10 text-blue-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p className="text-slate-800 font-bold text-lg">Evaluating and saving your answers...</p>
+          <p className="text-slate-500 font-bold text-sm mt-1">Please do not close the browser</p>
         </div>
       )}
     </div>
