@@ -8,9 +8,16 @@ interface ScheduleItem {
   time: string;
   status: string;
   references: string[];
-  passingScore: number;         
-  highestScore: number | null;  
-  goalMet: boolean | null; 
+  passingScore: number;
+  highestScore: number | null;
+  goalMet: boolean | null;
+}
+
+interface StandingMetrics {
+  rank: string;
+  average: number;
+  completedCount: number;
+  isReady: boolean;
 }
 
 import FullScreenLoader from '@/components/ui/FullScreenLoader';
@@ -27,6 +34,14 @@ export default function LearnerCalendarPage() {
   const [cohortName, setCohortName] = useState<string>('Assigned Review Batch');
   const [cohortStatus, setCohortStatus] = useState<'Active' | 'Archived'>('Active');
 
+  // Standing State
+  const [standing, setStanding] = useState<StandingMetrics>({
+    rank: 'Calculating...',
+    average: 0,
+    completedCount: 0,
+    isReady: false
+  });
+
   // Load dismissed notifications from localStorage on initial render
   useEffect(() => {
     const savedDismissals = localStorage.getItem('dismissedMissedExams');
@@ -40,7 +55,7 @@ export default function LearnerCalendarPage() {
   }, []);
 
   useEffect(() => {
-    const fetchSchedule = async () => {
+    const fetchScheduleAndStanding = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setIsLoading(false);
@@ -75,13 +90,78 @@ export default function LearnerCalendarPage() {
 
       const examIds = cohortExams?.map(ce => ce.exam_id) || [];
 
+      // 3. Calculate Batch Standing & Performance Summary
+      const { data: cohortUsers } = await supabase
+        .from('Users')
+        .select('user_id')
+        .eq('cohort_id', studentCohortId);
+
+      const cohortUserIds = cohortUsers?.map(u => u.user_id) || [];
+
+      if (cohortUserIds.length > 0) {
+        const { data: cohortAttempts } = await supabase
+          .from('Student Attempts')
+          .select('student_id, final_score')
+          .in('student_id', cohortUserIds)
+          .eq('cohort_id', studentCohortId)
+          .eq('exam_status', 'completed');
+
+        const studentAverages: Record<string, { total: number; count: number }> = {};
+        cohortUserIds.forEach(id => {
+          studentAverages[id] = { total: 0, count: 0 };
+        });
+
+        (cohortAttempts || []).forEach(ca => {
+          if (studentAverages[ca.student_id]) {
+            studentAverages[ca.student_id].total += (ca.final_score || 0);
+            studentAverages[ca.student_id].count += 1;
+          }
+        });
+
+        const myData = studentAverages[user.id] || { total: 0, count: 0 };
+        const myAvg = myData.count > 0 ? Math.round(myData.total / myData.count) : 0;
+
+        const rankList = Object.keys(studentAverages)
+          .map(sid => ({
+            id: sid,
+            avg: studentAverages[sid].count > 0 ? (studentAverages[sid].total / studentAverages[sid].count) : 0,
+            hasAttempts: studentAverages[sid].count > 0
+          }))
+          .filter(r => r.hasAttempts)
+          .sort((a, b) => b.avg - a.avg);
+
+        let calculatedRank = 'N/A';
+        const myRankIndex = rankList.findIndex(r => r.id === user.id);
+
+        if (myRankIndex !== -1) {
+          const myRank = myRankIndex + 1;
+          const totalActive = rankList.length;
+          if (totalActive > 1) {
+            const percentile = Math.ceil((myRank / totalActive) * 100);
+            if (percentile <= 10) calculatedRank = 'Top 10%';
+            else if (percentile <= 25) calculatedRank = 'Top 25%';
+            else if (percentile <= 50) calculatedRank = 'Top 50%';
+            else calculatedRank = `Rank ${myRank} of ${totalActive}`;
+          } else {
+            calculatedRank = 'Top 1%';
+          }
+        }
+
+        setStanding({
+          rank: calculatedRank,
+          average: myAvg,
+          completedCount: myData.count,
+          isReady: myAvg >= 75 && myData.count > 0
+        });
+      }
+
       if (examIds.length === 0) {
         setWeeklySchedule([]);
         setIsLoading(false);
         return;
       }
 
-      // 3. Safely fetch visible published exams for this cohort
+      // 4. Safely fetch visible published exams for this cohort
       const { data: exams, error } = await supabase
         .from('Exams')
         .select(`
@@ -176,7 +256,7 @@ export default function LearnerCalendarPage() {
       setIsLoading(false);
     };
 
-    fetchSchedule();
+    fetchScheduleAndStanding();
   }, []);
 
   const handleDismissNotification = (examId: string) => {
@@ -246,6 +326,7 @@ export default function LearnerCalendarPage() {
         </div>
       )}
 
+      {/* HEADER SECTION */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Home</h1>
@@ -272,6 +353,7 @@ export default function LearnerCalendarPage() {
       </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* LEFT COLUMN: UPCOMING EXAMS LIST */}
         <div className="lg:col-span-2 space-y-4">
           {isLoading ? (
             <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-200">
@@ -344,7 +426,9 @@ export default function LearnerCalendarPage() {
           )}
         </div>
 
+        {/* RIGHT COLUMN: CALENDAR & REPURPOSED STANDING WIDGET */}
         <div className="lg:col-span-1 space-y-6">
+          {/* MONTHLY CALENDAR */}
           <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
             <h3 className="font-bold text-slate-800 mb-4">{currentMonthName} {currentYear} Schedule</h3>
             <div className="grid grid-cols-7 gap-1 text-center text-xs font-bold text-slate-400 mb-2">
@@ -380,33 +464,64 @@ export default function LearnerCalendarPage() {
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
-            <h3 className="font-bold text-slate-800 mb-4">Weekly Goals Tracker</h3>
-            <ul className="space-y-3 text-sm text-slate-600 font-bold">
-              {weeklySchedule.length === 0 && !isLoading ? (
-                <li className="text-slate-400 text-xs italic">No scheduled exams this week.</li>
-              ) : (
-                weeklySchedule.map((exam, idx) => (
-                  <li key={idx} className="flex items-start gap-3">
-                    {exam.goalMet === true ? (
-                      <span className="text-emerald-500 mt-0.5">✓</span>
-                    ) : exam.goalMet === false ? (
-                      <span className="text-rose-400 mt-0.5">✗</span>
-                    ) : (
-                      <span className="text-blue-500 mt-0.5">○</span>
-                    )}
-                    <span className={exam.goalMet !== null ? 'line-through text-slate-400' : 'text-slate-600'}>
-                      Score {exam.passingScore}% or higher on {exam.task}
-                    </span>
-                  </li>
-                ))
-              )}
-            </ul>
+          {/* REPURPOSED STANDING WIDGET */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-bold text-slate-800 text-sm">Review Standing</h3>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                standing.completedCount === 0 
+                  ? 'bg-slate-100 text-slate-500 border border-slate-200'
+                  : standing.isReady 
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                  : 'bg-amber-50 text-amber-700 border border-amber-200'
+              }`}>
+                {standing.completedCount === 0 ? 'No Attempts' : standing.isReady ? 'Board Exam Ready' : 'In Progress'}
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-500 font-bold mb-4 leading-relaxed">
+              Performance metrics evaluated across your active cohort.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Batch Standing</span>
+                <p className="text-base font-black text-slate-800 mt-0.5">{standing.rank}</p>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Average Score</span>
+                <p className={`text-base font-black mt-0.5 ${standing.average >= 75 ? 'text-emerald-600' : 'text-blue-600'}`}>
+                  {standing.completedCount > 0 ? `${standing.average}%` : 'N/A'}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2 mb-4 text-xs font-bold text-slate-600 border-t border-slate-100 pt-3">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Board Passing Target:</span>
+                <span className="text-slate-700">75% Passing</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Completed Assessments:</span>
+                <span className="text-slate-700">{standing.completedCount} Exams</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => router.push('/learner/roadmap')}
+              className="w-full py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg transition-colors border border-blue-200 flex items-center justify-center gap-1.5"
+            >
+              <span>View Progress Roadmap</span>
+              <span>&rarr;</span>
+            </button>
           </div>
 
+          {/* STUDY TIP */}
           <div className="bg-blue-50 p-6 rounded-xl border border-blue-100">
             <h3 className="font-bold text-blue-800 mb-2">Study Tip</h3>
-            <p className="text-sm text-blue-900 leading-relaxed font-bold">Consistency is key. Complete your weekly practice assessments early to identify knowledge gaps before final board simulations.</p>
+            <p className="text-sm text-blue-900 leading-relaxed font-bold">
+              Consistency is key. Complete your weekly practice assessments early to identify knowledge gaps before final board simulations.
+            </p>
           </div>
         </div>
       </div>

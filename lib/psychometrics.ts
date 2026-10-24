@@ -88,6 +88,104 @@ export interface TOSScoringResult {
   competencyBreakdown: Record<string, CompetencyBreakdown>;
 }
 
+export interface BLEPPDomainMeta {
+  name: string;
+  shortLabel: string;
+  weight: number; // e.g. 0.40
+  weightPercent: number; // 40
+  description: string;
+  studyTip: string;
+}
+
+export interface EvaluatedItemResponse {
+  questionId?: string;
+  subject: string;
+  competency?: string;
+  isCorrect: boolean;
+}
+
+export interface StudentReadinessResult {
+  compositeTOSScore: number; // 0 - 100%
+  isBoardReady: boolean; // composite >= 75 and 0 core deficits < 60%
+  totalEvaluatedItems: number;
+  criticalDeficitCount: number;
+  domains: Record<string, {
+    name: string;
+    shortLabel: string;
+    weightPercent: number;
+    accuracy: number;
+    itemsCorrect: number;
+    itemsTotal: number;
+    status: 'Mastery' | 'Competent' | 'Critical Deficit';
+    description: string;
+  }>;
+  radarData: {
+    subject: string;
+    fullSubject: string;
+    score: number;
+    fullMark: number;
+  }[];
+  weakSpots: {
+    competency: string;
+    subject: string;
+    accuracy: number;
+    missed: number;
+    total: number;
+    recommendation: string;
+  }[];
+}
+
+// =========================================================================
+// BLEPP DOMAIN METADATA & NORMALIZATION
+// =========================================================================
+
+export const BLEPP_DOMAINS: Record<string, BLEPPDomainMeta> = {
+  'Psychological Assessment': {
+    name: 'Psychological Assessment',
+    shortLabel: 'Assessment',
+    weight: 0.40,
+    weightPercent: 40,
+    description: 'Psychometrics, test construction, reliability/validity, ethics, and assessment interpretation.',
+    studyTip: 'Prioritize variance formulas, standard error of measurement (SEM), and Kelly\'s Discrimination index.'
+  },
+  'Abnormal Psychology': {
+    name: 'Abnormal Psychology',
+    shortLabel: 'Abnormal',
+    weight: 0.20,
+    weightPercent: 20,
+    description: 'Clinical psychopathology, DSM-5-TR diagnostic criteria, etiology, and symptomatology.',
+    studyTip: 'Focus on DSM-5-TR differential diagnostic trees (e.g., Bipolar vs. Borderline, MDD vs. PDD).'
+  },
+  'Industrial-Organizational Psychology': {
+    name: 'Industrial-Organizational Psychology',
+    shortLabel: 'I/O Psych',
+    weight: 0.20,
+    weightPercent: 20,
+    description: 'Job analysis, selection, performance appraisal, organizational dynamics, and leadership.',
+    studyTip: 'Review structured interviewing techniques, validation strategies, and Kirkpatrick\'s 4 evaluation levels.'
+  },
+  'Developmental Psychology': {
+    name: 'Developmental Psychology',
+    shortLabel: 'Dev Psych',
+    weight: 0.20,
+    weightPercent: 20,
+    description: 'Lifespan development, cognitive milestones, socio-emotional stages, and normative crises.',
+    studyTip: 'Compare psychosocial (Erikson) and cognitive (Piaget) developmental markers against atypical trajectories.'
+  }
+};
+
+/**
+ * Normalizes input subject strings into the canonical 4 regulatory BLEPP board domains.
+ */
+export function normalizeBLEPPSubject(subj: string): string {
+  const s = (subj || '').trim().toLowerCase();
+  if (s.includes('assess')) return 'Psychological Assessment';
+  if (s.includes('abnormal') || s.includes('clinical')) return 'Abnormal Psychology';
+  if (s.includes('indust') || s.includes('i/o') || s.includes('organizational')) return 'Industrial-Organizational Psychology';
+  if (s.includes('dev') || s.includes('personality') || s.includes('lifespan')) return 'Developmental Psychology';
+  return 'Psychological Assessment';
+}
+
 // =========================================================================
 // 1. CLASSICAL TEST THEORY: ITEM FACILITY & DISCRIMINATION
 // =========================================================================
@@ -163,7 +261,6 @@ export function calculateItemAnalysis(
   const P = Number((correctCount / totalExaminees).toFixed(3));
 
   // 5. Compute Item Discrimination Index (D) using Kelly's Upper/Lower 27% Rule
-  // Sort examinees in descending order of overall exam score
   const sorted = [...responses].sort((a, b) => b.totalScore - a.totalScore);
   const groupSize = Math.max(1, Math.round(totalExaminees * 0.27));
 
@@ -177,7 +274,7 @@ export function calculateItemAnalysis(
   const Pl = lowerCorrect / groupSize;
   const D = Number((Pu - Pl).toFixed(3));
 
-  // 5. Psychometric Labels & Diagnostic Status
+  // 6. Psychometric Labels & Diagnostic Status
   let facilityLabel: ItemAnalysisResult['facilityLabel'] = 'Moderate';
   if (P >= 0.85) facilityLabel = 'Very Easy';
   else if (P >= 0.70) facilityLabel = 'Fairly Easy';
@@ -237,27 +334,22 @@ export function calculateItemAnalysis(
  */
 export function calculateKR20Reliability(
   totalQuestions: number,
-  itemFacilities: number[], // Array of P-values for each question
-  totalStudentScores: number[] // Array of total raw scores for each examinee
+  itemFacilities: number[],
+  totalStudentScores: number[]
 ): number {
   const k = totalQuestions;
   const n = totalStudentScores.length;
 
   if (k <= 1 || n <= 1) return 0;
 
-  // 1. Sum of item variances: sum(P * (1 - P))
   const sumItemVariance = itemFacilities.reduce((sum, p) => sum + p * (1 - p), 0);
-
-  // 2. Variance of total scores (sigma^2_X)
   const meanScore = totalStudentScores.reduce((sum, s) => sum + s, 0) / n;
   const totalScoreVariance =
     totalStudentScores.reduce((sum, s) => sum + Math.pow(s - meanScore, 2), 0) / (n - 1);
 
   if (totalScoreVariance <= 0) return 0;
 
-  // 3. KR-20 formula: [k / (k - 1)] * [1 - (sumItemVariance / totalScoreVariance)]
   const kr20 = (k / (k - 1)) * (1 - sumItemVariance / totalScoreVariance);
-
   return Number(Math.max(0, Math.min(1, kr20)).toFixed(3));
 }
 
@@ -287,7 +379,6 @@ export function calculateTOSScoring(
     { subject: string; total: number; correct: number }
   > = {};
 
-  // Build weight lookup table
   const weightLookup: Record<string, number> = {};
 
   if (customTOSWeights && customTOSWeights.length > 0) {
@@ -300,7 +391,6 @@ export function calculateTOSScoring(
     });
   }
 
-  // Map answers to questions (supports both camelCase and snake_case)
   questions.forEach((q) => {
     const ans: any = studentAnswers.find(
       (a: any) => (a.questionId || a.question_id) === q.id
@@ -308,8 +398,7 @@ export function calculateTOSScoring(
     const isCorrect = ans ? (ans.isCorrect ?? ans.is_correct ?? false) : false;
     if (isCorrect) rawScore += 1;
 
-    // Subject tracking
-    const subj = q.subject || 'General Scope';
+    const subj = normalizeBLEPPSubject(q.subject || 'General Scope');
     if (!subjectMap[subj]) {
       const assignedWeight = weightLookup[subj] !== undefined ? weightLookup[subj] : 0;
       subjectMap[subj] = { total: 0, correct: 0, weight: assignedWeight };
@@ -317,7 +406,6 @@ export function calculateTOSScoring(
     subjectMap[subj].total += 1;
     if (isCorrect) subjectMap[subj].correct += 1;
 
-    // Competency tracking
     const compKey = `${subj}:::${q.competency || 'General Competency'}`;
     if (!competencyMap[compKey]) {
       competencyMap[compKey] = {
@@ -330,7 +418,6 @@ export function calculateTOSScoring(
     if (isCorrect) competencyMap[compKey].correct += 1;
   });
 
-  // Calculate subject-level breakdowns and composite TOS score
   let tosWeightedScore = 0;
   let activeWeightTotal = 0;
 
@@ -349,19 +436,16 @@ export function calculateTOSScoring(
     };
   });
 
-  // Normalize weight if exam does not test all 4 board subjects
   if (activeWeightTotal > 0) {
     const weightedSum = Object.values(subjectBreakdown).reduce(
       (sum, s) => sum + (s.accuracy * s.weightPercentage) / 100,
       0
     );
-    // Scale up to 100% equivalent based on tested domains
     tosWeightedScore = Number(((weightedSum / activeWeightTotal) * 100).toFixed(2));
   } else {
     tosWeightedScore = totalItems > 0 ? Number(((rawScore / totalItems) * 100).toFixed(2)) : 0;
   }
 
-  // Calculate competency breakdowns
   const competencyBreakdown: Record<string, CompetencyBreakdown> = {};
 
   Object.entries(competencyMap).forEach(([compKey, data]) => {
@@ -385,14 +469,123 @@ export function calculateTOSScoring(
     totalItems,
     rawPercentage,
     tosWeightedScore,
-    isProjectedPass: tosWeightedScore >= 75.0, // Official Philippine Licensure Examination benchmark
+    isProjectedPass: tosWeightedScore >= 75.0,
     subjectBreakdown,
     competencyBreakdown,
   };
 }
 
 // =========================================================================
-// 4. COHORT REMEDIATION & WEAK-SPOT IDENTIFIER
+// 4. STUDENT CUMULATIVE BOARD READINESS CALCULATOR
+// =========================================================================
+
+/**
+ * Calculates a student's cumulative readiness across all completed mock sessions,
+ * outputting domain scores, 4-axis radar data, and targeted remediation items.
+ */
+export function calculateStudentReadiness(
+  evaluatedItems: EvaluatedItemResponse[]
+): StudentReadinessResult {
+  const domainCounters: Record<string, { correct: number; total: number }> = {
+    'Psychological Assessment': { correct: 0, total: 0 },
+    'Abnormal Psychology': { correct: 0, total: 0 },
+    'Industrial-Organizational Psychology': { correct: 0, total: 0 },
+    'Developmental Psychology': { correct: 0, total: 0 }
+  };
+
+  const competencyCounters: Record<string, { subject: string; correct: number; total: number }> = {};
+
+  evaluatedItems.forEach((item) => {
+    const domain = normalizeBLEPPSubject(item.subject);
+    if (domainCounters[domain]) {
+      domainCounters[domain].total += 1;
+      if (item.isCorrect) domainCounters[domain].correct += 1;
+    }
+
+    const compName = item.competency || `${domain} Fundamentals`;
+    const compKey = `${domain}:::${compName}`;
+    if (!competencyCounters[compKey]) {
+      competencyCounters[compKey] = { subject: domain, correct: 0, total: 0 };
+    }
+    competencyCounters[compKey].total += 1;
+    if (item.isCorrect) competencyCounters[compKey].correct += 1;
+  });
+
+  let weightedSum = 0;
+  let criticalDeficits = 0;
+
+  const domainsResult: StudentReadinessResult['domains'] = {};
+
+  Object.keys(BLEPP_DOMAINS).forEach((domainName) => {
+    const meta = BLEPP_DOMAINS[domainName];
+    const data = domainCounters[domainName];
+    const accuracy = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
+
+    weightedSum += accuracy * meta.weight;
+
+    let status: 'Mastery' | 'Competent' | 'Critical Deficit' = 'Competent';
+    if (accuracy >= 75) {
+      status = 'Mastery';
+    } else if (accuracy < 60) {
+      status = 'Critical Deficit';
+      criticalDeficits++;
+    }
+
+    domainsResult[domainName] = {
+      name: domainName,
+      shortLabel: meta.shortLabel,
+      weightPercent: meta.weightPercent,
+      accuracy,
+      itemsCorrect: data.correct,
+      itemsTotal: data.total,
+      status,
+      description: meta.description
+    };
+  });
+
+  const compositeTOSScore = Math.round(weightedSum * 10) / 10;
+  const isBoardReady = compositeTOSScore >= 75.0 && criticalDeficits === 0 && evaluatedItems.length > 0;
+
+  const radarData = [
+    { subject: 'Psych Assessment', fullSubject: 'Psychological Assessment', score: domainsResult['Psychological Assessment'].accuracy, fullMark: 100 },
+    { subject: 'Abnormal Psych', fullSubject: 'Abnormal Psychology', score: domainsResult['Abnormal Psychology'].accuracy, fullMark: 100 },
+    { subject: 'I/O Psych', fullSubject: 'Industrial-Organizational Psychology', score: domainsResult['Industrial-Organizational Psychology'].accuracy, fullMark: 100 },
+    { subject: 'Dev Psych', fullSubject: 'Developmental Psychology', score: domainsResult['Developmental Psychology'].accuracy, fullMark: 100 },
+  ];
+
+  const weakSpots: StudentReadinessResult['weakSpots'] = Object.entries(competencyCounters)
+    .map(([compKey, data]) => {
+      const [, competency] = compKey.split(':::');
+      const accuracy = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
+      const missed = data.total - data.correct;
+      const meta = BLEPP_DOMAINS[data.subject];
+
+      return {
+        competency,
+        subject: data.subject,
+        accuracy,
+        missed,
+        total: data.total,
+        recommendation: meta ? meta.studyTip : 'Review foundational textbook chapters and clinical vignettes.'
+      };
+    })
+    .filter((w) => w.accuracy < 75 && w.missed > 0)
+    .sort((a, b) => a.accuracy - b.accuracy || b.missed - a.missed)
+    .slice(0, 4);
+
+  return {
+    compositeTOSScore,
+    isBoardReady,
+    totalEvaluatedItems: evaluatedItems.length,
+    criticalDeficitCount: criticalDeficits,
+    domains: domainsResult,
+    radarData,
+    weakSpots
+  };
+}
+
+// =========================================================================
+// 5. COHORT REMEDIATION & WEAK-SPOT IDENTIFIER
 // =========================================================================
 
 export interface CohortWeakSpot {
@@ -457,7 +650,7 @@ export function identifyCohortWeakSpots(
         recommendedAction,
       };
     })
-    .sort((a, b) => a.accuracy - b.accuracy); // Lowest accuracy first
+    .sort((a, b) => a.accuracy - b.accuracy);
 
   return list.slice(0, limit);
 }

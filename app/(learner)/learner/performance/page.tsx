@@ -3,7 +3,6 @@
 import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import { supabase } from '@/lib/supabaseClient';
 
 interface CohortScopeOption {
@@ -13,9 +12,29 @@ interface CohortScopeOption {
   isCurrent: boolean;
 }
 
+interface PerformanceHistoryItem {
+  id: string;
+  examId: string;
+  name: string;
+  subject: string;
+  score: string;
+  rawScore: number | null;
+  date: string;
+  status: 'Passed' | 'Needs Review' | 'Missed' | 'Available' | 'Upcoming' | 'Closed';
+  attemptsCount: number;
+  maxAttempts: number;
+  gradingLogic: string;
+  targetScore: number;
+  cohortName: string | null;
+  cohortStatus: string | null;
+  canRetake: boolean;
+  canTake: boolean;
+  isReviewLocked: boolean;
+  itemStats: { correct: number; incorrect: number; total: number };
+}
+
 export default function UnifiedPerformancePage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'history' | 'latest'>('history');
   const [isLoading, setIsLoading] = useState(true);
 
   // Cohort Scoping States
@@ -23,14 +42,16 @@ export default function UnifiedPerformancePage() {
   const [selectedCohortScope, setSelectedCohortScope] = useState<string>('current');
   const [activeCohortId, setActiveCohortId] = useState<string | null>(null);
 
+  // Table Filter Toggle: 'evaluated' (default) vs 'all'
+  const [viewFilter, setViewFilter] = useState<'evaluated' | 'all'>('evaluated');
+
   const [rawAttempts, setRawAttempts] = useState<any[]>([]);
   const [rawExams, setRawExams] = useState<any[]>([]);
   const [cohortExamIdsMap, setCohortExamIdsMap] = useState<Record<string, string[]>>({});
 
-  const [historicalAttempts, setHistoricalAttempts] = useState<any[]>([]);
+  const [historicalAttempts, setHistoricalAttempts] = useState<PerformanceHistoryItem[]>([]);
   const [stats, setStats] = useState({ completed: 0, average: 0 });
   const [cohortRank, setCohortRank] = useState<string>('Calculating...');
-  const [latestExam, setLatestExam] = useState<any>(null);
 
   // 1. Initial Load: Discover Student's Cohorts, Attempts, and Assigned Exams
   useEffect(() => {
@@ -141,7 +162,7 @@ export default function UnifiedPerformancePage() {
           .select(`
             exam_id, exam_title, exam_subject, schedule_start, schedule_end, 
             close_after_deadline, global_status, grading_logic, passing_score, 
-            passing_percentage, is_visible,
+            passing_percentage, is_visible, max_attempts,
             Exam_Cohorts ( cohort_id, Cohorts ( cohort_id, cohort_name, status ) )
           `)
           .in('exam_id', allTargetExamIds);
@@ -171,20 +192,17 @@ export default function UnifiedPerformancePage() {
 
     const now = new Date();
 
-    // Determine target cohort ID
     const targetCohortId = selectedCohortScope === 'current'
       ? activeCohortId
       : selectedCohortScope === 'all'
       ? null
       : selectedCohortScope;
 
-    // Filter attempts according to cohort scope
     const scopedAttempts = rawAttempts.filter(a => {
-      if (!targetCohortId) return true; // 'all' scope
+      if (!targetCohortId) return true;
       return a.cohort_id === targetCohortId;
     });
 
-    // Determine relevant exams for this scope
     let scopedCohortExamIds: string[] = [];
     if (targetCohortId) {
       scopedCohortExamIds = cohortExamIdsMap[targetCohortId] || [];
@@ -201,34 +219,52 @@ export default function UnifiedPerformancePage() {
     if (relevantExams.length === 0 && scopedAttempts.length === 0) {
       setHistoricalAttempts([]);
       setStats({ completed: 0, average: 0 });
-      setLatestExam(null);
       setCohortRank("N/A");
       return;
     }
 
-    // Group attempts by exam_id
+    // Anti-Cheat: Discover incomplete active exam titles in the student's current batch
+    const activeIncompleteExamTitles = new Set<string>();
+    if (activeCohortId) {
+      const activeIds = cohortExamIdsMap[activeCohortId] || [];
+      const currentActiveExams = rawExams.filter(e => activeIds.includes(e.exam_id) && e.global_status === 'Active');
+      currentActiveExams.forEach(ae => {
+        const attemptsInActive = rawAttempts.filter(a => a.exam_id === ae.exam_id && a.cohort_id === activeCohortId);
+        if (attemptsInActive.length < (ae.max_attempts || 1)) {
+          const normTitle = ae.exam_title.replace(/\s*\(Clone\)\s*/gi, "").trim().toLowerCase();
+          activeIncompleteExamTitles.add(normTitle);
+        }
+      });
+    }
+
     const groupedAttempts: Record<string, any[]> = {};
     scopedAttempts.forEach(a => {
       if (!groupedAttempts[a.exam_id]) groupedAttempts[a.exam_id] = [];
       groupedAttempts[a.exam_id].push(a);
     });
 
-    const consolidatedHistory: any[] = [];
-    const requiredExams = relevantExams.filter(e => 
-      scopedCohortExamIds.includes(e.exam_id) && 
-      e.schedule_end && 
-      e.close_after_deadline && 
-      now > new Date(e.schedule_end)
-    );
+    const consolidatedHistory: PerformanceHistoryItem[] = [];
 
     relevantExams.forEach(exam => {
       const group = groupedAttempts[exam.exam_id];
       const targetScore = exam.passing_percentage || exam.passing_score || 75;
+      const maxAttempts = exam.max_attempts || 1;
 
       const rawCohort = Array.isArray(exam.Exam_Cohorts) ? exam.Exam_Cohorts[0]?.Cohorts : exam.Exam_Cohorts?.Cohorts;
       const cohortDisplay = Array.isArray(rawCohort) ? rawCohort[0] : rawCohort;
       const assignedCohortName = cohortDisplay?.cohort_name || null;
       const assignedCohortStatus = cohortDisplay?.status || null;
+      const isAssignedCohortArchived = assignedCohortStatus === 'Archived';
+
+      const startDate = new Date(exam.schedule_start);
+      const endDate = exam.schedule_end ? new Date(exam.schedule_end) : null;
+      const isDeadlinePassed = Boolean(endDate && exam.close_after_deadline && now > endDate);
+      const isInactive = exam.global_status === 'Inactive';
+
+      // Anti-cheat check: locked if viewing past cohort attempt while current cohort duplicate is unsubmitted
+      const normTitle = exam.exam_title.replace(/\s*\(Clone\)\s*/gi, "").trim().toLowerCase();
+      const isDifferentCohort = targetCohortId !== activeCohortId && targetCohortId !== null;
+      const isReviewLocked = isDifferentCohort && activeIncompleteExamTitles.has(normTitle);
 
       if (group && group.length > 0) {
         const latestAttempt = group[0];
@@ -256,6 +292,13 @@ export default function UnifiedPerformancePage() {
 
         const dateObj = new Date(latestAttempt.completed_at || Date.now());
 
+        // Can student take a retake?
+        const canRetake = !isAssignedCohortArchived && 
+                          !isDeadlinePassed && 
+                          !isInactive && 
+                          group.length < maxAttempts &&
+                          (targetCohortId === activeCohortId || targetCohortId === null);
+
         consolidatedHistory.push({
           id: latestAttempt.attempt_id,
           examId: exam.exam_id,
@@ -266,30 +309,82 @@ export default function UnifiedPerformancePage() {
           date: dateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
           status: finalCalculatedScore >= targetScore ? 'Passed' : 'Needs Review',
           attemptsCount: group.length,
+          maxAttempts,
           gradingLogic: logic,
           targetScore,
           cohortName: assignedCohortName,
           cohortStatus: assignedCohortStatus,
+          canRetake,
+          canTake: false,
+          isReviewLocked,
           itemStats: { correct: correctCount, incorrect: incorrectCount, total: totalItems }
         });
       } else {
-        const isRequiredAndMissed = requiredExams.some(re => re.exam_id === exam.exam_id);
-        if (isRequiredAndMissed) {
-          const examEndDate = new Date(exam.schedule_end);
+        // Exam has 0 attempts in this scope
+        if (isDeadlinePassed || isInactive) {
+          const examEndDate = endDate || new Date();
           consolidatedHistory.push({
             id: `missed-${exam.exam_id}`,
             examId: exam.exam_id,
             name: exam.exam_title || 'Unknown Exam',
             subject: exam.exam_subject || 'General Assessment',
             score: '0%',
-            rawScore: 0, 
+            rawScore: 0,
             date: examEndDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
             status: 'Missed',
             attemptsCount: 0,
+            maxAttempts,
             gradingLogic: exam.grading_logic || 'highest',
             targetScore,
             cohortName: assignedCohortName,
             cohortStatus: assignedCohortStatus,
+            canRetake: false,
+            canTake: false,
+            isReviewLocked: false,
+            itemStats: { correct: 0, incorrect: 0, total: 0 }
+          });
+        } else if (now < startDate) {
+          // Upcoming
+          consolidatedHistory.push({
+            id: `upcoming-${exam.exam_id}`,
+            examId: exam.exam_id,
+            name: exam.exam_title || 'Unknown Exam',
+            subject: exam.exam_subject || 'General Assessment',
+            score: 'Upcoming',
+            rawScore: null,
+            date: startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+            status: 'Upcoming',
+            attemptsCount: 0,
+            maxAttempts,
+            gradingLogic: exam.grading_logic || 'highest',
+            targetScore,
+            cohortName: assignedCohortName,
+            cohortStatus: assignedCohortStatus,
+            canRetake: false,
+            canTake: false,
+            isReviewLocked: false,
+            itemStats: { correct: 0, incorrect: 0, total: 0 }
+          });
+        } else {
+          // Available to take now
+          consolidatedHistory.push({
+            id: `available-${exam.exam_id}`,
+            examId: exam.exam_id,
+            name: exam.exam_title || 'Unknown Exam',
+            subject: exam.exam_subject || 'General Assessment',
+            score: 'Not Attempted',
+            rawScore: null,
+            date: startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+            status: 'Available',
+            attemptsCount: 0,
+            maxAttempts,
+            gradingLogic: exam.grading_logic || 'highest',
+            targetScore,
+            cohortName: assignedCohortName,
+            cohortStatus: assignedCohortStatus,
+            canRetake: false,
+            canTake: true,
+            isReviewLocked: false,
             itemStats: { correct: 0, incorrect: 0, total: 0 }
           });
         }
@@ -298,70 +393,19 @@ export default function UnifiedPerformancePage() {
 
     consolidatedHistory.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    if (consolidatedHistory.length === 0) {
-      setHistoricalAttempts([]);
-      setStats({ completed: 0, average: 0 });
-      setLatestExam(null);
-      setCohortRank("N/A");
-      return;
-    }
-
-    const totalScore = consolidatedHistory.reduce((acc, curr) => acc + (curr.rawScore || 0), 0);
-    const avg = Math.round(totalScore / consolidatedHistory.length);
-
-    // Build Radar Chart
-    const subjectAverages: Record<string, { total: number; count: number }> = {};
-    consolidatedHistory.forEach((h) => {
-      if (!subjectAverages[h.subject]) subjectAverages[h.subject] = { total: 0, count: 0 };
-      subjectAverages[h.subject].total += h.rawScore;
-      subjectAverages[h.subject].count += 1;
-    });
-
-    const dynamicRadarData = Object.keys(subjectAverages).map(subj => ({
-      subject: subj, 
-      score: Math.round(subjectAverages[subj].total / subjectAverages[subj].count),
-      fullMark: 100
-    }));
-
-    let bestSubject = { name: 'General', score: -1 };
-    let worstSubject = { name: 'General', score: 101 };
-    
-    dynamicRadarData.forEach(d => {
-      if (d.score > bestSubject.score) bestSubject = { name: d.subject, score: d.score };
-      if (d.score < worstSubject.score) worstSubject = { name: d.subject, score: d.score };
-    });
-
-    if (dynamicRadarData.length === 1) {
-      dynamicRadarData.push({ subject: 'Logic', score: avg, fullMark: 100 }, { subject: 'Retention', score: avg, fullMark: 100 });
-    } else if (dynamicRadarData.length === 2) {
-      dynamicRadarData.push({ subject: 'Retention', score: avg, fullMark: 100 });
-    }
-
-    const mostRecent = consolidatedHistory[0];
-
-    let dynamicFeedback = "";
-    if (avg >= 90) {
-      dynamicFeedback = `Outstanding performance! Your average of ${avg}% reflects deep subject mastery. You demonstrate solid command in ${bestSubject.name}. Maintain your spaced retrieval strategies.`;
-    } else if (avg >= mostRecent.targetScore) {
-      dynamicFeedback = `Solid performance with an average of ${avg}%. You have a strong grasp of core fundamentals, but targeted review in ${worstSubject.name} will help bridge remaining gaps.`;
+    // Compute KPIs strictly on evaluated/graded attempts
+    const evaluatedExams = consolidatedHistory.filter(h => h.rawScore !== null);
+    if (evaluatedExams.length > 0) {
+      const totalScore = evaluatedExams.reduce((acc, curr) => acc + (curr.rawScore || 0), 0);
+      const avg = Math.round(totalScore / evaluatedExams.length);
+      setStats({ completed: evaluatedExams.length, average: avg });
     } else {
-      dynamicFeedback = `Your metrics indicate areas needing reinforcement. Falling below the target passing threshold of ${mostRecent.targetScore}% highlights ${worstSubject.name} as a primary study focus.`;
+      setStats({ completed: 0, average: 0 });
     }
-
-    const dynamicActionPlan = `Prioritize foundational textbook chapters and clinical vignettes for ${worstSubject.name} before initiating your next practice attempt.`;
 
     setHistoricalAttempts(consolidatedHistory);
-    setStats({ completed: consolidatedHistory.length, average: avg });
-    setLatestExam({
-      examName: mostRecent.name,
-      completionDate: mostRecent.date,
-      scoreBreakdown: mostRecent.itemStats,
-      aiRagFeedback: dynamicFeedback,
-      actionPlan: dynamicActionPlan,
-      radarData: dynamicRadarData
-    });
 
-    // Calculate Cohort Percentile Standing (Scoped strictly to chosen active cohort)
+    // Calculate Cohort Percentile Standing
     const standingCohortId = targetCohortId || activeCohortId;
     let calculatedRank = "N/A";
 
@@ -451,208 +495,214 @@ export default function UnifiedPerformancePage() {
     return cohortOptions.find(c => c.isCurrent);
   }, [cohortOptions]);
 
+  // Filtered rows based on the segmented view toggle
+  const displayedHistory = useMemo(() => {
+    if (viewFilter === 'evaluated') {
+      return historicalAttempts.filter(h => h.rawScore !== null);
+    }
+    return historicalAttempts;
+  }, [historicalAttempts, viewFilter]);
+
+  const evaluatedCount = useMemo(() => {
+    return historicalAttempts.filter(h => h.rawScore !== null).length;
+  }, [historicalAttempts]);
+
   return (
     <div className="space-y-6">
+      {/* HEADER SECTION */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Performance Dashboard</h1>
-          <p className="text-sm text-slate-500 mt-1 font-bold">Review your latest analytics and track your historical progress.</p>
+          <h1 className="text-2xl font-bold text-slate-800">Historical Performance</h1>
+          <p className="text-sm text-slate-500 mt-1 font-bold">Review your mock examination records, score trends, and batch standing.</p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
-          {/* POLISHED BATCH SCOPE SELECTOR */}
-          {cohortOptions.length > 0 && (
-            <div className="inline-flex items-center gap-2 bg-white pl-3.5 pr-2 py-1.5 border border-slate-200/90 rounded-xl shadow-xs hover:border-slate-300 transition-colors">
-              <div className="flex items-center gap-1.5 text-slate-400">
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Batch:</span>
-              </div>
-              <div className="relative flex items-center">
-                <select
-                  value={selectedCohortScope}
-                  onChange={(e) => setSelectedCohortScope(e.target.value)}
-                  className="appearance-none bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold py-1 pl-2.5 pr-7 rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                >
-                  <option value="current">
-                    {activeCohortObj ? `${activeCohortObj.name} • Active` : 'Current Batch'}
-                  </option>
-                  {cohortOptions.length > 1 && (
-                    <option value="all">All Evaluated History</option>
-                  )}
-                  {cohortOptions
-                    .filter(c => !c.isCurrent)
-                    .map(c => ( 
-                      <option key={c.id} value={c.id}>
-                        {c.name} {c.status === 'Archived' ? '• Archived' : '• Previous'}
-                      </option>
-                    ))}
-                </select>
-                <svg className="w-3.5 h-3.5 text-slate-500 pointer-events-none absolute right-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
+        {/* POLISHED BATCH SCOPE SELECTOR */}
+        {cohortOptions.length > 0 && (
+          <div className="inline-flex items-center gap-2 bg-white pl-3.5 pr-2 py-1.5 border border-slate-200/90 rounded-xl shadow-xs hover:border-slate-300 transition-colors">
+            <div className="flex items-center gap-1.5 text-slate-400">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Batch:</span>
             </div>
-          )}
-
-          <div className="flex bg-slate-200 p-1 rounded-lg">
-            <button 
-              onClick={() => setActiveTab('history')}
-              className={`flex-1 sm:flex-none px-4 py-2 text-sm font-bold rounded-md transition-colors ${activeTab === 'history' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
-            >
-              Historical History
-            </button>
-            <button 
-              onClick={() => setActiveTab('latest')}
-              className={`flex-1 sm:flex-none px-4 py-2 text-sm font-bold rounded-md transition-colors ${activeTab === 'latest' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
-            >
-              Latest Summary
-            </button>
+            <div className="relative flex items-center">
+              <select
+                value={selectedCohortScope}
+                onChange={(e) => setSelectedCohortScope(e.target.value)}
+                className="appearance-none bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-800 text-xs font-bold py-1 pl-2.5 pr-7 rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              >
+                <option value="current">
+                  {activeCohortObj ? `${activeCohortObj.name} • Active` : 'Current Batch'}
+                </option>
+                {cohortOptions.length > 1 && (
+                  <option value="all">All Evaluated History</option>
+                )}
+                {cohortOptions
+                  .filter(c => !c.isCurrent)
+                  .map(c => ( 
+                    <option key={c.id} value={c.id}>
+                      {c.name} {c.status === 'Archived' ? '• Archived' : '• Previous'}
+                    </option>
+                  ))}
+              </select>
+              <svg className="w-3.5 h-3.5 text-slate-500 pointer-events-none absolute right-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
           </div>
+        )}
+      </div>
+
+      {/* SUMMARY KPI CARDS */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Evaluated Exams</span>
+          <p className="text-4xl font-bold text-slate-800 mt-2">{stats.completed}</p>
+        </div>
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Overall Average</span>
+          <p className="text-4xl font-bold text-blue-600 mt-2">{stats.average}%</p>
+        </div>
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estimated Standing</span>
+          <p className="text-4xl font-bold text-emerald-600 mt-2">{cohortRank}</p>
         </div>
       </div>
 
-      {activeTab === 'latest' && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          {isLoading ? (
-            <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-100">
-              Analyzing historical data...
-            </div>
-          ) : !latestExam ? (
-            <div className="p-12 text-center text-slate-500 font-bold bg-white rounded-xl border border-slate-100">
-              No exam history found for this review batch. Complete a simulation to generate your AI analytics.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
-              <div className="lg:col-span-2 space-y-6">
-                <div className="bg-white p-8 rounded-xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                  <div>
-                    <h3 className="font-bold text-2xl text-slate-800">{latestExam?.examName}</h3>
-                    <p className="text-sm text-slate-400 mt-1 font-bold">Attempt evaluated on {latestExam?.completionDate}</p>
-                  </div>
-                  <div className="text-left md:text-right bg-slate-50 p-4 rounded-lg min-w-[140px]">
-                    <span className="text-3xl font-black text-emerald-600">
-                      {Math.round((latestExam?.scoreBreakdown?.correct / latestExam?.scoreBreakdown?.total) * 100) || 0}%
-                    </span>
-                    <p className="text-xs font-bold text-slate-500 mt-1">{latestExam?.scoreBreakdown?.correct} correct out of {latestExam?.scoreBreakdown?.total}</p>
-                  </div>
-                </div>
-
-                <div className="bg-blue-50 border border-blue-100 p-8 rounded-xl">
-                  <h4 className="text-base font-bold text-blue-800 flex items-center gap-2 mb-3">
-                    <span className="text-xl">🤖</span> AI Feedback
-                  </h4>
-                  <p className="text-sm text-blue-950 leading-relaxed font-bold">
-                    {latestExam?.aiRagFeedback}
-                  </p>
-                </div>
-              </div>
-
-              <div className="lg:col-span-1 space-y-6">
-                <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-6 h-80 flex flex-col">
-                  <h4 className="font-bold text-base text-slate-700 mb-2">Competency Radar</h4>
-                  <div className="flex-1 w-full relative">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RadarChart cx="50%" cy="50%" outerRadius="70%" data={latestExam?.radarData}>
-                        <PolarGrid stroke="#e2e8f0" />
-                        <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 10, fontWeight: 'bold' }} />
-                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                        <Radar name="Score" dataKey="score" stroke="#2563eb" fill="#3b82f6" fillOpacity={0.5} />
-                      </RadarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                <div className="bg-amber-50 border border-amber-100 p-8 rounded-xl">
-                  <h4 className="text-base font-bold text-amber-800 mb-2">Action Plan</h4>
-                  <p className="text-sm text-amber-900 leading-relaxed mb-6 font-bold">
-                    {latestExam?.actionPlan}
-                  </p>
-                  <button 
-                    onClick={() => router.push('/learner/exams')}
-                    className="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm"
-                  >
-                    View Available Mock Exams
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'history' && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Evaluated Exams</span>
-              <p className="text-4xl font-bold text-slate-800 mt-2">{stats.completed}</p>
-            </div>
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Overall Average</span>
-              <p className="text-4xl font-bold text-blue-600 mt-2">{stats.average}%</p>
-            </div>
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estimated Standing</span>
-              <p className="text-4xl font-bold text-emerald-600 mt-2">{cohortRank}</p>
-            </div>
+      {/* EXAM HISTORY MATRIX TABLE WITH ACTION LINKS & TOGGLE */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="p-5 border-b border-slate-100 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h3 className="font-bold text-base text-slate-700">Exam History Matrix</h3>
+            <span className="text-xs font-bold text-slate-400">
+              {selectedCohortScope === 'all' ? 'All Batches Included' : 'Scoped to Selected Review Batch'}
+            </span>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-base text-slate-700">Exam History Matrix</h3>
-              <span className="text-xs font-bold text-slate-400">
-                {selectedCohortScope === 'all' ? 'All Batches Included' : 'Scoped to Selected Review Batch'}
-              </span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[720px]">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold uppercase text-slate-500 tracking-wider">
-                    <th className="p-4">Exam Title</th>
-                    <th className="p-4">Final Score</th>
-                    <th className="p-4">Date Evaluated</th>
-                    <th className="p-4">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                  {historicalAttempts.map((exam) => (
-                    <tr key={exam.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-4 font-bold text-slate-800">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span>{exam.name}</span>
-                          {selectedCohortScope === 'all' && exam.cohortName && (
-                            <span className="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
-                              {exam.cohortName} {exam.cohortStatus === 'Archived' ? '(Archived)' : ''}
-                            </span>
-                          )}
-                          {exam.attemptsCount > 1 && (
-                            <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
-                              {exam.attemptsCount} Attempts ({exam.gradingLogic})
-                            </span>
+          {/* VIEW FILTER SEGMENTED TOGGLE */}
+          <div className="inline-flex bg-slate-200/80 p-1 rounded-lg">
+            <button
+              onClick={() => setViewFilter('evaluated')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                viewFilter === 'evaluated'
+                  ? 'bg-white text-blue-600 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Evaluated Only ({evaluatedCount})
+            </button>
+            <button
+              onClick={() => setViewFilter('all')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                viewFilter === 'all'
+                  ? 'bg-white text-blue-600 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              All Assigned Exams ({historicalAttempts.length})
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[760px]">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold uppercase text-slate-500 tracking-wider">
+                <th className="p-4">Exam Title</th>
+                <th className="p-4">Final Score</th>
+                <th className="p-4">Date Evaluated</th>
+                <th className="p-4">Status</th>
+                <th className="p-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
+              {displayedHistory.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-12 text-center text-slate-500 font-bold">
+                    No examination records found for this review batch.
+                  </td>
+                </tr>
+              ) : (
+                displayedHistory.map((exam) => (
+                  <tr key={exam.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4 font-bold text-slate-800">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span>{exam.name}</span>
+                        {selectedCohortScope === 'all' && exam.cohortName && (
+                          <span className="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                            {exam.cohortName} {exam.cohortStatus === 'Archived' ? '(Archived)' : ''}
+                          </span>
+                        )}
+                        {exam.attemptsCount > 1 && (
+                          <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                            {exam.attemptsCount} Attempts ({exam.gradingLogic})
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-4 font-bold text-slate-700">
+                      {exam.rawScore !== null ? exam.score : (
+                        <span className="text-slate-400 text-xs font-bold italic">{exam.score}</span>
+                      )}
+                    </td>
+                    <td className="p-4 text-slate-500 font-bold">{exam.date}</td>
+                    <td className="p-4">
+                      <span className={`inline-block px-3 py-1 rounded text-xs font-bold uppercase tracking-wider ${
+                        exam.status === 'Passed' ? 'bg-emerald-50 text-emerald-700' : 
+                        exam.status === 'Missed' ? 'bg-rose-50 text-rose-700' : 
+                        exam.status === 'Needs Review' ? 'bg-amber-50 text-amber-700' :
+                        exam.status === 'Available' ? 'bg-blue-50 text-blue-700' :
+                        'bg-slate-100 text-slate-600'
+                      }`}>
+                        {exam.status}
+                      </span>
+                    </td>
+                    <td className="p-4 text-right">
+                      {exam.isReviewLocked ? (
+                        <span 
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded text-xs font-bold cursor-not-allowed"
+                          title="Active in current batch. Review locked."
+                        >
+                          Review Locked
+                        </span>
+                      ) : exam.attemptsCount > 0 ? (
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            onClick={() => router.push(`/learner/exams/${exam.examId}/review`)}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-bold rounded-lg transition-colors shadow-2xs"
+                          >
+                            Review
+                          </button>
+                          {exam.canRetake && (
+                            <button
+                              onClick={() => router.push(`/learner/exams/${exam.examId}`)}
+                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors shadow-2xs"
+                            >
+                              Retake
+                            </button>
                           )}
                         </div>
-                      </td>
-                      <td className="p-4 font-bold text-slate-700">{exam.score}</td>
-                      <td className="p-4 text-slate-500 font-bold">{exam.date}</td>
-                      <td className="p-4">
-                        <span className={`inline-block px-3 py-1 rounded text-xs font-bold uppercase tracking-wider ${
-                          exam.status === 'Passed' ? 'bg-emerald-50 text-emerald-700' : 
-                          exam.status === 'Missed' ? 'bg-rose-50 text-rose-700' : 
-                          'bg-amber-50 text-amber-700'
-                        }`}>
-                          {exam.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                      ) : exam.canTake ? (
+                        <button
+                          onClick={() => router.push(`/learner/exams/${exam.examId}`)}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors shadow-2xs"
+                        >
+                          Take Exam
+                        </button>
+                      ) : exam.status === 'Upcoming' ? (
+                        <span className="text-xs text-slate-400 font-bold">Locked</span>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-bold">Closed</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
+
       <FullScreenLoader 
         isOpen={isLoading} 
         message="Loading performance data..." 

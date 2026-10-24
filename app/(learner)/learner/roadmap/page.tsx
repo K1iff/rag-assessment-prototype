@@ -2,35 +2,52 @@
 
 import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import { supabase } from '@/lib/supabaseClient';
+import { BLEPP_DOMAINS, normalizeBLEPPSubject } from '@/lib/psychometrics';
 
-const CORE_SUBJECTS = [
-  "Abnormal Psychology",
-  "Psychological Assessment",
-  "Industrial-Organizational Psychology",
-  "Developmental Psychology"
-];
+interface DomainStats {
+  name: string;
+  shortLabel: string;
+  weight: number;
+  weightPercent: number;
+  accuracy: number;
+  itemsCorrect: number;
+  itemsTotal: number;
+  status: 'Mastery' | 'Competent' | 'Critical Deficit';
+  description: string;
+}
 
-export default function RoadmapPage() {
-  const [currentDbPhase, setCurrentDbPhase] = useState<number>(1);
-  const [expandedPhase, setExpandedPhase] = useState<number>(1);
-  const [showCelebration, setShowCelebration] = useState(false);
+interface WeakSpot {
+  competency: string;
+  subject: string;
+  accuracy: number;
+  missed: number;
+  total: number;
+  recommendation: string;
+}
+
+export default function ProgressRoadmapPage() {
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
 
   // Active Cohort Metadata
   const [cohortName, setCohortName] = useState<string>('Assigned Review Batch');
   const [cohortStatus, setCohortStatus] = useState<'Active' | 'Archived'>('Active');
 
-  // Unified Progress Engine State
-  const [progressStats, setProgressStats] = useState({
-    diagnosticPassed: false,
-    coreSubjectsPassed: [] as string[],
-    adaptivePassedCount: 0,
-    fullLengthPassed: false,
-  });
+  // Psychometric Domain States
+  const [domainBreakdown, setDomainBreakdown] = useState<Record<string, DomainStats>>({});
+  const [compositeTOSScore, setCompositeTOSScore] = useState<number>(0);
+  const [isBoardReady, setIsBoardReady] = useState<boolean>(false);
+  const [coreDeficitCount, setCoreDeficitCount] = useState<number>(0);
+  const [totalItemsAttempted, setTotalItemsAttempted] = useState<number>(0);
+  const [radarData, setRadarData] = useState<any[]>([]);
+  const [weakSpots, setWeakSpots] = useState<WeakSpot[]>([]);
 
   useEffect(() => {
-    const fetchProgressAndEvaluate = async () => {
+    const fetchReadinessMetrics = async () => {
+      setIsLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setIsLoading(false);
@@ -46,7 +63,6 @@ export default function RoadmapPage() {
 
       const studentCohortId = userData?.cohort_id || null;
 
-      // Fetch Cohort name & status if available
       if (studentCohortId) {
         const { data: cohortData } = await supabase
           .from('Cohorts')
@@ -60,16 +76,7 @@ export default function RoadmapPage() {
         }
       }
 
-      // 2. Fetch current stored Roadmap Phase
-      const { data: roadmapData } = await supabase
-        .from('Roadmap Progress')
-        .select('current_phase')
-        .eq('student_id', user.id)
-        .single();
-
-      let dbPhase = roadmapData?.current_phase || 1;
-
-      // 3. Fetch student attempts strictly scoped to the active cohort
+      // 2. Fetch completed attempts cleanly without risky nested joins
       let attemptsQuery = supabase
         .from('Student Attempts')
         .select(`
@@ -78,7 +85,10 @@ export default function RoadmapPage() {
           completed_at,
           exam_id,
           cohort_id,
-          exam:Exams!inner ( exam_title, exam_subject, global_status, grading_logic, passing_score, passing_percentage, is_visible )
+          "Student Answers" (
+            question_id,
+            is_correct
+          )
         `)
         .eq('student_id', user.id)
         .eq('exam_status', 'completed');
@@ -89,137 +99,240 @@ export default function RoadmapPage() {
 
       const { data: attempts, error: attemptsError } = await attemptsQuery;
 
-      const stats = {
-        diagnosticPassed: false,
-        coreSubjectsPassed: new Set<string>(),
-        adaptivePassedCount: 0,
-        fullLengthPassed: false,
+      if (attemptsError) {
+        console.error("Error fetching roadmap attempts:", attemptsError);
+        initializeEmptyMetrics();
+        setIsLoading(false);
+        return;
+      }
+
+      if (!attempts || attempts.length === 0) {
+        initializeEmptyMetrics();
+        setIsLoading(false);
+        return;
+      }
+
+      // 3. Fetch corresponding Exams in a clean separate query
+      const distinctExamIds = Array.from(new Set(attempts.map((a: any) => a.exam_id).filter(Boolean)));
+      const examMap: Record<string, { title: string; subject: string }> = {};
+
+      if (distinctExamIds.length > 0) {
+        const { data: examsData } = await supabase
+          .from('Exams')
+          .select('exam_id, exam_title, exam_subject, global_status, is_visible')
+          .in('exam_id', distinctExamIds);
+
+        (examsData || []).forEach((e: any) => {
+          examMap[e.exam_id] = {
+            title: e.exam_title || 'General Assessment',
+            subject: e.exam_subject || 'Psychological Assessment'
+          };
+        });
+      }
+
+      // 4. Fetch question metadata from Mock Exam Items using 'id'
+      const questionMetaMap: Record<string, { subject: string; competency: string }> = {};
+      if (distinctExamIds.length > 0) {
+        const { data: items } = await supabase
+          .from('Mock Exam Items')
+          .select('id, subject, competency, exam_session_id')
+          .in('exam_session_id', distinctExamIds);
+
+        if (items) {
+          items.forEach((it: any) => {
+            if (it.id) {
+              questionMetaMap[it.id] = {
+                subject: normalizeBLEPPSubject(it.subject),
+                competency: it.competency || 'Core Fundamentals'
+              };
+            }
+          });
+        }
+      }
+
+      // 5. Accumulate item accuracy and exam scores by domain
+      const domainAcc: Record<string, { correct: number; total: number; examScores: number[] }> = {
+        "Psychological Assessment": { correct: 0, total: 0, examScores: [] },
+        "Abnormal Psychology": { correct: 0, total: 0, examScores: [] },
+        "Industrial-Organizational Psychology": { correct: 0, total: 0, examScores: [] },
+        "Developmental Psychology": { correct: 0, total: 0, examScores: [] }
       };
 
-      if (!attemptsError && attempts && attempts.length > 0) {
-        // Filter out Hidden or Draft exams
-        const validAttempts = attempts.filter((a: any) => {
-          const ex = Array.isArray(a.exam) ? a.exam[0] : a.exam;
-          return ex && ex.is_visible !== false && ex.global_status !== 'Hidden' && ex.global_status !== 'Draft';
-        });
+      const competencyAcc: Record<string, { subject: string; correct: number; total: number }> = {};
+      let totalQuestionsEvaluated = 0;
 
-        // Group by exam_id to apply grading logic per assessment
-        const groupedAttempts = validAttempts.reduce((acc, curr) => {
-          if (!acc[curr.exam_id]) acc[curr.exam_id] = [];
-          acc[curr.exam_id].push(curr);
-          return acc;
-        }, {} as Record<string, any[]>);
+      attempts.forEach((att: any) => {
+        const examInfo = examMap[att.exam_id];
+        const fallbackDomain = normalizeBLEPPSubject(examInfo?.subject || 'Psychological Assessment');
+        const answers = att["Student Answers"] || [];
 
-        Object.keys(groupedAttempts).forEach(examId => {
-          const group = groupedAttempts[examId];
-          group.sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
-          
-          const rawExam = group[0].exam;
-          const examData = Array.isArray(rawExam) ? rawExam[0] : rawExam;
-          const logic = examData?.grading_logic || 'highest';
-          const title = (examData?.exam_title || '').toLowerCase();
-          const subject = examData?.exam_subject || '';
-          
-          const passingTarget = examData?.passing_percentage || examData?.passing_score || 75;
-          
-          let calculatedScore = 0;
-          if (logic === 'highest') {
-            calculatedScore = Math.max(...group.map(a => a.final_score || 0));
-          } else if (logic === 'average') {
-            calculatedScore = group.reduce((s, a) => s + (a.final_score || 0), 0) / group.length;
-          } else {
-            calculatedScore = group[0].final_score || 0; // 'latest'
-          }
+        if (answers.length > 0) {
+          answers.forEach((ans: any) => {
+            totalQuestionsEvaluated++;
+            const meta = questionMetaMap[ans.question_id];
+            const domainKey = meta?.subject || fallbackDomain;
+            const compKey = meta?.competency || `${domainKey} Principles`;
 
-          // Evaluate Active Milestone Targets
-          if (calculatedScore >= passingTarget) {
-            if (title.includes('diagnostic')) {
-              stats.diagnosticPassed = true;
-            } else if (title.includes('full length') || title.includes('board simulation')) {
-              stats.fullLengthPassed = true;
-            } else if (CORE_SUBJECTS.includes(subject)) {
-              stats.coreSubjectsPassed.add(subject);
+            if (domainAcc[domainKey]) {
+              domainAcc[domainKey].total += 1;
+              if (ans.is_correct) domainAcc[domainKey].correct += 1;
             }
-            
-            // Count any modular or adaptive exams towards the adaptive pool
-            if (!title.includes('diagnostic') && !title.includes('full length') && !title.includes('board simulation')) {
-              stats.adaptivePassedCount++;
-            }
-          }
-        });
-      }
 
-      const coreArray = Array.from(stats.coreSubjectsPassed);
-      setProgressStats({
-        diagnosticPassed: stats.diagnosticPassed,
-        coreSubjectsPassed: coreArray,
-        adaptivePassedCount: stats.adaptivePassedCount,
-        fullLengthPassed: stats.fullLengthPassed,
+            if (!competencyAcc[compKey]) {
+              competencyAcc[compKey] = { subject: domainKey, correct: 0, total: 0 };
+            }
+            competencyAcc[compKey].total += 1;
+            if (ans.is_correct) competencyAcc[compKey].correct += 1;
+          });
+        } else {
+          // If no granular answer rows exist, use overall attempt score
+          if (domainAcc[fallbackDomain]) {
+            domainAcc[fallbackDomain].examScores.push(att.final_score || 0);
+          }
+        }
       });
 
-      // 4. Milestone Progression Engine
-      let calculatedPhase = 1;
-      if (stats.diagnosticPassed) calculatedPhase = 2;
-      if (stats.diagnosticPassed && coreArray.length >= 4) calculatedPhase = 3;
-      if (stats.diagnosticPassed && coreArray.length >= 4 && stats.adaptivePassedCount >= 3) calculatedPhase = 4;
-      if (stats.diagnosticPassed && coreArray.length >= 4 && stats.adaptivePassedCount >= 3 && stats.fullLengthPassed) calculatedPhase = 5;
+      // 6. Compile Domain Statistics
+      const compiledDomains: Record<string, DomainStats> = {};
+      let weightedCompositeSum = 0;
+      let criticalDeficits = 0;
 
-      // Allow progress to advance or reset to accurate active cohort baseline
-      const targetPhase = Math.max(calculatedPhase, dbPhase === 1 ? calculatedPhase : Math.min(dbPhase, calculatedPhase));
+      Object.keys(BLEPP_DOMAINS).forEach((domainName) => {
+        const meta = BLEPP_DOMAINS[domainName];
+        const raw = domainAcc[domainName];
+        let acc = 0;
 
-      if (targetPhase !== dbPhase) {
-        const { error: upsertError } = await supabase
-          .from('Roadmap Progress')
-          .upsert({ 
-            student_id: user.id, 
-            current_phase: targetPhase 
-          }, { 
-            onConflict: 'student_id' 
-          });
-          
-        if (upsertError) console.error("Roadmap save error:", upsertError);
-        
-        // Trigger celebration scoped to the active cohort cycle
-        const celebratedKey = `celebrated_${user.id}_cohort_${studentCohortId || 'default'}_phase_${targetPhase}`;
-        if (targetPhase > dbPhase && !localStorage.getItem(celebratedKey)) {
-          setShowCelebration(true);
-          localStorage.setItem(celebratedKey, 'true');
+        if (raw.total > 0) {
+          acc = Math.round((raw.correct / raw.total) * 100);
+        } else if (raw.examScores.length > 0) {
+          const sum = raw.examScores.reduce((a, b) => a + b, 0);
+          acc = Math.round(sum / raw.examScores.length);
         }
-          
-        dbPhase = targetPhase;
+
+        weightedCompositeSum += acc * meta.weight;
+
+        let status: 'Mastery' | 'Competent' | 'Critical Deficit' = 'Competent';
+        if (acc >= 75) {
+          status = 'Mastery';
+        } else if (acc < 60) {
+          status = 'Critical Deficit';
+          criticalDeficits++;
+        }
+
+        compiledDomains[domainName] = {
+          name: domainName,
+          shortLabel: meta.shortLabel,
+          weight: meta.weight,
+          weightPercent: meta.weightPercent,
+          accuracy: acc,
+          itemsCorrect: raw.correct,
+          itemsTotal: raw.total > 0 ? raw.total : raw.examScores.length * 50,
+          status,
+          description: meta.description
+        };
+      });
+
+      const finalComposite = Math.round(weightedCompositeSum * 10) / 10;
+      const isReady = finalComposite >= 75.0 && criticalDeficits === 0 && attempts.length > 0;
+
+      // 7. Radar Chart Mapping
+      const formattedRadar = [
+        { subject: 'Psych Assessment', score: compiledDomains['Psychological Assessment'].accuracy, fullMark: 100 },
+        { subject: 'Abnormal Psych', score: compiledDomains['Abnormal Psychology'].accuracy, fullMark: 100 },
+        { subject: 'I/O Psych', score: compiledDomains['Industrial-Organizational Psychology'].accuracy, fullMark: 100 },
+        { subject: 'Dev Psych', score: compiledDomains['Developmental Psychology'].accuracy, fullMark: 100 },
+      ];
+
+      // 8. Extract Weak Spots
+      const candidateWeakSpots: WeakSpot[] = Object.entries(competencyAcc)
+        .map(([comp, data]) => {
+          const acc = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
+          const missed = data.total - data.correct;
+          const meta = BLEPP_DOMAINS[data.subject];
+          return {
+            competency: comp,
+            subject: data.subject,
+            accuracy: acc,
+            missed,
+            total: data.total,
+            recommendation: meta ? meta.studyTip : 'Review foundational textbook chapters and clinical vignettes.'
+          };
+        })
+        .filter(w => w.accuracy < 75 && w.missed > 0)
+        .sort((a, b) => a.accuracy - b.accuracy || b.missed - a.missed)
+        .slice(0, 4);
+
+      if (candidateWeakSpots.length === 0) {
+        Object.values(compiledDomains)
+          .filter(d => d.accuracy < 75)
+          .sort((a, b) => a.accuracy - b.accuracy)
+          .slice(0, 2)
+          .forEach(d => {
+            const meta = BLEPP_DOMAINS[d.name];
+            candidateWeakSpots.push({
+              competency: `${d.name} Core Concepts`,
+              subject: d.name,
+              accuracy: d.accuracy,
+              missed: Math.max(1, d.itemsTotal - d.itemsCorrect),
+              total: Math.max(1, d.itemsTotal),
+              recommendation: meta ? meta.studyTip : 'Review core concepts.'
+            });
+          });
       }
 
-      setCurrentDbPhase(dbPhase);
-      setExpandedPhase(dbPhase);
+      setDomainBreakdown(compiledDomains);
+      setCompositeTOSScore(finalComposite);
+      setIsBoardReady(isReady);
+      setCoreDeficitCount(criticalDeficits);
+      setTotalItemsAttempted(totalQuestionsEvaluated > 0 ? totalQuestionsEvaluated : attempts.length * 50);
+      setRadarData(formattedRadar);
+      setWeakSpots(candidateWeakSpots);
       setIsLoading(false);
     };
 
-    fetchProgressAndEvaluate();
+    const initializeEmptyMetrics = () => {
+      const emptyDomains: Record<string, DomainStats> = {};
+      Object.keys(BLEPP_DOMAINS).forEach(d => {
+        emptyDomains[d] = {
+          name: d,
+          shortLabel: BLEPP_DOMAINS[d].shortLabel,
+          weight: BLEPP_DOMAINS[d].weight,
+          weightPercent: BLEPP_DOMAINS[d].weightPercent,
+          accuracy: 0,
+          itemsCorrect: 0,
+          itemsTotal: 0,
+          status: 'Critical Deficit',
+          description: BLEPP_DOMAINS[d].description
+        };
+      });
+      setDomainBreakdown(emptyDomains);
+      setCompositeTOSScore(0);
+      setIsBoardReady(false);
+      setCoreDeficitCount(4);
+      setTotalItemsAttempted(0);
+      setRadarData([
+        { subject: 'Psych Assessment', score: 0, fullMark: 100 },
+        { subject: 'Abnormal Psych', score: 0, fullMark: 100 },
+        { subject: 'I/O Psych', score: 0, fullMark: 100 },
+        { subject: 'Dev Psych', score: 0, fullMark: 100 },
+      ]);
+      setWeakSpots([]);
+    };
+
+    fetchReadinessMetrics();
   }, []);
 
-  const baseSteps = [
-    { step: 1, title: 'Diagnostic Baseline', description: 'Establish foundational knowledge metrics.', content: 'Your first objective is to take and pass the initial Diagnostic Assessment to map your starting knowledge across all competencies.' },
-    { step: 2, title: 'Core Subject Drills', description: 'Complete dedicated modules for all major board topics.', content: 'Focus on individual subjects. You must achieve a passing score in each of the 4 core licensure domains.' },
-    { step: 3, title: 'Adaptive Simulation', description: 'Surpass the passing threshold on dynamic exams.', content: `Active Goal requires you to pass 3 specialized or adaptive practice exams. Current progress: ${progressStats.adaptivePassedCount} / 3 completed.` },
-    { step: 4, title: 'Full Length Board Simulation', description: 'Simulate the exact timing and constraints of the actual PRC exam.', content: 'Test your endurance under authentic conditions. Take and pass the Full Length Board Simulation to earn final readiness clearance.' },
-    { step: 5, title: 'PRC Board Readiness Certified', description: 'Final clearance badge achieved.', content: 'Congratulations! You have completed all prerequisite milestones in this review batch and are certified ready for the licensure exam.' },
-  ];
-
-  const roadmapSteps = baseSteps.map(step => ({
-    ...step,
-    completed: currentDbPhase > step.step,
-    current: currentDbPhase === step.step,
-    isLocked: step.step > currentDbPhase
-  }));
-
   return (
-    <div className="space-y-6 relative pb-24">
+    <div className="space-y-6 pb-16">
+      {/* HEADER SECTION */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Interactive Progress Roadmap</h1>
-          <p className="text-sm text-slate-500 mt-1 font-bold">Monitor your milestone progression mapped directly against the official board exam syllabus.</p>
+          <h1 className="text-2xl font-bold text-slate-800">Progress Roadmap</h1>
+          <p className="text-sm text-slate-500 mt-1 font-bold">
+            Board licensure readiness projection and domain mastery mapped against the BLEPP Table of Specifications.
+          </p>
         </div>
-        
+
         {/* POLISHED ACTIVE BATCH PILL */}
         <div className="inline-flex items-center gap-2.5 bg-white pl-3.5 pr-2.5 py-1.5 border border-slate-200/90 rounded-xl shadow-xs">
           <div className="flex items-center gap-1.5 text-slate-400">
@@ -239,164 +352,267 @@ export default function RoadmapPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
-        <div className="lg:col-span-2 bg-white p-8 md:p-12 rounded-xl border border-slate-200 shadow-sm">
-          <div className="relative ml-2">
-            {roadmapSteps.map((step, index) => (
-              <div 
-                key={step.step} 
-                className={`relative pl-12 pb-10 last:pb-0 ${step.isLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer group'}`}
-                onClick={() => {
-                  if (!step.isLocked) setExpandedPhase(expandedPhase === step.step ? 0 : step.step);
-                }}
-              >
-                {index !== roadmapSteps.length - 1 && (
-                  <div className={`absolute left-[11px] top-8 bottom-0 w-0.5 ${step.completed ? 'bg-emerald-200' : 'bg-slate-200'}`}></div>
-                )}
-                
-                <div className={`absolute left-0 top-1 h-6 w-6 rounded-full border-4 flex items-center justify-center transition-all ${
-                  step.completed ? 'bg-emerald-500 border-emerald-200' : 
-                  step.current ? 'bg-blue-600 border-blue-200 animate-pulse' : 
-                  'bg-slate-200 border-slate-100 group-hover:border-slate-300'
-                }`} />
-                
-                <div className="transition-all">
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xs font-bold uppercase tracking-wider ${step.completed ? 'text-emerald-600' : step.current ? 'text-blue-600' : 'text-slate-400'}`}>
-                      Milestone Phase {step.step} {step.current && '(Active Target)'} {step.isLocked && '(Locked)'}
+      {/* 1. HERO READINESS BANNER */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 relative overflow-hidden">
+        <div className={`absolute left-0 top-0 bottom-0 w-2 ${isBoardReady ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+
+        <div className="max-w-xl pl-2">
+          <div className="flex items-center gap-3 mb-2 flex-wrap">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              BLEPP Licensure Projection
+            </span>
+            {isBoardReady ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+                Board Exam Ready
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-50 text-amber-700 border border-amber-200">
+                <svg className="w-3.5 h-3.5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                Not Yet Ready
+              </span>
+            )}
+          </div>
+
+          <h2 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
+            {isBoardReady
+              ? "Comprehensive Readiness Criteria Achieved"
+              : "Readiness Threshold Under Construction"}
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-500 font-bold mt-1.5 leading-relaxed">
+            {isBoardReady
+              ? "Your weighted Table of Specifications score exceeds the official 75.0% board benchmark with zero critical domain deficits. Maintain active retrieval practice."
+              : "Projected composite is below the 75.0% threshold or one or more core domains remain in critical deficit (<60%). Prioritize weak spots below."}
+          </p>
+        </div>
+
+        {/* METRICS STRIP */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 w-full lg:w-auto bg-slate-50 p-4 rounded-xl border border-slate-100 shrink-0">
+          <div className="text-center sm:text-left">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Projected TOS</span>
+            <span className={`text-2xl font-black tracking-tight ${compositeTOSScore >= 75 ? 'text-emerald-600' : 'text-blue-600'}`}>
+              {compositeTOSScore}%
+            </span>
+          </div>
+
+          <div className="text-center sm:text-left">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Passing Benchmark</span>
+            <span className="text-2xl font-black text-slate-700 tracking-tight">
+              75.0%
+            </span>
+          </div>
+
+          <div className="text-center sm:text-left">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Core Deficits (&lt;60%)</span>
+            <span className={`text-2xl font-black tracking-tight ${coreDeficitCount === 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {coreDeficitCount} {coreDeficitCount === 1 ? 'Area' : 'Areas'}
+            </span>
+          </div>
+
+          <div className="text-center sm:text-left">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Evaluated Items</span>
+            <span className="text-2xl font-black text-slate-800 tracking-tight">
+              {totalItemsAttempted}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. DOMAIN COMPETENCY RADAR & MASTERY METERS */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        {/* LEFT: RADAR CHART */}
+        <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <h3 className="font-bold text-slate-800 text-base">BLEPP 4-Domain Radar</h3>
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Multi-Axis Balance</span>
+            </div>
+            <p className="text-xs text-slate-500 font-bold mb-4">
+              Visualizes cross-subject balance. An even polygon reflects well-rounded licensure preparation.
+            </p>
+          </div>
+
+          <div className="w-full h-72 sm:h-80 relative flex items-center justify-center">
+            {totalItemsAttempted === 0 && compositeTOSScore === 0 ? (
+              <div className="text-center p-6 text-xs text-slate-400 font-bold">
+                No attempt data recorded. Complete an exam to calibrate your radar.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
+                  <PolarGrid stroke="#e2e8f0" />
+                  <PolarAngleAxis 
+                    dataKey="subject" 
+                    tick={{ fill: '#475569', fontSize: 11, fontWeight: '700' }} 
+                  />
+                  <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                  <Radar 
+                    name="Mastery %" 
+                    dataKey="score" 
+                    stroke="#2563eb" 
+                    fill="#3b82f6" 
+                    fillOpacity={0.45} 
+                  />
+                </RadarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div className="pt-3 border-t border-slate-100 flex justify-between text-[11px] text-slate-400 font-bold">
+            <span>Target Line: 75% Mastery</span>
+            <span className="text-blue-600 font-extrabold">Active Assessment Engine</span>
+          </div>
+        </div>
+
+        {/* RIGHT: MASTERY PROGRESS METERS */}
+        <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-7 flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <h3 className="font-bold text-slate-800 text-base">Regulatory Domain Mastery</h3>
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Official TOS Weights</span>
+            </div>
+            <p className="text-xs text-slate-500 font-bold mb-6">
+              Track mastery per regulatory subject area. Psychological Assessment holds the highest passing weight (40%).
+            </p>
+          </div>
+
+          <div className="space-y-5">
+            {Object.values(domainBreakdown).map((d) => (
+              <div key={d.name} className="p-3.5 bg-slate-50/80 rounded-xl border border-slate-100">
+                <div className="flex justify-between items-center mb-1.5 flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm text-slate-800">{d.name}</span>
+                    <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700 uppercase tracking-wider">
+                      {d.weightPercent}% Weight
                     </span>
-                    
-                    {step.isLocked ? (
-                      <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                      </svg>
-                    ) : (
-                      <svg className={`w-4 h-4 transition-transform ${expandedPhase === step.step ? 'rotate-180 text-blue-500' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    )}
                   </div>
-                  
-                  <div className="flex justify-between items-center pr-4">
-                    <h3 className={`text-lg font-bold mt-1 transition-colors ${step.isLocked ? 'text-slate-500' : 'text-slate-800 group-hover:text-blue-600'}`}>
-                      {step.title}
-                    </h3>
+
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
+                      d.status === 'Mastery' 
+                        ? 'bg-emerald-100 text-emerald-800' 
+                        : d.status === 'Competent' 
+                        ? 'bg-blue-100 text-blue-800' 
+                        : 'bg-rose-100 text-rose-800'
+                    }`}>
+                      {d.status}
+                    </span>
+                    <span className="text-sm font-black text-slate-800 min-w-[36px] text-right">
+                      {d.accuracy}%
+                    </span>
                   </div>
-                  
-                  <p className="text-sm text-slate-500 mt-1 max-w-lg leading-relaxed font-bold">{step.description}</p>
-                  
-                  {expandedPhase === step.step && !step.isLocked && (
-                    <div className="mt-4 p-5 bg-slate-50 rounded-lg border border-slate-100 text-sm text-slate-700 font-bold leading-relaxed shadow-inner animate-in fade-in slide-in-from-top-2">
-                      {step.content}
-                    </div>
+                </div>
+
+                {/* PROGRESS BAR WITH 75% BENCHMARK NOTCH */}
+                <div className="relative w-full h-2.5 bg-slate-200 rounded-full overflow-hidden my-1.5">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      d.accuracy >= 75 
+                        ? 'bg-emerald-500' 
+                        : d.accuracy >= 60 
+                        ? 'bg-blue-600' 
+                        : 'bg-rose-500'
+                    }`}
+                    style={{ width: `${Math.min(100, d.accuracy)}%` }}
+                  />
+                  <div 
+                    className="absolute top-0 bottom-0 w-0.5 bg-slate-800 z-10 opacity-40" 
+                    style={{ left: '75%' }} 
+                    title="75% Board Passing Threshold"
+                  />
+                </div>
+
+                <div className="flex justify-between items-center text-[11px] text-slate-400 font-bold mt-1">
+                  <span>{d.description}</span>
+                  {d.itemsTotal > 0 && (
+                    <span className="shrink-0 ml-2">{d.itemsCorrect} / {d.itemsTotal} items</span>
                   )}
                 </div>
               </div>
             ))}
           </div>
-        </div>
 
-        {/* SIDEBAR ACTIVE TARGETS */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-            <h3 className="font-bold text-base text-slate-800 border-b border-slate-100 pb-2 mb-3">Roadmap Logic</h3>
-            <p className="text-xs text-slate-500 leading-relaxed font-bold">
-              Milestone requirements are evaluated against your active batch attempts. Completing required examinations automatically advances your phase.
-            </p>
-          </div>
-
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-            <h3 className="font-bold text-base text-slate-800">Active Target Requirements</h3>
-            <p className="text-sm text-slate-500 mt-2 font-bold">To clear Phase {currentDbPhase} in {cohortName}, fulfill the following criteria:</p>
-            
-            <ul className="mt-5 space-y-4 text-sm text-slate-600 font-bold">
-              {currentDbPhase === 1 && (
-                <li className="flex items-start gap-3">
-                  <span className={progressStats.diagnosticPassed ? "text-emerald-500 mt-0.5" : "text-blue-500 mt-0.5"}>
-                    {progressStats.diagnosticPassed ? '✓' : '●'}
-                  </span> 
-                  <span className={progressStats.diagnosticPassed ? 'text-emerald-700' : ''}>
-                    Pass an exam titled &quot;Diagnostic&quot;.
-                  </span>
-                </li>
-              )}
-
-              {currentDbPhase === 2 && CORE_SUBJECTS.map(subj => {
-                const isPassed = progressStats.coreSubjectsPassed.includes(subj);
-                return (
-                  <li key={subj} className="flex items-start gap-3">
-                    <span className={isPassed ? "text-emerald-500 mt-0.5" : "text-blue-500 mt-0.5"}>
-                      {isPassed ? '✓' : '●'}
-                    </span> 
-                    <span className={isPassed ? 'text-emerald-700 line-through opacity-70' : ''}>
-                      Pass {subj}
-                    </span>
-                  </li>
-                );
-              })}
-
-              {currentDbPhase === 3 && (
-                <>
-                  <li className="flex items-start gap-3">
-                    <span className="text-blue-500 mt-0.5">●</span> 
-                    Complete a minimum of 3 dynamic exams.
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-blue-500 mt-0.5">●</span> 
-                    Achieve the designated passing score on each assessment.
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="text-blue-500 mt-0.5">●</span> 
-                    Current Progress: <span className={progressStats.adaptivePassedCount >= 3 ? "text-emerald-600" : "text-amber-600"}>{progressStats.adaptivePassedCount} / 3</span>
-                  </li>
-                </>
-              )}
-
-              {currentDbPhase === 4 && (
-                <li className="flex items-start gap-3">
-                  <span className={progressStats.fullLengthPassed ? "text-emerald-500 mt-0.5" : "text-blue-500 mt-0.5"}>
-                    {progressStats.fullLengthPassed ? '✓' : '●'}
-                  </span> 
-                  <span className={progressStats.fullLengthPassed ? 'text-emerald-700' : ''}>
-                    Pass a &quot;Full Length&quot; or &quot;Board Simulation&quot; exam.
-                  </span>
-                </li>
-              )}
-
-              {currentDbPhase === 5 && (
-                <li className="flex items-start gap-3">
-                  <span className="text-emerald-500 mt-0.5">✓</span> 
-                  <span className="text-emerald-700">All requirements met. You are Board Ready.</span>
-                </li>
-              )}
-            </ul>
+          <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-500">
+            <span>Benchmark: 75% required per domain</span>
+            <span className="text-slate-400">TOS Adjusted</span>
           </div>
         </div>
       </div>
 
-      {showCelebration && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-8 text-center relative overflow-hidden animate-in zoom-in duration-300">
-            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-emerald-400 to-blue-500"></div>
-            
-            <div className="text-6xl mb-4 animate-bounce mt-4">🎉</div>
-            <h2 className="text-2xl font-black text-slate-800 mb-2">Phase Completed!</h2>
-            <p className="text-slate-600 font-bold text-sm mb-8 leading-relaxed">
-              Outstanding work! You have successfully cleared the milestone requirements for Phase {currentDbPhase - 1} and unlocked your next objective in {cohortName}.
+      {/* 3. PRIORITY REMEDIATION AGENDA */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6 pb-4 border-b border-slate-100">
+          <div>
+            <h3 className="text-lg font-bold text-slate-800">Priority Remediation Agenda</h3>
+            <p className="text-xs text-slate-500 font-bold mt-0.5">
+              Specific competency areas dragging down your projected licensure score. Focus review sessions here.
             </p>
-            
-            <button 
-              onClick={() => setShowCelebration(false)}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-md"
-            >
-              Continue Journey
-            </button>
           </div>
+
+          <button
+            onClick={() => router.push('/learner/exams')}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm whitespace-nowrap"
+          >
+            Practice Weak Spots
+          </button>
         </div>
-      )}
+
+        {weakSpots.length === 0 ? (
+          <div className="p-8 text-center bg-emerald-50/50 rounded-xl border border-emerald-100 text-emerald-900">
+            <span className="text-3xl block mb-2">🎉</span>
+            <h4 className="font-black text-base text-emerald-800">No Critical Deficits Identified!</h4>
+            <p className="text-xs font-bold text-emerald-700 mt-1 max-w-md mx-auto leading-relaxed">
+              All evaluated competency clusters meet or surpass the 75% mastery benchmark. Keep taking comprehensive simulations to maintain test-taking endurance.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {weakSpots.map((spot, index) => (
+              <div 
+                key={`${spot.competency}-${index}`}
+                className="p-5 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 transition-colors flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex justify-between items-start gap-2 mb-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 px-2 py-0.5 rounded bg-white border border-slate-200">
+                      {spot.subject}
+                    </span>
+                    <span className="text-xs font-black text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
+                      {spot.accuracy}% Accuracy
+                    </span>
+                  </div>
+
+                  <h4 className="font-bold text-sm text-slate-800 leading-snug">
+                    {spot.competency}
+                  </h4>
+
+                  <p className="text-xs text-slate-600 font-bold mt-2 leading-relaxed bg-white p-3 rounded-lg border border-slate-100">
+                    💡 <span className="font-extrabold text-slate-700">Study Tip:</span> {spot.recommendation}
+                  </p>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-200/60 flex justify-between items-center text-[11px] text-slate-400 font-bold">
+                  <span>Deficit Count: {spot.missed} of {spot.total} missed</span>
+                  <button
+                    onClick={() => router.push('/learner/exams')}
+                    className="text-blue-600 hover:text-blue-700 font-extrabold hover:underline"
+                  >
+                    Drill Topic &rarr;
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <FullScreenLoader 
         isOpen={isLoading} 
-        message="Syncing roadmap progress..." 
+        message="Synthesizing Table of Specifications readiness..." 
       />
     </div>
   );

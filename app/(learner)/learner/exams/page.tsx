@@ -40,6 +40,7 @@ interface ScheduledExam {
   score: string | null;
   accent: string;
   timeLimit: number;
+  hasAttempts: boolean;
   isReviewLocked?: boolean;
   cohortName?: string;
   cohortStatus?: string;
@@ -243,7 +244,7 @@ export default function ScheduledExamsPage() {
       let displayScore = "N/A";
 
       if (attemptCount > 0) {
-        const scores = myAttempts.map((a: any) => a.final_score).filter((s: any) => s !== null);
+        const scores = myAttempts.map((a: any) => a.final_score).filter((s: any) => s !== null && s !== undefined);
         if (scores.length > 0) displayScore = `${Math.max(...scores)}%`;
       }
 
@@ -251,24 +252,29 @@ export default function ScheduledExamsPage() {
       const normalizedTitle = exam.exam_title.replace(/\s*\(Clone\)\s*/gi, "").trim().toLowerCase();
       const isReviewLocked = !currentCohortObj?.isCurrent && activeIncompleteExamTitles.has(normalizedTitle);
 
-      // Hard Lock: If viewing a non-current cohort, students can NEVER interact with or start exams
       const isHistoricalBatch = !currentCohortObj?.isCurrent;
+      const isDeadlinePassed = Boolean(endDate && exam.close_after_deadline && now > endDate);
+      const isInactive = exam.global_status === "Inactive";
 
-      if (isHistoricalBatch) {
-        // Only mark as "Finished" if they actually completed at least 1 attempt before transferring
+      // Status State Machine
+      if (isHistoricalBatch || isSelectedArchived) {
+        // Non-current or archived cohort: strictly read-only
         currentStatus = attemptCount > 0 ? "Finished" : "Closed";
-      } else if (isSelectedArchived) {
+      } else if (isDeadlinePassed || isInactive) {
+        // Deadline passed or closed by faculty: if already attempted, status is Finished
         currentStatus = attemptCount > 0 ? "Finished" : "Closed";
+      } else if (attemptCount >= maxAttempts) {
+        // Active cohort and attempt quota reached
+        currentStatus = "Finished";
+      } else if (now < startDate) {
+        // Scheduled in the future
+        currentStatus = "Upcoming";
+      } else if (attemptCount > 0 && attemptCount < maxAttempts) {
+        // Active attempt available for retake
+        currentStatus = "Retake Available";
       } else {
-        if (attemptCount >= maxAttempts) {
-          currentStatus = "Finished";
-        } else if (exam.global_status === "Inactive" || (endDate && exam.close_after_deadline && now > endDate)) {
-          currentStatus = "Closed";
-        } else if (now < startDate) {
-          currentStatus = "Upcoming";
-        } else if (attemptCount > 0 && attemptCount < maxAttempts) {
-          currentStatus = "Retake Available";
-        }
+        // Active, within schedule, 0 attempts
+        currentStatus = "Available";
       }
 
       return {
@@ -284,6 +290,7 @@ export default function ScheduledExamsPage() {
         score: displayScore,
         accent: accentColors[index % accentColors.length],
         timeLimit: exam.time_limit_mins || 60,
+        hasAttempts: attemptCount > 0,
         isReviewLocked,
         cohortName: currentCohortObj?.name,
         cohortStatus: currentCohortObj?.status
@@ -511,11 +518,7 @@ export default function ScheduledExamsPage() {
                           ) : (
                             <button
                               onClick={() => router.push(`/learner/exams/${exam.id}/review`)}
-                              className={`w-full py-2.5 text-sm font-bold rounded-lg transition-colors shadow-sm ${
-                                exam.status === "Closed"
-                                  ? "bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100"
-                                  : "bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200"
-                              }`}
+                              className="w-full py-2.5 bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 text-sm font-bold rounded-lg transition-colors shadow-sm"
                             >
                               View Performance Summary
                             </button>
@@ -556,7 +559,7 @@ export default function ScheduledExamsPage() {
                   {pastExams.map((exam) => (
                     <div
                       key={exam.id}
-                      className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col relative opacity-85"
+                      className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col relative opacity-95"
                     >
                       <div className={`h-1.5 w-full ${exam.accent}`}></div>
 
@@ -568,12 +571,12 @@ export default function ScheduledExamsPage() {
                             </h3>
                             <span
                               className={`shrink-0 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider ${
-                                exam.status === "Finished"
+                                exam.hasAttempts || exam.status === "Finished"
                                   ? "bg-emerald-100 text-emerald-800"
                                   : "bg-rose-100 text-rose-800"
                               }`}
                             >
-                              {exam.status === "Finished"
+                              {exam.hasAttempts || exam.status === "Finished"
                                 ? `Score: ${exam.score}`
                                 : exam.status}
                             </span>
@@ -606,7 +609,7 @@ export default function ScheduledExamsPage() {
                               </svg>
                               Review Locked (Active in Current Batch)
                             </button>
-                          ) : exam.status === "Finished" ? (
+                          ) : (exam.hasAttempts || exam.status === "Finished") ? (
                             <button
                               onClick={() => router.push(`/learner/exams/${exam.id}/review`)}
                               className="w-full py-2.5 bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 text-sm font-bold rounded-lg transition-colors shadow-sm"
