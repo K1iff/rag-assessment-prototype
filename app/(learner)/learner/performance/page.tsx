@@ -2,6 +2,7 @@
 
 import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 interface CohortScopeOption {
@@ -11,7 +12,29 @@ interface CohortScopeOption {
   isCurrent: boolean;
 }
 
+interface PerformanceHistoryItem {
+  id: string;
+  examId: string;
+  name: string;
+  subject: string;
+  score: string;
+  rawScore: number | null;
+  date: string;
+  status: 'Passed' | 'Needs Review' | 'Missed' | 'Available' | 'Upcoming' | 'Closed';
+  attemptsCount: number;
+  maxAttempts: number;
+  gradingLogic: string;
+  targetScore: number;
+  cohortName: string | null;
+  cohortStatus: string | null;
+  canRetake: boolean;
+  canTake: boolean;
+  isReviewLocked: boolean;
+  itemStats: { correct: number; incorrect: number; total: number };
+}
+
 export default function UnifiedPerformancePage() {
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
 
   // Cohort Scoping States
@@ -19,11 +42,14 @@ export default function UnifiedPerformancePage() {
   const [selectedCohortScope, setSelectedCohortScope] = useState<string>('current');
   const [activeCohortId, setActiveCohortId] = useState<string | null>(null);
 
+  // Table Filter Toggle: 'evaluated' (default) vs 'all'
+  const [viewFilter, setViewFilter] = useState<'evaluated' | 'all'>('evaluated');
+
   const [rawAttempts, setRawAttempts] = useState<any[]>([]);
   const [rawExams, setRawExams] = useState<any[]>([]);
   const [cohortExamIdsMap, setCohortExamIdsMap] = useState<Record<string, string[]>>({});
 
-  const [historicalAttempts, setHistoricalAttempts] = useState<any[]>([]);
+  const [historicalAttempts, setHistoricalAttempts] = useState<PerformanceHistoryItem[]>([]);
   const [stats, setStats] = useState({ completed: 0, average: 0 });
   const [cohortRank, setCohortRank] = useState<string>('Calculating...');
 
@@ -136,7 +162,7 @@ export default function UnifiedPerformancePage() {
           .select(`
             exam_id, exam_title, exam_subject, schedule_start, schedule_end, 
             close_after_deadline, global_status, grading_logic, passing_score, 
-            passing_percentage, is_visible,
+            passing_percentage, is_visible, max_attempts,
             Exam_Cohorts ( cohort_id, Cohorts ( cohort_id, cohort_name, status ) )
           `)
           .in('exam_id', allTargetExamIds);
@@ -166,20 +192,17 @@ export default function UnifiedPerformancePage() {
 
     const now = new Date();
 
-    // Determine target cohort ID
     const targetCohortId = selectedCohortScope === 'current'
       ? activeCohortId
       : selectedCohortScope === 'all'
       ? null
       : selectedCohortScope;
 
-    // Filter attempts according to cohort scope
     const scopedAttempts = rawAttempts.filter(a => {
-      if (!targetCohortId) return true; // 'all' scope
+      if (!targetCohortId) return true;
       return a.cohort_id === targetCohortId;
     });
 
-    // Determine relevant exams for this scope
     let scopedCohortExamIds: string[] = [];
     if (targetCohortId) {
       scopedCohortExamIds = cohortExamIdsMap[targetCohortId] || [];
@@ -200,29 +223,48 @@ export default function UnifiedPerformancePage() {
       return;
     }
 
-    // Group attempts by exam_id
+    // Anti-Cheat: Discover incomplete active exam titles in the student's current batch
+    const activeIncompleteExamTitles = new Set<string>();
+    if (activeCohortId) {
+      const activeIds = cohortExamIdsMap[activeCohortId] || [];
+      const currentActiveExams = rawExams.filter(e => activeIds.includes(e.exam_id) && e.global_status === 'Active');
+      currentActiveExams.forEach(ae => {
+        const attemptsInActive = rawAttempts.filter(a => a.exam_id === ae.exam_id && a.cohort_id === activeCohortId);
+        if (attemptsInActive.length < (ae.max_attempts || 1)) {
+          const normTitle = ae.exam_title.replace(/\s*\(Clone\)\s*/gi, "").trim().toLowerCase();
+          activeIncompleteExamTitles.add(normTitle);
+        }
+      });
+    }
+
     const groupedAttempts: Record<string, any[]> = {};
     scopedAttempts.forEach(a => {
       if (!groupedAttempts[a.exam_id]) groupedAttempts[a.exam_id] = [];
       groupedAttempts[a.exam_id].push(a);
     });
 
-    const consolidatedHistory: any[] = [];
-    const requiredExams = relevantExams.filter(e => 
-      scopedCohortExamIds.includes(e.exam_id) && 
-      e.schedule_end && 
-      e.close_after_deadline && 
-      now > new Date(e.schedule_end)
-    );
+    const consolidatedHistory: PerformanceHistoryItem[] = [];
 
     relevantExams.forEach(exam => {
       const group = groupedAttempts[exam.exam_id];
       const targetScore = exam.passing_percentage || exam.passing_score || 75;
+      const maxAttempts = exam.max_attempts || 1;
 
       const rawCohort = Array.isArray(exam.Exam_Cohorts) ? exam.Exam_Cohorts[0]?.Cohorts : exam.Exam_Cohorts?.Cohorts;
       const cohortDisplay = Array.isArray(rawCohort) ? rawCohort[0] : rawCohort;
       const assignedCohortName = cohortDisplay?.cohort_name || null;
       const assignedCohortStatus = cohortDisplay?.status || null;
+      const isAssignedCohortArchived = assignedCohortStatus === 'Archived';
+
+      const startDate = new Date(exam.schedule_start);
+      const endDate = exam.schedule_end ? new Date(exam.schedule_end) : null;
+      const isDeadlinePassed = Boolean(endDate && exam.close_after_deadline && now > endDate);
+      const isInactive = exam.global_status === 'Inactive';
+
+      // Anti-cheat check: locked if viewing past cohort attempt while current cohort duplicate is unsubmitted
+      const normTitle = exam.exam_title.replace(/\s*\(Clone\)\s*/gi, "").trim().toLowerCase();
+      const isDifferentCohort = targetCohortId !== activeCohortId && targetCohortId !== null;
+      const isReviewLocked = isDifferentCohort && activeIncompleteExamTitles.has(normTitle);
 
       if (group && group.length > 0) {
         const latestAttempt = group[0];
@@ -250,6 +292,13 @@ export default function UnifiedPerformancePage() {
 
         const dateObj = new Date(latestAttempt.completed_at || Date.now());
 
+        // Can student take a retake?
+        const canRetake = !isAssignedCohortArchived && 
+                          !isDeadlinePassed && 
+                          !isInactive && 
+                          group.length < maxAttempts &&
+                          (targetCohortId === activeCohortId || targetCohortId === null);
+
         consolidatedHistory.push({
           id: latestAttempt.attempt_id,
           examId: exam.exam_id,
@@ -260,30 +309,82 @@ export default function UnifiedPerformancePage() {
           date: dateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
           status: finalCalculatedScore >= targetScore ? 'Passed' : 'Needs Review',
           attemptsCount: group.length,
+          maxAttempts,
           gradingLogic: logic,
           targetScore,
           cohortName: assignedCohortName,
           cohortStatus: assignedCohortStatus,
+          canRetake,
+          canTake: false,
+          isReviewLocked,
           itemStats: { correct: correctCount, incorrect: incorrectCount, total: totalItems }
         });
       } else {
-        const isRequiredAndMissed = requiredExams.some(re => re.exam_id === exam.exam_id);
-        if (isRequiredAndMissed) {
-          const examEndDate = new Date(exam.schedule_end);
+        // Exam has 0 attempts in this scope
+        if (isDeadlinePassed || isInactive) {
+          const examEndDate = endDate || new Date();
           consolidatedHistory.push({
             id: `missed-${exam.exam_id}`,
             examId: exam.exam_id,
             name: exam.exam_title || 'Unknown Exam',
             subject: exam.exam_subject || 'General Assessment',
             score: '0%',
-            rawScore: 0, 
+            rawScore: 0,
             date: examEndDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
             status: 'Missed',
             attemptsCount: 0,
+            maxAttempts,
             gradingLogic: exam.grading_logic || 'highest',
             targetScore,
             cohortName: assignedCohortName,
             cohortStatus: assignedCohortStatus,
+            canRetake: false,
+            canTake: false,
+            isReviewLocked: false,
+            itemStats: { correct: 0, incorrect: 0, total: 0 }
+          });
+        } else if (now < startDate) {
+          // Upcoming
+          consolidatedHistory.push({
+            id: `upcoming-${exam.exam_id}`,
+            examId: exam.exam_id,
+            name: exam.exam_title || 'Unknown Exam',
+            subject: exam.exam_subject || 'General Assessment',
+            score: 'Upcoming',
+            rawScore: null,
+            date: startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+            status: 'Upcoming',
+            attemptsCount: 0,
+            maxAttempts,
+            gradingLogic: exam.grading_logic || 'highest',
+            targetScore,
+            cohortName: assignedCohortName,
+            cohortStatus: assignedCohortStatus,
+            canRetake: false,
+            canTake: false,
+            isReviewLocked: false,
+            itemStats: { correct: 0, incorrect: 0, total: 0 }
+          });
+        } else {
+          // Available to take now
+          consolidatedHistory.push({
+            id: `available-${exam.exam_id}`,
+            examId: exam.exam_id,
+            name: exam.exam_title || 'Unknown Exam',
+            subject: exam.exam_subject || 'General Assessment',
+            score: 'Not Attempted',
+            rawScore: null,
+            date: startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+            status: 'Available',
+            attemptsCount: 0,
+            maxAttempts,
+            gradingLogic: exam.grading_logic || 'highest',
+            targetScore,
+            cohortName: assignedCohortName,
+            cohortStatus: assignedCohortStatus,
+            canRetake: false,
+            canTake: true,
+            isReviewLocked: false,
             itemStats: { correct: 0, incorrect: 0, total: 0 }
           });
         }
@@ -292,20 +393,19 @@ export default function UnifiedPerformancePage() {
 
     consolidatedHistory.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    if (consolidatedHistory.length === 0) {
-      setHistoricalAttempts([]);
+    // Compute KPIs strictly on evaluated/graded attempts
+    const evaluatedExams = consolidatedHistory.filter(h => h.rawScore !== null);
+    if (evaluatedExams.length > 0) {
+      const totalScore = evaluatedExams.reduce((acc, curr) => acc + (curr.rawScore || 0), 0);
+      const avg = Math.round(totalScore / evaluatedExams.length);
+      setStats({ completed: evaluatedExams.length, average: avg });
+    } else {
       setStats({ completed: 0, average: 0 });
-      setCohortRank("N/A");
-      return;
     }
 
-    const totalScore = consolidatedHistory.reduce((acc, curr) => acc + (curr.rawScore || 0), 0);
-    const avg = Math.round(totalScore / consolidatedHistory.length);
-
     setHistoricalAttempts(consolidatedHistory);
-    setStats({ completed: consolidatedHistory.length, average: avg });
 
-    // Calculate Cohort Percentile Standing (Scoped strictly to chosen active cohort)
+    // Calculate Cohort Percentile Standing
     const standingCohortId = targetCohortId || activeCohortId;
     let calculatedRank = "N/A";
 
@@ -395,6 +495,18 @@ export default function UnifiedPerformancePage() {
     return cohortOptions.find(c => c.isCurrent);
   }, [cohortOptions]);
 
+  // Filtered rows based on the segmented view toggle
+  const displayedHistory = useMemo(() => {
+    if (viewFilter === 'evaluated') {
+      return historicalAttempts.filter(h => h.rawScore !== null);
+    }
+    return historicalAttempts;
+  }, [historicalAttempts, viewFilter]);
+
+  const evaluatedCount = useMemo(() => {
+    return historicalAttempts.filter(h => h.rawScore !== null).length;
+  }, [historicalAttempts]);
+
   return (
     <div className="space-y-6">
       {/* HEADER SECTION */}
@@ -457,33 +569,61 @@ export default function UnifiedPerformancePage() {
         </div>
       </div>
 
-      {/* EXAM HISTORY MATRIX TABLE */}
+      {/* EXAM HISTORY MATRIX TABLE WITH ACTION LINKS & TOGGLE */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-          <h3 className="font-bold text-base text-slate-700">Exam History Matrix</h3>
-          <span className="text-xs font-bold text-slate-400">
-            {selectedCohortScope === 'all' ? 'All Batches Included' : 'Scoped to Selected Review Batch'}
-          </span>
+        <div className="p-5 border-b border-slate-100 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h3 className="font-bold text-base text-slate-700">Exam History Matrix</h3>
+            <span className="text-xs font-bold text-slate-400">
+              {selectedCohortScope === 'all' ? 'All Batches Included' : 'Scoped to Selected Review Batch'}
+            </span>
+          </div>
+
+          {/* VIEW FILTER SEGMENTED TOGGLE */}
+          <div className="inline-flex bg-slate-200/80 p-1 rounded-lg">
+            <button
+              onClick={() => setViewFilter('evaluated')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                viewFilter === 'evaluated'
+                  ? 'bg-white text-blue-600 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Evaluated Only ({evaluatedCount})
+            </button>
+            <button
+              onClick={() => setViewFilter('all')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                viewFilter === 'all'
+                  ? 'bg-white text-blue-600 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              All Assigned Exams ({historicalAttempts.length})
+            </button>
+          </div>
         </div>
+
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[720px]">
+          <table className="w-full text-left border-collapse min-w-[760px]">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold uppercase text-slate-500 tracking-wider">
                 <th className="p-4">Exam Title</th>
                 <th className="p-4">Final Score</th>
                 <th className="p-4">Date Evaluated</th>
                 <th className="p-4">Status</th>
+                <th className="p-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-              {historicalAttempts.length === 0 ? (
+              {displayedHistory.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-12 text-center text-slate-500 font-bold">
-                    No examination history found for this review batch.
+                  <td colSpan={5} className="p-12 text-center text-slate-500 font-bold">
+                    No examination records found for this review batch.
                   </td>
                 </tr>
               ) : (
-                historicalAttempts.map((exam) => (
+                displayedHistory.map((exam) => (
                   <tr key={exam.id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-4 font-bold text-slate-800">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -500,16 +640,60 @@ export default function UnifiedPerformancePage() {
                         )}
                       </div>
                     </td>
-                    <td className="p-4 font-bold text-slate-700">{exam.score}</td>
+                    <td className="p-4 font-bold text-slate-700">
+                      {exam.rawScore !== null ? exam.score : (
+                        <span className="text-slate-400 text-xs font-bold italic">{exam.score}</span>
+                      )}
+                    </td>
                     <td className="p-4 text-slate-500 font-bold">{exam.date}</td>
                     <td className="p-4">
                       <span className={`inline-block px-3 py-1 rounded text-xs font-bold uppercase tracking-wider ${
                         exam.status === 'Passed' ? 'bg-emerald-50 text-emerald-700' : 
                         exam.status === 'Missed' ? 'bg-rose-50 text-rose-700' : 
-                        'bg-amber-50 text-amber-700'
+                        exam.status === 'Needs Review' ? 'bg-amber-50 text-amber-700' :
+                        exam.status === 'Available' ? 'bg-blue-50 text-blue-700' :
+                        'bg-slate-100 text-slate-600'
                       }`}>
                         {exam.status}
                       </span>
+                    </td>
+                    <td className="p-4 text-right">
+                      {exam.isReviewLocked ? (
+                        <span 
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded text-xs font-bold cursor-not-allowed"
+                          title="Active in current batch. Review locked."
+                        >
+                          Review Locked
+                        </span>
+                      ) : exam.attemptsCount > 0 ? (
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            onClick={() => router.push(`/learner/exams/${exam.examId}/review`)}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-bold rounded-lg transition-colors shadow-2xs"
+                          >
+                            Review
+                          </button>
+                          {exam.canRetake && (
+                            <button
+                              onClick={() => router.push(`/learner/exams/${exam.examId}`)}
+                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors shadow-2xs"
+                            >
+                              Retake
+                            </button>
+                          )}
+                        </div>
+                      ) : exam.canTake ? (
+                        <button
+                          onClick={() => router.push(`/learner/exams/${exam.examId}`)}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors shadow-2xs"
+                        >
+                          Take Exam
+                        </button>
+                      ) : exam.status === 'Upcoming' ? (
+                        <span className="text-xs text-slate-400 font-bold">Locked</span>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-bold">Closed</span>
+                      )}
                     </td>
                   </tr>
                 ))
