@@ -16,6 +16,11 @@ import {
   StudentAttemptScore,
   QuestionDefinition
 } from '@/lib/psychometrics';
+import {
+  exportToCSV,
+  exportToXLSX,
+  exportItemAnalysisPDF
+} from '@/lib/exportUtils';
 
 // --- Types ---
 interface FacultyExam {
@@ -208,9 +213,10 @@ function FacultyExamsContent() {
   const debouncedStudentSearch = useDebounce(studentSearch, 300);
   const [studentStatusFilter, setStudentStatusFilter] = useState('All');
 
-  // Question Analytics Attempt Basis & Collapsible Details
+  // Question Analytics Attempt Basis, Details & Export Dropdown
   const [analyticsAttemptBasis, setAnalyticsAttemptBasis] = useState<'graded' | 'first' | 'all'>('graded');
   const [expandedQuestionDetails, setExpandedQuestionDetails] = useState<Record<string, boolean>>({});
+  const [isItemExportOpen, setIsItemExportOpen] = useState(false);
 
   const toggleQuestionDetails = (id: string) => {
     setExpandedQuestionDetails(prev => ({ ...prev, [id]: !prev[id] }));
@@ -268,6 +274,7 @@ function FacultyExamsContent() {
     setSelectedQuestions([]);
     setSelectedStudentForReview(null);
     setSelectedCompetencyFilter('All');
+    setIsItemExportOpen(false);
     router.replace('/faculty/exams');
   };
 
@@ -299,7 +306,7 @@ function FacultyExamsContent() {
     }
   }, [selectedExam, exams]);
 
-    const fetchFacultyExams = React.useCallback(async () => {
+  const fetchFacultyExams = React.useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
@@ -475,7 +482,7 @@ function FacultyExamsContent() {
     return Array.from(set);
   }, [aiQuestions]);
 
-  // Fetch Gradebook Analytics (1:1 with Exam Cohort)
+  // Fetch Gradebook Analytics
   useEffect(() => {
     const fetchAnalytics = async () => {
       if (!selectedExam || examTab !== 'gradebook') return;
@@ -485,7 +492,6 @@ function FacultyExamsContent() {
       const gradingRule = currentExamConfig?.gradingLogic || 'highest';
       const totalItems = currentExamConfig?.items || 0;
 
-      // 1. Fetch Students belonging to this exam's cohort
       const cohortId = currentExamConfig?.cohortId;
       let students: any[] = [];
       if (cohortId) {
@@ -496,7 +502,6 @@ function FacultyExamsContent() {
         students = studentData || [];
       }
 
-      // 2. Fetch Exam Items
       const { data: rawItems } = await supabase
         .from('Mock Exam Items')
         .select('id, subject, competency, correct_answer, options')
@@ -510,7 +515,6 @@ function FacultyExamsContent() {
         correctAnswer: q.correct_answer || ''
       }));
 
-      // 3. Fetch Student Attempts and Answers
       const { data: attemptsData } = await supabase
         .from('Student Attempts')
         .select('*')
@@ -527,7 +531,6 @@ function FacultyExamsContent() {
         answersData = ans || [];
       }
 
-      // 4. Merge Student Data
       const mergedData = students.map(st => {
         const studentAttempts = (attemptsData || []).filter(a => a.student_id === st.user_id);
         const completedAttempts = studentAttempts.filter(a => a.exam_status?.toLowerCase() === 'completed');
@@ -788,6 +791,154 @@ function FacultyExamsContent() {
     return questionAnalytics.filter(qa => qa.topic === selectedCompetencyFilter);
   }, [questionAnalytics, selectedCompetencyFilter]);
 
+  // --- ITEM ANALYSIS EXPORT HANDLERS ---
+  const handleExportItemAnalysisCSV = () => {
+    if (!questionAnalytics || questionAnalytics.length === 0) {
+      addToast('No item analysis data available to export.', 'error');
+      return;
+    }
+
+    const rows = questionAnalytics.map((qa, idx) => {
+      const correctOpt = qa.options.find((o: any) => o.isCorrect);
+      const nfdOpts = qa.options
+        .filter((o: any) => o.isNonFunctional)
+        .map((o: any) => o.text)
+        .join('; ');
+
+      return {
+        'Item Number': idx + 1,
+        'Question Prompt': qa.question,
+        'Competency Cluster': qa.topic,
+        'Examinees Evaluated': qa.totalAnswers,
+        'Facility Index (P)': qa.facilityIndex,
+        'Facility Classification': qa.facilityLabel,
+        'Discrimination Index (D)': qa.discriminationIndex,
+        'Discrimination Classification': qa.discriminationLabel,
+        'Psychometric Status': qa.status,
+        'Diagnostic Message': qa.statusMessage,
+        'Correct Answer Key': correctOpt ? correctOpt.text : 'N/A',
+        'Non-Functional Distractors (<5%)': nfdOpts || 'None'
+      };
+    });
+
+    const safeTitle = (currentExam?.title || 'Exam').replace(/\s+/g, '_');
+    exportToCSV(`${safeTitle}_Item_Analysis`, rows);
+    setIsItemExportOpen(false);
+    addToast('Item Analysis exported to CSV.', 'success');
+  };
+
+  const handleExportItemAnalysisXLSX = () => {
+    if (!questionAnalytics || questionAnalytics.length === 0) {
+      addToast('No item analysis data available to export.', 'error');
+      return;
+    }
+
+    const totalExaminees = questionAnalytics[0]?.totalAnswers || 0;
+    const meanP = Number(
+      (questionAnalytics.reduce((acc, q) => acc + q.facilityIndex, 0) / questionAnalytics.length).toFixed(3)
+    );
+    const meanD = Number(
+      (questionAnalytics.reduce((acc, q) => acc + q.discriminationIndex, 0) / questionAnalytics.length).toFixed(3)
+    );
+
+    // Sheet 1: Exam Context & Reliability Summary
+    const summaryData = [
+      { Metric: 'Exam Title', Value: currentExam?.title || 'N/A' },
+      { Metric: 'Target Subject Domain', Value: currentExam?.target || 'N/A' },
+      { Metric: 'Assigned Batch / Cohort', Value: currentExam?.cohortName || 'N/A' },
+      { Metric: 'Total Questions Evaluated', Value: questionAnalytics.length },
+      { Metric: 'Total Examinees Scored', Value: totalExaminees },
+      { Metric: 'Attempt Evaluation Rule', Value: analyticsAttemptBasis },
+      { Metric: 'KR-20 Reliability Coefficient', Value: kr20Reliability !== null ? kr20Reliability : 'Insufficient data (<4 examinees)' },
+      { Metric: 'Mean Facility Index (P)', Value: meanP },
+      { Metric: 'Mean Discrimination Index (D)', Value: meanD },
+      { Metric: 'Report Generation Timestamp', Value: new Date().toLocaleString() }
+    ];
+
+    // Sheet 2: CTT Question Item Matrix
+    const itemsData = questionAnalytics.map((qa, idx) => ({
+      'Item #': idx + 1,
+      'Question Prompt': qa.question,
+      'Competency Cluster': qa.topic,
+      'Examinee Responses': qa.totalAnswers,
+      'Facility Index (P)': qa.facilityIndex,
+      'Difficulty Classification': qa.facilityLabel,
+      'Discrimination Index (D)': qa.discriminationIndex,
+      'Discrimination Classification': qa.discriminationLabel,
+      'Diagnostic Flag': qa.status,
+      'Psychometric Feedback': qa.statusMessage
+    }));
+
+    // Sheet 3: Distractor Diagnostic Breakdown
+    const distractorData: any[] = [];
+    questionAnalytics.forEach((qa, idx) => {
+      qa.options.forEach((opt: any, optIdx: number) => {
+        distractorData.push({
+          'Item #': idx + 1,
+          'Option Letter': String.fromCharCode(65 + optIdx),
+          'Option Text': opt.text,
+          'Selection Count': opt.count,
+          'Selection Percentage': `${opt.percent}%`,
+          'Answer Key': opt.isCorrect ? 'CORRECT KEY' : 'DISTRACTOR',
+          'Non-Functional Distractor': opt.isNonFunctional ? 'YES (NFD <5%)' : 'NO (Functional)'
+        });
+      });
+    });
+
+    const safeTitle = (currentExam?.title || 'Exam').replace(/\s+/g, '_');
+    exportToXLSX(`${safeTitle}_Item_Analysis`, [
+      { sheetName: 'Test Summary & KR-20', data: summaryData },
+      { sheetName: 'Item Analysis Matrix', data: itemsData },
+      { sheetName: 'Distractor Diagnostics', data: distractorData }
+    ]);
+
+    setIsItemExportOpen(false);
+    addToast('Item Analysis workbook exported to XLSX.', 'success');
+  };
+
+  const handleExportItemAnalysisPDF = () => {
+    if (!questionAnalytics || questionAnalytics.length === 0) {
+      addToast('No item analysis data available to export.', 'error');
+      return;
+    }
+
+    const totalExaminees = questionAnalytics[0]?.totalAnswers || 0;
+    const meanP = Number(
+      (questionAnalytics.reduce((acc, q) => acc + q.facilityIndex, 0) / questionAnalytics.length).toFixed(3)
+    );
+    const meanD = Number(
+      (questionAnalytics.reduce((acc, q) => acc + q.discriminationIndex, 0) / questionAnalytics.length).toFixed(3)
+    );
+
+    const pdfPayload = {
+      examTitle: currentExam?.title || 'Mock Examination',
+      subject: currentExam?.target || 'General Scope',
+      cohortName: currentExam?.cohortName || 'Active Cohort',
+      generatedDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      metrics: {
+        totalExaminees,
+        totalItems: questionAnalytics.length,
+        kr20Reliability: kr20Reliability ?? 0,
+        meanFacilityIndex: meanP,
+        meanDiscriminationIndex: meanD
+      },
+      items: questionAnalytics.map((qa, idx) => ({
+        itemNumber: idx + 1,
+        questionText: qa.question || '',
+        domain: currentExam?.target || 'General Scope',
+        competency: qa.topic || 'General Competency',
+        facilityIndex: qa.facilityIndex || 0,
+        discriminationIndex: qa.discriminationIndex || 0,
+        status: qa.status || 'ACCEPTABLE'
+      }))
+    };
+
+    const safeTitle = (currentExam?.title || 'Exam').replace(/\s+/g, '_');
+    exportItemAnalysisPDF(`${safeTitle}_Item_Analysis`, pdfPayload);
+    setIsItemExportOpen(false);
+    addToast('Psychometric Item Audit exported to PDF.', 'success');
+  };
+
   const handleOpenSettings = (exam: FacultyExam) => {
     if (exam.status === 'Generating') return;
     setSelectedExam(exam.id);
@@ -826,7 +977,6 @@ function FacultyExamsContent() {
   const handleOpenDuplicateModal = (exam: FacultyExam) => {
     setDuplicateModalExam(exam);
     setDuplicateTitle(`${exam.title} (Clone)`);
-    // Default to an alternative active cohort in the institution if available, or the current cohort
     const alternativeCohort = allActiveCohorts.find(c => c.id !== exam.cohortId);
     setDuplicateTargetCohort(alternativeCohort ? alternativeCohort.id : (exam.cohortId || allActiveCohorts[0]?.id || ''));
     setDuplicateStartDate(exam.scheduleStart || '');
@@ -846,7 +996,6 @@ function FacultyExamsContent() {
       const startUTC = localToUTC(duplicateStartDate);
       const endUTC = localToUTC(duplicateEndDate);
 
-      // 1. Insert new Exam instance with references included
       const { data: newExam, error: examError } = await supabase
         .from('Exams')
         .insert([{
@@ -869,14 +1018,12 @@ function FacultyExamsContent() {
 
       if (examError || !newExam) throw new Error(examError?.message || 'Failed to create cloned exam.');
 
-      // 2. Link strictly 1:1 to target cohort
       const { error: linkError } = await supabase
         .from('Exam_Cohorts')
         .insert([{ exam_id: newExam.exam_id, cohort_id: duplicateTargetCohort }]);
 
       if (linkError) throw new Error(linkError.message);
 
-      // 3. Deep-copy all questions to the new exam session ID
       const { data: sourceItems, error: itemsFetchError } = await supabase
         .from('Mock Exam Items')
         .select('*')
@@ -959,7 +1106,6 @@ function FacultyExamsContent() {
       return;
     }
 
-    // 1:1 Cohort Assignment Update
     const { error: deleteError } = await supabase.from('Exam_Cohorts').delete().eq('exam_id', selectedExam);
     if (!deleteError) {
       await supabase.from('Exam_Cohorts').insert([{ exam_id: selectedExam, cohort_id: editSelectedCohort }]);
@@ -992,9 +1138,9 @@ function FacultyExamsContent() {
     addToast('Exam settings & cohort assignment successfully updated.', 'success');
   };
 
-  const exportToCSV = () => {
+  const exportGradebookCSV = () => {
     if (!filteredStudents || filteredStudents.length === 0) {
-      addToast('No analytics data to export.', 'error');
+      addToast('No gradebook analytics to export.', 'error');
       return;
     }
     const headers = ['Student Name', 'Cohort', 'Status', 'Score (%)', 'Attempts', 'Latest Date Taken'];
@@ -1304,7 +1450,6 @@ function FacultyExamsContent() {
   const handlePullFromVault = async (itemToReplace: ValidationItem) => {
     setRegeneratingItems(prev => [...prev, itemToReplace.id]);
 
-    // 1. Fetch approved candidate questions from other exams matching competency
     const { data, error } = await supabase
       .from('Mock Exam Items')
       .select('id, question, options, correct_answer, rationale, citations, exam_session_id')
@@ -1319,7 +1464,6 @@ function FacultyExamsContent() {
       return;
     }
 
-    // 2. Filter out questions that already exist in this current exam
     const currentExamTexts = new Set(aiQuestions.map(q => q.question.trim().toLowerCase()));
     const availableCandidates = data.filter(
       item => !currentExamTexts.has(item.question.trim().toLowerCase())
@@ -1331,7 +1475,6 @@ function FacultyExamsContent() {
       return;
     }
 
-    // 3. Deduplicate across cloned exams so duplicates collapse to a single candidate
     const uniqueVaultMap = new Map<string, any>();
     availableCandidates.forEach(item => {
       const normalized = item.question.trim().toLowerCase();
@@ -2041,7 +2184,7 @@ function FacultyExamsContent() {
                       <h2 className="text-xl font-bold text-slate-800">Gradebook</h2>
                       <p className="text-sm text-slate-500 font-bold mt-1">Review student progress, scores, and completed attempt logs.</p>
                     </div>
-                    <button onClick={exportToCSV} className="px-4 py-2 border border-slate-300 text-slate-900 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-2">
+                    <button onClick={exportGradebookCSV} className="px-4 py-2 border border-slate-300 text-slate-900 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-2">
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                       Export Gradebook CSV
                     </button>
@@ -2217,6 +2360,63 @@ function FacultyExamsContent() {
                       ))}
                     </select>
                   )}
+
+                  {/* MULTI-FORMAT EXPORT ANALYTICS DROPDOWN */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsItemExportOpen(!isItemExportOpen)}
+                      className="w-full sm:w-auto px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center justify-between sm:justify-start gap-2 shrink-0"
+                    >
+                      <svg className="w-4 h-4 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      <span>Export Analysis</span>
+                      <svg className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isItemExportOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+
+                    {isItemExportOpen && (
+                      <>
+                        <div className="fixed inset-0 z-20" onClick={() => setIsItemExportOpen(false)}></div>
+                        <div className="absolute right-0 top-full mt-1.5 w-52 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1.5 animate-in fade-in slide-in-from-top-1">
+                          <button
+                            type="button"
+                            onClick={handleExportItemAnalysisCSV}
+                            className="w-full text-left px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition-colors"
+                          >
+                            <span className="w-5 h-5 rounded bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-black border border-slate-200">
+                              CSV
+                            </span>
+                            <span>Export as CSV</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleExportItemAnalysisXLSX}
+                            className="w-full text-left px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 flex items-center gap-2.5 transition-colors"
+                          >
+                            <span className="w-5 h-5 rounded bg-emerald-100 text-emerald-700 flex items-center justify-center text-[10px] font-black border border-emerald-200">
+                              XLS
+                            </span>
+                            <span>Export as Excel (XLSX)</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleExportItemAnalysisPDF}
+                            className="w-full text-left px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-rose-50 hover:text-rose-800 flex items-center gap-2.5 transition-colors"
+                          >
+                            <span className="w-5 h-5 rounded bg-rose-100 text-rose-700 flex items-center justify-center text-[10px] font-black border border-rose-200">
+                              PDF
+                            </span>
+                            <span>Export as PDF Report</span>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -2477,10 +2677,10 @@ function FacultyExamsContent() {
                     onChange={(e) => setDuplicateTargetCohort(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 focus:outline-none focus:border-indigo-500 bg-white"
                   >
-                    {allActiveCohorts.length === 0 ? (
-                      <option value="" disabled>No active cohorts available across the institution</option>
+                    {activeTeacherCohorts.length === 0 ? (
+                      <option value="" disabled>No active cohorts available</option>
                     ) : (
-                      allActiveCohorts.map(c => (
+                      activeTeacherCohorts.map(c => (
                         <option key={c.id} value={c.id}>
                           {c.name} {c.id === duplicateModalExam.cohortId ? '(Current)' : ''}
                         </option>
@@ -2488,7 +2688,7 @@ function FacultyExamsContent() {
                     )}
                   </select>
                   <p className="text-[11px] text-slate-500 font-bold mt-1">
-                    Select any active cohort in the review center to deploy an independent copy with fresh attempt limits.
+                    Creates an independent deployment and clones all questions so retakers receive fresh attempt limits.
                   </p>
                 </div>
 
@@ -2645,7 +2845,6 @@ function FacultyExamsContent() {
                   </button>
                 ) : (
                   <>
-{/* Keep: Review / Questions */}
                     <button
                       type="button"
                       onClick={() => handleOpenQuestionsOrResults(exam)}
@@ -2665,7 +2864,6 @@ function FacultyExamsContent() {
                         : 'View Questions'}
                     </button>
 
-                    {/* Keep: Gradebook */}
                     {exam.status !== 'Pending' && (
                       <button
                         type="button"
@@ -2679,7 +2877,6 @@ function FacultyExamsContent() {
                       </button>
                     )}
 
-                    {/* Keep: Manage Exam */}
                     <button
                       type="button"
                       onClick={() => handleOpenSettings(exam)}

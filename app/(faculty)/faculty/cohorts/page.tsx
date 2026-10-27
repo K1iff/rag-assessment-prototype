@@ -13,6 +13,11 @@ import {
   StudentAttemptScore,
   CohortWeakSpot
 } from '@/lib/psychometrics';
+import {
+  exportToCSV,
+  exportToXLSX,
+  exportCohortAnalyticsPDF
+} from '@/lib/exportUtils';
 
 interface CohortSummary {
   cohort_id: string;
@@ -78,6 +83,10 @@ interface StudentReadinessEntry {
   rawAverage: number;
   tosWeightedScore: number;
   readinessStatus: 'Projected Pass' | 'At Risk' | 'No Attempts';
+  assessmentScore: number;
+  abnormalScore: number;
+  ioScore: number;
+  devScore: number;
 }
 
 export default function FacultyCohortsPage() {
@@ -105,7 +114,7 @@ export default function FacultyCohortsPage() {
   const [modalSubjectFilter, setModalSubjectFilter] = useState('All');
   const [isSubmittingAssignment, setIsSubmittingAssignment] = useState(false);
 
-  // Macro Cohort Analytics States
+  // Macro Cohort Analytics States & Export Dropdown
   const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
   const [cohortTOSPassRate, setCohortTOSPassRate] = useState<number>(0);
   const [cohortAvgTOS, setCohortAvgTOS] = useState<number>(0);
@@ -113,6 +122,7 @@ export default function FacultyCohortsPage() {
   const [cohortWeakSpots, setCohortWeakSpots] = useState<CohortWeakSpot[]>([]);
   const [studentReadinessList, setStudentReadinessList] = useState<StudentReadinessEntry[]>([]);
   const [rosterSearch, setRosterSearch] = useState('');
+  const [isCohortExportOpen, setIsCohortExportOpen] = useState(false);
 
   // Fetch all cohorts assigned to this teacher
   const fetchTeacherCohorts = async () => {
@@ -225,7 +235,11 @@ export default function FacultyCohortsPage() {
           completedExams: 0,
           rawAverage: 0,
           tosWeightedScore: 0,
-          readinessStatus: 'No Attempts'
+          readinessStatus: 'No Attempts',
+          assessmentScore: 0,
+          abnormalScore: 0,
+          ioScore: 0,
+          devScore: 0
         })));
         setIsAnalyticsLoading(false);
         return;
@@ -289,7 +303,11 @@ export default function FacultyCohortsPage() {
             completedExams: 0,
             rawAverage: 0,
             tosWeightedScore: 0,
-            readinessStatus: 'No Attempts'
+            readinessStatus: 'No Attempts',
+            assessmentScore: 0,
+            abnormalScore: 0,
+            ioScore: 0,
+            devScore: 0
           };
         }
 
@@ -348,6 +366,32 @@ export default function FacultyCohortsPage() {
         evaluatedStudentsCount += 1;
         if (studentAvgTOS >= 75.0) passingStudentsCount += 1;
 
+        // Compute individual domain scores across qualifying exam attempts
+        const studentDomainTally: Record<string, { correct: number; total: number }> = {
+          'Psychological Assessment': { correct: 0, total: 0 },
+          'Abnormal Psychology': { correct: 0, total: 0 },
+          'Industrial-Organizational Psychology': { correct: 0, total: 0 },
+          'Developmental Psychology': { correct: 0, total: 0 },
+        };
+
+        qualifyingExamScores.forEach(q => {
+          const qAttemptAnswers = answersData.filter(a => a.attempt_id === q.attempt.attempt_id);
+          qAttemptAnswers.forEach(ans => {
+            const qDef = questionDefs.find(item => item.id === ans.question_id);
+            if (qDef && studentDomainTally[qDef.subject]) {
+              studentDomainTally[qDef.subject].total += 1;
+              if (ans.is_correct) {
+                studentDomainTally[qDef.subject].correct += 1;
+              }
+            }
+          });
+        });
+
+        const getDomainScore = (domainName: string) => {
+          const d = studentDomainTally[domainName];
+          return d && d.total > 0 ? Math.round((d.correct / d.total) * 100) : 0;
+        };
+
         return {
           userId: student.user_id,
           name: student.name,
@@ -355,7 +399,11 @@ export default function FacultyCohortsPage() {
           completedExams: qualifyingExamScores.length,
           rawAverage: studentAvgRaw,
           tosWeightedScore: studentAvgTOS,
-          readinessStatus: studentAvgTOS >= 75.0 ? 'Projected Pass' : 'At Risk'
+          readinessStatus: studentAvgTOS >= 75.0 ? 'Projected Pass' : 'At Risk',
+          assessmentScore: getDomainScore('Psychological Assessment'),
+          abnormalScore: getDomainScore('Abnormal Psychology'),
+          ioScore: getDomainScore('Industrial-Organizational Psychology'),
+          devScore: getDomainScore('Developmental Psychology'),
         };
       });
 
@@ -423,6 +471,133 @@ export default function FacultyCohortsPage() {
     } finally {
       setIsAnalyticsLoading(false);
     }
+  };
+
+  // --- COHORT ANALYTICS EXPORT HANDLERS ---
+  const handleExportCohortCSV = () => {
+    if (!studentReadinessList || studentReadinessList.length === 0) {
+      addToast('No cohort analytics data available to export.', 'error');
+      return;
+    }
+
+    const rows = studentReadinessList.map(s => ({
+      'Student Name': s.name,
+      'Email Address': s.email,
+      'Completed Exams': s.completedExams,
+      'Raw Average (%)': s.completedExams > 0 ? `${s.rawAverage}%` : 'N/A',
+      'TOS Weighted Score (%)': s.completedExams > 0 ? `${s.tosWeightedScore}%` : 'N/A',
+      'Psych Assessment (40%)': s.completedExams > 0 ? `${s.assessmentScore}%` : 'N/A',
+      'Abnormal Psych (20%)': s.completedExams > 0 ? `${s.abnormalScore}%` : 'N/A',
+      'I/O Psych (20%)': s.completedExams > 0 ? `${s.ioScore}%` : 'N/A',
+      'Dev Psych (20%)': s.completedExams > 0 ? `${s.devScore}%` : 'N/A',
+      'Licensure Readiness Status': s.readinessStatus
+    }));
+
+    const safeTitle = (selectedCohort?.cohort_name || 'Cohort').replace(/\s+/g, '_');
+    exportToCSV(`${safeTitle}_Readiness_Roster`, rows);
+    setIsCohortExportOpen(false);
+    addToast('Cohort Readiness exported to CSV.', 'success');
+  };
+
+  const handleExportCohortXLSX = () => {
+    if (!studentReadinessList || studentReadinessList.length === 0) {
+      addToast('No cohort analytics data available to export.', 'error');
+      return;
+    }
+
+    // Sheet 1: Cohort Summary
+    const summarySheet = [
+      { Metric: 'Cohort Name', Value: selectedCohort?.cohort_name || 'N/A' },
+      { Metric: 'Cohort Lifecycle Status', Value: selectedCohort?.status || 'Active' },
+      { Metric: 'Total Enrolled Examinees', Value: students.length },
+      { Metric: 'Assigned Examinations', Value: exams.length },
+      { Metric: 'Assigned Reference Materials', Value: assignedMaterials.length },
+      { Metric: 'Projected BLEPP Pass Rate (≥75%)', Value: `${cohortTOSPassRate}%` },
+      { Metric: 'Cohort Average TOS Score', Value: `${cohortAvgTOS}%` },
+      { Metric: 'Generated Date', Value: new Date().toLocaleString() }
+    ];
+
+    // Sheet 2: Student Readiness Roster
+    const rosterSheet = studentReadinessList.map(s => ({
+      'Student Name': s.name,
+      'Email Address': s.email,
+      'Completed Exams': s.completedExams,
+      'Raw Average (%)': s.completedExams > 0 ? s.rawAverage : 0,
+      'TOS Weighted Score (%)': s.completedExams > 0 ? s.tosWeightedScore : 0,
+      'Psych Assessment (40%)': s.completedExams > 0 ? s.assessmentScore : 0,
+      'Abnormal Psych (20%)': s.completedExams > 0 ? s.abnormalScore : 0,
+      'I/O Psych (20%)': s.completedExams > 0 ? s.ioScore : 0,
+      'Dev Psych (20%)': s.completedExams > 0 ? s.devScore : 0,
+      'Readiness Status': s.readinessStatus
+    }));
+
+    // Sheet 3: Domain Mastery
+    const domainSheet = Object.entries(domainBreakdown).map(([domain, data]) => ({
+      'BLEPP Regulatory Domain': domain,
+      'Official TOS Weight (%)': `${data.weight}%`,
+      'Cohort Aggregate Accuracy (%)': `${data.accuracy}%`,
+      'Total Items Evaluated': data.totalItems,
+      'Mastery Classification': data.accuracy >= 75 ? 'Mastery (≥75%)' : data.accuracy >= 60 ? 'Competent' : 'Critical Deficit (<60%)'
+    }));
+
+    // Sheet 4: Weak Spots
+    const weakSpotsSheet = cohortWeakSpots.map((spot, idx) => ({
+      'Priority Rank': `#${idx + 1}`,
+      'Competency Cluster': spot.competency,
+      'Regulatory Subject': spot.subject,
+      'Cohort Accuracy (%)': `${spot.accuracy}%`,
+      'Recommended Remedial Action': spot.recommendedAction
+    }));
+
+    const safeTitle = (selectedCohort?.cohort_name || 'Cohort').replace(/\s+/g, '_');
+    exportToXLSX(`${safeTitle}_Cohort_Analytics`, [
+      { sheetName: 'Cohort Summary & KPIs', data: summarySheet },
+      { sheetName: 'Student Readiness Roster', data: rosterSheet },
+      { sheetName: 'Domain Mastery', data: domainSheet },
+      { sheetName: 'Remedial Agenda', data: weakSpotsSheet }
+    ]);
+
+    setIsCohortExportOpen(false);
+    addToast('Cohort Analytics exported to Excel (XLSX).', 'success');
+  };
+
+  const handleExportCohortPDF = () => {
+    if (!studentReadinessList || studentReadinessList.length === 0) {
+      addToast('No cohort analytics data available to export.', 'error');
+      return;
+    }
+
+    const evaluatedStudents = studentReadinessList.filter(s => s.completedExams > 0);
+    const boardReadyCount = evaluatedStudents.filter(s => s.readinessStatus === 'Projected Pass').length;
+    const readyPercentage = evaluatedStudents.length > 0 ? (boardReadyCount / evaluatedStudents.length) * 100 : 0;
+
+    const payload = {
+      cohortName: selectedCohort?.cohort_name || 'Cohort',
+      status: selectedCohort?.status || 'Active',
+      generatedDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      metrics: {
+        totalStudents: students.length,
+        boardReadyCount,
+        readyPercentage,
+        cohortAverage: cohortAvgTOS
+      },
+      students: studentReadinessList.map(s => ({
+        name: s.name,
+        email: s.email,
+        attemptsCount: s.completedExams,
+        compositeScore: s.tosWeightedScore,
+        assessmentScore: s.assessmentScore,
+        abnormalScore: s.abnormalScore,
+        ioScore: s.ioScore,
+        devScore: s.devScore,
+        readinessStatus: (s.readinessStatus === 'Projected Pass' ? 'Ready' : 'Not Ready') as 'Ready' | 'Not Ready'
+      }))
+    };
+
+    const safeTitle = (selectedCohort?.cohort_name || 'Cohort').replace(/\s+/g, '_');
+    exportCohortAnalyticsPDF(`${safeTitle}_Licensure_Readiness_Report`, payload);
+    setIsCohortExportOpen(false);
+    addToast('Cohort Licensure Audit exported to PDF.', 'success');
   };
 
   // Fetch details when a cohort is selected
@@ -940,6 +1115,73 @@ export default function FacultyCohortsPage() {
                 </div>
               ) : (
                 <>
+                  {/* ANALYTICS HEADER & EXPORT TOOLBAR */}
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-2 border-b border-slate-100">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-800">Batch Performance &amp; Readiness Overview</h3>
+                      <p className="text-xs text-slate-500 font-bold mt-0.5">
+                        Comprehensive Table of Specifications evaluation, domain mastery spread, and institutional export.
+                      </p>
+                    </div>
+
+                    {/* MULTI-FORMAT EXPORT BUTTON */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setIsCohortExportOpen(!isCohortExportOpen)}
+                        className="w-full sm:w-auto px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center justify-between sm:justify-start gap-2 shrink-0"
+                      >
+                        <svg className="w-4 h-4 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        <span>Export Cohort Report</span>
+                        <svg className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isCohortExportOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+
+                      {isCohortExportOpen && (
+                        <>
+                          <div className="fixed inset-0 z-20" onClick={() => setIsCohortExportOpen(false)}></div>
+                          <div className="absolute right-0 top-full mt-1.5 w-52 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1.5 animate-in fade-in slide-in-from-top-1">
+                            <button
+                              type="button"
+                              onClick={handleExportCohortCSV}
+                              className="w-full text-left px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition-colors"
+                            >
+                              <span className="w-5 h-5 rounded bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-black border border-slate-200">
+                                CSV
+                              </span>
+                              <span>Export Roster CSV</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={handleExportCohortXLSX}
+                              className="w-full text-left px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 flex items-center gap-2.5 transition-colors"
+                            >
+                              <span className="w-5 h-5 rounded bg-emerald-100 text-emerald-700 flex items-center justify-center text-[10px] font-black border border-emerald-200">
+                                XLS
+                              </span>
+                              <span>Export Workbook (XLSX)</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={handleExportCohortPDF}
+                              className="w-full text-left px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-rose-50 hover:text-rose-800 flex items-center gap-2.5 transition-colors"
+                            >
+                              <span className="w-5 h-5 rounded bg-rose-100 text-rose-700 flex items-center justify-center text-[10px] font-black border border-rose-200">
+                                PDF
+                              </span>
+                              <span>Export Audit PDF</span>
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
                       <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
@@ -1086,7 +1328,7 @@ export default function FacultyCohortsPage() {
                   <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                       <div>
-                        <h3 className="text-base font-bold text-slate-800">Student Pre-Qualification & Licensure Readiness</h3>
+                        <h3 className="text-base font-bold text-slate-800">Student Pre-Qualification &amp; Licensure Readiness</h3>
                         <p className="text-xs text-slate-500 font-bold">Monitor student-level completion, raw averages, and TOS board predictions.</p>
                       </div>
 
