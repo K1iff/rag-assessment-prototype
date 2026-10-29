@@ -5,8 +5,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useIngestion } from '@/hooks/useIngestion'; 
 import { useToast } from '@/components/ui/ToastContext';
-import { GlobalTable, GlobalPagination, ColumnDef } from '@/components/ui/GlobalTable';
-
 
 interface DomainSetting {
   id: string;
@@ -24,7 +22,6 @@ const BLEPP_SUBJECTS = [
 
 const DOCS_PER_PAGE = 10;
 const SETTINGS_PER_PAGE = 10;
-const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB Supabase storage ceiling
 
 export default function AdminRagPage() {
   // Top-level Navigation Switcher
@@ -225,21 +222,6 @@ export default function AdminRagPage() {
     setDocPage(1);
   }, [docSearchQuery, activeTab]);
 
-  // Client-Side File Size Validation Guard
-  const validateAndSetFile = (file: File): boolean => {
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
-      const errorMsg = `File size (${sizeMB} MB) exceeds the 50 MB storage limit. Please compress the file or choose a smaller document.`;
-      setUploadError(errorMsg);
-      addToast(errorMsg, 'error');
-      setSelectedFile(null);
-      return false;
-    }
-    setUploadError('');
-    setSelectedFile(file);
-    return true;
-  };
-
   const handleReview = async (path: string) => {
     if (!path) {
       addToast('No storage path found for this document.', 'error');
@@ -347,15 +329,6 @@ export default function AdminRagPage() {
   const submitDirectAdminUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile) return;
-
-    if (selectedFile.size > MAX_FILE_SIZE_BYTES) {
-      const sizeMB = (selectedFile.size / (1024 * 1024)).toFixed(1);
-      const errorMsg = `Upload blocked: File size (${sizeMB} MB) exceeds the 50 MB storage limit.`;
-      setUploadError(errorMsg);
-      addToast(errorMsg, 'error');
-      return;
-    }
-
     setIsUploading(true);
 
     try {
@@ -399,159 +372,6 @@ export default function AdminRagPage() {
   };
 
   // Open Details Modal and sync subject state
-    const columnsDocs: ColumnDef<any>[] = [
-    {
-      header: 'Filename and Size',
-      cell: (doc) => (
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 shrink-0 border border-blue-100 shadow-inner">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="flex flex-col min-w-0">
-            <span className="font-bold text-slate-800 truncate">{doc.title}</span>
-            <span className="text-[11px] text-slate-500 font-bold">{doc.size_bytes ? (doc.size_bytes / 1024).toFixed(1) + ' KB' : 'Unknown Size'}</span>
-          </div>
-        </div>
-      )
-    },
-    {
-      header: 'Requested By',
-      cell: (doc) => (
-        <div className="flex flex-col min-w-0">
-          <span className="font-bold text-slate-700 truncate">{doc.faculty?.name || 'Admin Upload'}</span>
-          <span className="text-[10px] text-slate-500 font-bold truncate">{doc.faculty?.email || 'N/A'}</span>
-        </div>
-      )
-    },
-    {
-      header: 'BLEPP Subject',
-      cell: (doc) => (
-        <span className="inline-block px-2.5 py-1 bg-slate-100 border border-slate-200 rounded text-[11px] font-bold text-slate-700 whitespace-nowrap">
-          {doc.subject || doc.tags?.[0] || 'Uncategorized'}
-        </span>
-      )
-    },
-    {
-      header: 'Pipeline Status',
-      cell: (doc) => (
-        <div className="flex items-center gap-2">
-          <span className={`inline-flex items-center justify-center w-2 h-2 rounded-full ${doc.status === 'Available' ? 'bg-emerald-500' : doc.status === 'Processing' ? 'bg-amber-400 animate-pulse' : 'bg-slate-300'}`}></span>
-          <span className={`font-bold text-xs uppercase tracking-wider ${doc.status === 'Available' ? 'text-emerald-700' : doc.status === 'Processing' ? 'text-amber-700' : 'text-slate-500'}`}>
-            {doc.status}
-          </span>
-        </div>
-      )
-    },
-    {
-      header: 'Actions',
-      className: 'text-right whitespace-nowrap',
-      cell: (doc) => (
-        <div className="inline-flex gap-2 justify-end w-full">
-          {doc.status === 'Pending' ? (
-            <>
-              <button
-                onClick={() => handleReview(doc.file_path)}
-                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100"
-                title="Review File"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-              </button>
-              <button
-                onClick={() => handleApproveAndProcess(doc.id, doc.file_path, doc.subject || BLEPP_SUBJECTS[0], doc.title)}
-                className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors border border-transparent hover:border-emerald-100"
-                title="Approve & Process"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </button>
-              <button
-                onClick={() => setRejectModal(doc.id)}
-                className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors border border-transparent hover:border-rose-100"
-                title="Reject Request"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => handleOpenDetails(doc)}
-                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100"
-                title="Inspect Document Metadata"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </button>
-              {doc.status === 'Available' && (
-                <button
-                  onClick={() => {
-                    setDeleteModal({ id: doc.id, title: doc.title, path: doc.file_path, status: doc.status });
-                    setArchiveCountdown(5);
-                  }}
-                  className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors border border-transparent hover:border-rose-100"
-                  title="Archive Document"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-                  </svg>
-                </button>
-              )}
-            </>
-          )}
-        </div>
-      )
-    }
-  ];
-
-  const columnsSettings: ColumnDef<any>[] = [
-    {
-      header: 'Setting / Operational Context',
-      cell: (setting) => (
-        <div className="flex flex-col min-w-0 pr-4">
-          <span className="font-bold text-slate-800 line-clamp-2 leading-relaxed">{setting.description}</span>
-        </div>
-      )
-    },
-    {
-      header: 'Target Subject',
-      cell: (setting) => (
-        <span className="inline-block px-2.5 py-1 bg-slate-100 border border-slate-200 rounded text-[11px] font-bold text-slate-700 whitespace-nowrap">
-          {setting.subject || 'All Subjects'}
-        </span>
-      )
-    },
-    {
-      header: 'Date Added',
-      cell: (setting) => <span className="font-bold text-slate-500 text-xs">{new Date(setting.created_at).toLocaleDateString()}</span>
-    },
-    {
-      header: 'Actions',
-      className: 'text-right whitespace-nowrap',
-      cell: (setting) => (
-        <div className="inline-flex justify-end w-full">
-          <button
-            onClick={() => { setDeleteSettingModal(setting); setSettingDeleteCountdown(5); }}
-            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors border border-transparent hover:border-rose-100"
-            title="Delete Setting"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
-        </div>
-      )
-    }
-  ];
-
   const handleOpenDetails = (file: any) => {
     setViewDetailsModal(file);
     const initialSubject = file.subject || (file.tags && file.tags[0]) || BLEPP_SUBJECTS[0];
@@ -580,6 +400,7 @@ export default function AdminRagPage() {
         'Info'
       );
 
+      // Update local state in requests array
       setRequests(prev => prev.map(r => r.id === viewDetailsModal.id ? {
         ...r,
         subject: editModalSubject,
@@ -823,23 +644,163 @@ export default function AdminRagPage() {
 
           {/* Documents Table */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <GlobalTable
-              data={paginatedDocFiles}
-              columns={columnsDocs}
-              keyExtractor={(item) => item.id}
-              isLoading={isLoading}
-              loadingMessage="Scanning vector database..."
-              emptyMessage="No documents found matching your search."
-            />
-            {filteredDocFiles.length > 0 && !isLoading && (
-              <GlobalPagination
-                currentPage={docPage}
-                totalPages={Math.ceil(filteredDocFiles.length / DOCS_PER_PAGE)}
-                totalItems={getBaseVisibleFiles().length}
-                itemsPerPage={DOCS_PER_PAGE}
-                onPageChange={setDocPage}
-                filteredItemsCount={filteredDocFiles.length}
-              />
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Filename and Size</th>
+                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Requested By</th>
+                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">BLEPP Subject</th>
+                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Pipeline Status</th>
+                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {isLoading ? (
+                    <tr><td colSpan={5} className="p-8 text-center text-slate-500 font-bold">Loading requests...</td></tr>
+                  ) : paginatedDocFiles.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-8 text-center text-slate-500 font-bold">
+                        {docSearchQuery ? 'No documents match your search criteria.' : 'No records found for this view.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedDocFiles.map((file) => (
+                      <tr key={file.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-4">
+                          <p className={`font-bold ${file.status === 'File Purged' || file.status === 'Archived' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{file.title}</p>
+                          <p className="text-xs font-bold text-slate-500">{file.file_size_mb} MB • {new Date(file.created_at).toLocaleDateString()}</p>
+                        </td>
+                        <td className="p-4">
+                          <p className="font-bold text-slate-700">{file.faculty?.name || 'Admin Upload'}</p>
+                          <p className="text-xs text-slate-500">{file.faculty?.email || 'System'}</p>
+                        </td>
+                        <td className="p-4">
+                          <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md text-xs font-bold whitespace-nowrap">
+                            {file.subject || (file.tags && file.tags[0]) || 'General Reference'}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                            file.status === 'Approved & Indexed' ? 'bg-emerald-100 text-emerald-800' : 
+                            file.status === 'Pending Admin Approval' ? 'bg-amber-100 text-amber-800' : 
+                            file.status === 'Archived' ? 'bg-purple-100 text-purple-800' : 
+                            file.status === 'File Purged' ? 'bg-slate-200 text-slate-500' : 
+                            'bg-slate-100 text-slate-600'
+                          }`}>
+                            {file.status === 'Processing' && <span className="h-2 w-2 bg-blue-500 rounded-full animate-pulse"></span>}
+                            {file.status}
+                          </span>
+                        </td>
+                        <td className="p-4 text-right">
+                          <div className="flex justify-end items-center gap-2">
+                            {/* EYE ICON: View File */}
+                            {(file.status === 'Pending Admin Approval' || file.status === 'Approved & Indexed' || file.status === 'Processing') && (
+                              <button 
+                                onClick={() => handleReview(file.file_path)} 
+                                className="text-slate-400 hover:text-blue-600 transition-colors p-1" 
+                                title="View Document"
+                              >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                              </button>
+                            )}
+
+                            {/* NOTEBOOK ICON: View Details & Edit Subject */}
+                            <button 
+                              onClick={() => handleOpenDetails(file)} 
+                              className="text-slate-400 hover:text-indigo-600 transition-colors p-1" 
+                              title="View & Edit Details"
+                            >
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                              </svg>
+                            </button>
+
+                            {/* Approve / Reject */}
+                            {file.status === 'Pending Admin Approval' && (
+                              <>
+                                <div className="w-px h-4 bg-slate-200 mx-1"></div>
+                                <button 
+                                  onClick={() => handleApproveAndProcess(file.id, file.file_path, file.subject || (file.tags && file.tags[0]) || 'General Reference', file.title)} 
+                                  className="text-emerald-500 hover:text-emerald-700 transition-colors p-1" 
+                                  title="Approve & Process"
+                                >
+                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                </button>
+                                <button 
+                                  onClick={() => setRejectModal(file.id)} 
+                                  className="text-red-500 hover:text-red-700 transition-colors p-1" 
+                                  title="Reject"
+                                >
+                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              </>
+                            )}
+
+                            {/* Archive & Purge */}
+                            {(file.status === 'Approved & Indexed' || file.status === 'Processing') && (
+                              <>
+                                <div className="w-px h-4 bg-slate-200 mx-1"></div>
+                                <button 
+                                  onClick={() => {
+                                    setDeleteModal({ id: file.id, title: file.title, path: file.file_path, status: file.status });
+                                    setArchiveCountdown(5);
+                                  }} 
+                                  className="text-slate-400 hover:text-red-600 transition-colors p-1" 
+                                  title="Archive Material & Drop Vectors"
+                                >
+                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Documents Pagination Footer (Limit: 10) */}
+            {filteredDocFiles.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-200 bg-slate-50 gap-3 text-xs font-bold text-slate-600">
+                <span>
+                  Showing {Math.min(filteredDocFiles.length, (docPage - 1) * DOCS_PER_PAGE + 1)} to{' '}
+                  {Math.min(filteredDocFiles.length, docPage * DOCS_PER_PAGE)} of {filteredDocFiles.length} documents
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDocPage((prev) => Math.max(prev - 1, 1))}
+                    disabled={docPage === 1}
+                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+                  >
+                    &larr; Prev
+                  </button>
+                  <span className="px-2 font-bold text-slate-700">
+                    Page {docPage} of {totalDocPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setDocPage((prev) => Math.min(prev + 1, totalDocPages))}
+                    disabled={docPage === totalDocPages}
+                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+                  >
+                    Next &rarr;
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </>
@@ -870,23 +831,90 @@ export default function AdminRagPage() {
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <GlobalTable
-              data={paginatedSettings}
-              columns={columnsSettings}
-              keyExtractor={(item) => item.id}
-              isLoading={isSettingsLoading}
-              loadingMessage="Loading configurations..."
-              emptyMessage="No settings configured for this subject."
-            />
-            {filteredDomainSettings.length > 0 && !isSettingsLoading && (
-              <GlobalPagination
-                currentPage={settingPage}
-                totalPages={Math.ceil(filteredDomainSettings.length / SETTINGS_PER_PAGE)}
-                totalItems={domainSettings.length}
-                itemsPerPage={SETTINGS_PER_PAGE}
-                onPageChange={setSettingPage}
-                filteredItemsCount={filteredDomainSettings.length}
-              />
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Setting / Operational Context</th>
+                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Target Subject</th>
+                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Date Added</th>
+                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {isSettingsLoading ? (
+                    <tr><td colSpan={4} className="p-8 text-center text-slate-500 font-bold">Loading domain settings...</td></tr>
+                  ) : paginatedSettings.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="p-8 text-center text-slate-500 font-bold">
+                        No settings found for this domain. Add one to expand the AI&apos;s HOTS vignette variety.
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedSettings.map((setting) => (
+                      <tr key={setting.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-4">
+                          <p className="font-bold text-slate-800">{setting.setting_name}</p>
+                        </td>
+                        <td className="p-4">
+                          <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            {setting.subject}
+                          </span>
+                        </td>
+                        <td className="p-4 text-xs font-bold text-slate-500">
+                          {new Date(setting.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="p-4 text-right">
+                          <button
+                            onClick={() => {
+                              setDeleteSettingModal(setting);
+                              setSettingDeleteCountdown(5);
+                            }}
+                            className="text-slate-400 hover:text-red-600 transition-colors p-1"
+                            title="Remove Setting"
+                          >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Vignettes Settings Pagination Footer */}
+            {filteredDomainSettings.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-200 bg-slate-50 gap-3 text-xs font-bold text-slate-600">
+                <span>
+                  Showing {Math.min(filteredDomainSettings.length, (settingPage - 1) * SETTINGS_PER_PAGE + 1)} to{' '}
+                  {Math.min(filteredDomainSettings.length, settingPage * SETTINGS_PER_PAGE)} of {filteredDomainSettings.length} settings
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSettingPage((prev) => Math.max(prev - 1, 1))}
+                    disabled={settingPage === 1}
+                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+                  >
+                    &larr; Prev
+                  </button>
+                  <span className="px-2 font-bold text-slate-700">
+                    Page {settingPage} of {totalSettingPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSettingPage((prev) => Math.min(prev + 1, totalSettingPages))}
+                    disabled={settingPage === totalSettingPages}
+                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+                  >
+                    Next &rarr;
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -979,61 +1007,22 @@ export default function AdminRagPage() {
                 
                 <div 
                   className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors relative ${dragActive ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'} ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }} 
-                  onDragLeave={() => setDragActive(false)} 
-                  onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-                  onDrop={(e) => { 
-                    e.preventDefault(); 
-                    setDragActive(false); 
-                    if (e.dataTransfer.files?.[0]) {
-                      validateAndSetFile(e.dataTransfer.files[0]);
-                    }
-                  }}
+                  onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }} onDragLeave={() => setDragActive(false)} onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                  onDrop={(e) => { e.preventDefault(); setDragActive(false); if (e.dataTransfer.files?.[0]) setSelectedFile(e.dataTransfer.files[0]); }}
                 >
-                  <div className="w-12 h-12 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center mx-auto mb-3">
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                  </div>
+                  <div className="w-12 h-12 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center mx-auto mb-3"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg></div>
                   {selectedFile ? (
                     <div>
                       <h4 className="text-sm font-bold text-slate-800 mb-1">{selectedFile.name}</h4>
-                      <div className="mt-2 mb-3 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                        <span>{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB / 50 MB</span>
-                      </div>
-                      <div>
-                        <button type="button" onClick={() => { setSelectedFile(null); setUploadError(''); }} disabled={isUploading} className="text-xs font-bold text-red-500 hover:underline relative z-20 disabled:opacity-50">
-                          Remove file
-                        </button>
-                      </div>
+                      <p className="text-xs font-bold text-slate-500 mb-4">{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB ready for upload</p>
+                      <button type="button" onClick={() => setSelectedFile(null)} disabled={isUploading} className="text-xs font-bold text-red-500 hover:underline relative z-20 disabled:opacity-50">Remove file</button>
                     </div>
                   ) : (
                     <div>
                       <h4 className="text-sm font-bold text-slate-800 mb-1">Drag and drop your document</h4>
-                      <p className="text-xs font-bold text-slate-500 mb-2">Upload global materials directly to the AI pending queue</p>
-                      <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-bold mb-4">
-                        <svg className="w-3.5 h-3.5 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        <span>Maximum file size: 50 MB (Supabase Storage Ceiling)</span>
-                      </div>
-                      <div className="flex items-center justify-center">
-                        <span className="px-2 bg-slate-50 text-xs font-bold text-slate-400 uppercase relative z-10">Or</span>
-                        <div className="absolute left-10 right-10 top-auto h-px bg-slate-200"></div>
-                      </div>
-                      <label className="mt-4 px-5 py-2 border border-slate-300 text-slate-700 text-sm font-bold rounded-lg bg-white hover:bg-slate-50 transition-colors shadow-sm relative z-20 cursor-pointer inline-block">
-                        Browse Files
-                        <input 
-                          type="file" 
-                          className="hidden" 
-                          accept=".pdf,.pptx,.docx" 
-                          onChange={(e) => { 
-                            if (e.target.files?.[0]) {
-                              validateAndSetFile(e.target.files[0]);
-                            }
-                          }} 
-                        />
-                      </label>
+                      <p className="text-xs font-bold text-slate-500 mb-4">Upload global materials directly to the AI pending queue</p>
+                      <div className="flex items-center justify-center"><span className="px-2 bg-slate-50 text-xs font-bold text-slate-400 uppercase relative z-10">Or</span><div className="absolute left-10 right-10 top-auto h-px bg-slate-200"></div></div>
+                      <label className="mt-4 px-5 py-2 border border-slate-300 text-slate-700 text-sm font-bold rounded-lg bg-white hover:bg-slate-50 transition-colors shadow-sm relative z-20 cursor-pointer inline-block">Browse Files<input type="file" className="hidden" accept=".pdf,.pptx,.docx" onChange={(e) => { if (e.target.files?.[0]) setSelectedFile(e.target.files[0]); }} /></label>
                     </div>
                   )}
                 </div>
@@ -1088,7 +1077,6 @@ export default function AdminRagPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </div>
-
             <h3 className="text-lg font-bold text-slate-800 mb-2">Archive Material & Drop Vectors?</h3>
             <p className="text-sm text-slate-600 font-bold mb-4">
               Are you sure you want to archive <span className="text-slate-900 font-extrabold">{deleteModal.title}</span>?

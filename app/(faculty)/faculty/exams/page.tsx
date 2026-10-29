@@ -1,10 +1,9 @@
 'use client';
 
 import FullScreenLoader from '@/components/ui/FullScreenLoader';
-import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useDebounce } from '@/hooks/useDebounce';
-import { usePagination } from '@/hooks/usePagination';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/components/ui/ToastContext';
 import { useRegeneration } from '@/hooks/useRegeneration';
@@ -92,6 +91,8 @@ interface TeacherCohort {
   name: string;
   status: 'Active' | 'Archived';
 }
+
+const STUDENTS_PER_PAGE = 10;
 
 // --- Helpers ---
 const formatCitations = (rawCitations: any): string => {
@@ -212,6 +213,7 @@ function FacultyExamsContent() {
   const [studentSearch, setStudentSearch] = useState('');
   const debouncedStudentSearch = useDebounce(studentSearch, 300);
   const [studentStatusFilter, setStudentStatusFilter] = useState('All');
+  const [studentPage, setStudentPage] = useState(1);
 
   // Question Analytics Attempt Basis, Details & Export Dropdown
   const [analyticsAttemptBasis, setAnalyticsAttemptBasis] = useState<'graded' | 'first' | 'all'>('graded');
@@ -260,11 +262,14 @@ function FacultyExamsContent() {
   const [exams, setExams] = useState<FacultyExam[]>([]);
   const [aiQuestions, setAiQuestions] = useState<ValidationItem[]>([]);
 
-  // Analytics States
+  // Analytics States & Initial Load Tracking (Prevents background poll flickering)
   const [studentAnalytics, setStudentAnalytics] = useState<any[]>([]);
   const [isFetchingAnalytics, setIsFetchingAnalytics] = useState(false);
   const [questionAnalytics, setQuestionAnalytics] = useState<any[]>([]);
   const [kr20Reliability, setKr20Reliability] = useState<number | null>(null);
+
+  const hasLoadedAnalyticsRef = useRef(false);
+  const hasLoadedQuestionAnalyticsRef = useRef(false);
 
   // Competency Filters
   const [selectedCompetencyFilter, setSelectedCompetencyFilter] = useState<string>('All');
@@ -275,6 +280,8 @@ function FacultyExamsContent() {
     setSelectedStudentForReview(null);
     setSelectedCompetencyFilter('All');
     setIsItemExportOpen(false);
+    hasLoadedAnalyticsRef.current = false;
+    hasLoadedQuestionAnalyticsRef.current = false;
     router.replace('/faculty/exams');
   };
 
@@ -305,6 +312,13 @@ function FacultyExamsContent() {
       }
     }
   }, [selectedExam, exams]);
+
+  // Reset tracking on selected exam change
+  useEffect(() => {
+    hasLoadedAnalyticsRef.current = false;
+    hasLoadedQuestionAnalyticsRef.current = false;
+    setStudentPage(1);
+  }, [selectedExam]);
 
   const fetchFacultyExams = React.useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -482,16 +496,23 @@ function FacultyExamsContent() {
     return Array.from(set);
   }, [aiQuestions]);
 
-  // Fetch Gradebook Analytics
+  // Fetch Gradebook Analytics with Silent Background Refresh
   useEffect(() => {
+    let isMounted = true;
+
     const fetchAnalytics = async () => {
       if (!selectedExam || examTab !== 'gradebook') return;
-      setIsFetchingAnalytics(true);
+
+      // Only display the loading row if data hasn't been loaded yet for this exam
+      if (!hasLoadedAnalyticsRef.current) {
+        setIsFetchingAnalytics(true);
+      }
 
       const currentExamConfig = exams.find(e => e.id === selectedExam);
       const gradingRule = currentExamConfig?.gradingLogic || 'highest';
       const totalItems = currentExamConfig?.items || 0;
 
+      // 1. Fetch Students belonging to this exam's cohort
       const cohortId = currentExamConfig?.cohortId;
       let students: any[] = [];
       if (cohortId) {
@@ -502,6 +523,7 @@ function FacultyExamsContent() {
         students = studentData || [];
       }
 
+      // 2. Fetch Exam Items
       const { data: rawItems } = await supabase
         .from('Mock Exam Items')
         .select('id, subject, competency, correct_answer, options')
@@ -515,6 +537,7 @@ function FacultyExamsContent() {
         correctAnswer: q.correct_answer || ''
       }));
 
+      // 3. Fetch Student Attempts and Answers
       const { data: attemptsData } = await supabase
         .from('Student Attempts')
         .select('*')
@@ -531,6 +554,7 @@ function FacultyExamsContent() {
         answersData = ans || [];
       }
 
+      // 4. Merge Student Data
       const mergedData = students.map(st => {
         const studentAttempts = (attemptsData || []).filter(a => a.student_id === st.user_id);
         const completedAttempts = studentAttempts.filter(a => a.exam_status?.toLowerCase() === 'completed');
@@ -590,18 +614,29 @@ function FacultyExamsContent() {
         };
       });
 
-      setStudentAnalytics(mergedData);
-      setIsFetchingAnalytics(false);
+      if (isMounted) {
+        setStudentAnalytics(mergedData);
+        hasLoadedAnalyticsRef.current = true;
+        setIsFetchingAnalytics(false);
+      }
     };
 
     fetchAnalytics();
+
+    return () => {
+      isMounted = false;
+    };
   }, [selectedExam, examTab, exams]);
 
-  // Fetch Question Analytics for this specific cohort instance
+  // Fetch Question Analytics with Silent Background Refresh
   useEffect(() => {
+    let isMounted = true;
+
     const fetchQuestionAnalytics = async () => {
       if (!selectedExam || examTab !== 'question_analytics') return;
-      setIsFetchingAnalytics(true);
+      if (!hasLoadedQuestionAnalyticsRef.current) {
+        setIsFetchingAnalytics(true);
+      }
 
       const { data: questions } = await supabase
         .from('Mock Exam Items')
@@ -609,8 +644,10 @@ function FacultyExamsContent() {
         .eq('exam_session_id', selectedExam);
 
       if (!questions || questions.length === 0) {
-        setQuestionAnalytics([]);
-        setIsFetchingAnalytics(false);
+        if (isMounted) {
+          setQuestionAnalytics([]);
+          setIsFetchingAnalytics(false);
+        }
         return;
       }
 
@@ -751,20 +788,27 @@ function FacultyExamsContent() {
         };
       });
 
-      if (attemptScoresList.length >= 4 && questions.length > 1) {
-        const itemFacilities = analyticsResults.map(r => r.facilityIndex);
-        const studentTotals = attemptScoresList.map(a => a.totalScore);
-        const kr20 = calculateKR20Reliability(questions.length, itemFacilities, studentTotals);
-        setKr20Reliability(kr20);
-      } else {
-        setKr20Reliability(null);
-      }
+      if (isMounted) {
+        if (attemptScoresList.length >= 4 && questions.length > 1) {
+          const itemFacilities = analyticsResults.map(r => r.facilityIndex);
+          const studentTotals = attemptScoresList.map(a => a.totalScore);
+          const kr20 = calculateKR20Reliability(questions.length, itemFacilities, studentTotals);
+          setKr20Reliability(kr20);
+        } else {
+          setKr20Reliability(null);
+        }
 
-      setQuestionAnalytics(analyticsResults);
-      setIsFetchingAnalytics(false);
+        setQuestionAnalytics(analyticsResults);
+        hasLoadedQuestionAnalyticsRef.current = true;
+        setIsFetchingAnalytics(false);
+      }
     };
 
     fetchQuestionAnalytics();
+
+    return () => {
+      isMounted = false;
+    };
   }, [selectedExam, examTab, analyticsAttemptBasis, exams]);
 
   const currentExam = exams.find(e => e.id === selectedExam);
@@ -841,7 +885,6 @@ function FacultyExamsContent() {
       (questionAnalytics.reduce((acc, q) => acc + q.discriminationIndex, 0) / questionAnalytics.length).toFixed(3)
     );
 
-    // Sheet 1: Exam Context & Reliability Summary
     const summaryData = [
       { Metric: 'Exam Title', Value: currentExam?.title || 'N/A' },
       { Metric: 'Target Subject Domain', Value: currentExam?.target || 'N/A' },
@@ -855,7 +898,6 @@ function FacultyExamsContent() {
       { Metric: 'Report Generation Timestamp', Value: new Date().toLocaleString() }
     ];
 
-    // Sheet 2: CTT Question Item Matrix
     const itemsData = questionAnalytics.map((qa, idx) => ({
       'Item #': idx + 1,
       'Question Prompt': qa.question,
@@ -869,7 +911,6 @@ function FacultyExamsContent() {
       'Psychometric Feedback': qa.statusMessage
     }));
 
-    // Sheet 3: Distractor Diagnostic Breakdown
     const distractorData: any[] = [];
     questionAnalytics.forEach((qa, idx) => {
       qa.options.forEach((opt: any, optIdx: number) => {
@@ -970,6 +1011,7 @@ function FacultyExamsContent() {
     setSelectedStudentForReview(null);
     setEditSelectedCohort(exam.cohortId || '');
     setSelectedCompetencyFilter('All');
+    setStudentPage(1);
     setExamTab('gradebook');
   };
 
@@ -1516,22 +1558,28 @@ function FacultyExamsContent() {
     return matchesSearch && matchesStatus;
   });
 
-  const filteredStudents = studentAnalytics.filter(student => {
-    const matchesSearch = student.name.toLowerCase().includes(debouncedStudentSearch.toLowerCase());
-    const matchesStatus = studentStatusFilter === 'All' || student.status === studentStatusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredStudents = useMemo(() => {
+    return studentAnalytics.filter(student => {
+      const matchesSearch = student.name.toLowerCase().includes(debouncedStudentSearch.toLowerCase());
+      const matchesStatus = studentStatusFilter === 'All' || student.status === studentStatusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [studentAnalytics, debouncedStudentSearch, studentStatusFilter]);
 
-  const { currentPage: studentPage, totalPages: totalStudentPages, currentItems: currentStudents, nextPage, prevPage, resetPage } = usePagination(filteredStudents, 5);
+  const totalStudentPages = Math.max(1, Math.ceil(filteredStudents.length / STUDENTS_PER_PAGE));
+  const currentStudents = useMemo(() => {
+    const start = (studentPage - 1) * STUDENTS_PER_PAGE;
+    return filteredStudents.slice(start, start + STUDENTS_PER_PAGE);
+  }, [filteredStudents, studentPage]);
 
   const handleStudentSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setStudentSearch(e.target.value);
-    resetPage();
+    setStudentPage(1);
   };
 
   const handleStudentStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setStudentStatusFilter(e.target.value);
-    resetPage();
+    setStudentPage(1);
   };
 
   const getDifficultyBadge = (facility: number, label: string) => {
@@ -1622,7 +1670,13 @@ function FacultyExamsContent() {
           )}
 
           <button
-            onClick={() => { if (!isValidationMode) { setExamTab('gradebook'); resetPage(); setSelectedStudentForReview(null); } }}
+            onClick={() => { 
+              if (!isValidationMode) { 
+                setExamTab('gradebook'); 
+                setStudentPage(1); 
+                setSelectedStudentForReview(null); 
+              } 
+            }}
             className={`pb-4 border-b-2 text-sm font-bold flex items-center gap-2 whitespace-nowrap ${examTab === 'gradebook' ? 'border-blue-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'} ${isValidationMode ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {isValidationMode && <span>🔒</span>}
@@ -2221,7 +2275,7 @@ function FacultyExamsContent() {
                     </div>
                   </div>
 
-                  <div className="overflow-x-auto border border-slate-200 rounded-b-lg">
+                  <div className="overflow-x-auto border border-slate-200 rounded-b-lg bg-white">
                     <table className="w-full text-left border-collapse min-w-[640px]">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200">
@@ -2232,7 +2286,7 @@ function FacultyExamsContent() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-sm">
-                        {isFetchingAnalytics ? (
+                        {isFetchingAnalytics && studentAnalytics.length === 0 ? (
                           <tr><td colSpan={4} className="p-8 text-center text-sm font-bold text-slate-500">Loading gradebook...</td></tr>
                         ) : currentStudents.length === 0 ? (
                           <tr><td colSpan={4} className="p-8 text-center text-sm font-bold text-slate-500">No students match your filter criteria.</td></tr>
@@ -2269,6 +2323,38 @@ function FacultyExamsContent() {
                         )}
                       </tbody>
                     </table>
+
+                    {/* Pagination Footer */}
+                    {filteredStudents.length > 0 && (
+                      <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-200 bg-slate-50 gap-3 text-xs font-bold text-slate-600">
+                        <span>
+                          Showing {Math.min(filteredStudents.length, (studentPage - 1) * STUDENTS_PER_PAGE + 1)} to{' '}
+                          {Math.min(filteredStudents.length, studentPage * STUDENTS_PER_PAGE)} of {filteredStudents.length} students
+                        </span>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setStudentPage((prev) => Math.max(prev - 1, 1))}
+                            disabled={studentPage === 1}
+                            className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs transition-colors"
+                          >
+                            &larr; Prev
+                          </button>
+                          <span className="px-2 font-bold text-slate-800">
+                            Page {studentPage} of {totalStudentPages}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setStudentPage((prev) => Math.min(prev + 1, totalStudentPages))}
+                            disabled={studentPage === totalStudentPages}
+                            className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs transition-colors"
+                          >
+                            Next &rarr;
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -2422,7 +2508,7 @@ function FacultyExamsContent() {
 
               {/* Questions Analytics List */}
               <div className="space-y-6">
-                {isFetchingAnalytics ? (
+                {isFetchingAnalytics && questionAnalytics.length === 0 ? (
                   <div className="p-12 text-center text-slate-500 font-bold border border-slate-200 rounded-xl">
                     Loading question analytics...
                   </div>
