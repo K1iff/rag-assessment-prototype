@@ -89,6 +89,8 @@ interface StudentReadinessEntry {
   devScore: number;
 }
 
+const ITEMS_PER_PAGE = 10;
+
 export default function FacultyCohortsPage() {
   const router = useRouter();
   const { addToast } = useToast();
@@ -105,6 +107,12 @@ export default function FacultyCohortsPage() {
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [exams, setExams] = useState<AssignedExam[]>([]);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
+
+  // Independent Table Pagination States
+  const [materialsPage, setMaterialsPage] = useState(1);
+  const [studentsPage, setStudentsPage] = useState(1);
+  const [examsPage, setExamsPage] = useState(1);
+  const [rosterPage, setRosterPage] = useState(1);
 
   // Assign Material Modal States
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -190,7 +198,6 @@ export default function FacultyCohortsPage() {
     setIsAnalyticsLoading(true);
 
     try {
-      // 1. Get all students in this cohort
       const { data: enrolledStudents } = await supabase
         .from('Users')
         .select('user_id, name, email')
@@ -199,7 +206,6 @@ export default function FacultyCohortsPage() {
       const studentList = enrolledStudents || [];
       const studentIds = studentList.map(s => s.user_id);
 
-      // 2. Get all exams assigned to this cohort
       const { data: examLinks } = await supabase
         .from('Exam_Cohorts')
         .select(`
@@ -245,7 +251,6 @@ export default function FacultyCohortsPage() {
         return;
       }
 
-      // 3. Fetch questions for assigned exams
       const { data: rawQuestions } = await supabase
         .from('Mock Exam Items')
         .select('id, exam_session_id, subject, competency, correct_answer, options')
@@ -259,7 +264,6 @@ export default function FacultyCohortsPage() {
         correctAnswer: q.correct_answer || ''
       }));
 
-      // 4. Fetch Completed Student Attempts strictly for this cohort
       const { data: allStudentAttempts } = await supabase
         .from('Student Attempts')
         .select('attempt_id, student_id, exam_id, final_score, exam_status, completed_at, cohort_id')
@@ -276,7 +280,6 @@ export default function FacultyCohortsPage() {
       const attemptList = completedAttempts.length > 0 ? completedAttempts : safeRawAttempts;
       const attemptIds = attemptList.map(a => a.attempt_id);
 
-      // 5. Fetch student answers
       let answersData: any[] = [];
       if (attemptIds.length > 0) {
         const { data: ans } = await supabase
@@ -286,7 +289,6 @@ export default function FacultyCohortsPage() {
         answersData = ans || [];
       }
 
-      // 6. Group Attempts by Student & Apply Grading Rules
       const qualifyingAttemptsForCohort: any[] = [];
       let totalCohortTOSSum = 0;
       let evaluatedStudentsCount = 0;
@@ -366,7 +368,6 @@ export default function FacultyCohortsPage() {
         evaluatedStudentsCount += 1;
         if (studentAvgTOS >= 75.0) passingStudentsCount += 1;
 
-        // Compute individual domain scores across qualifying exam attempts
         const studentDomainTally: Record<string, { correct: number; total: number }> = {
           'Psychological Assessment': { correct: 0, total: 0 },
           'Abnormal Psychology': { correct: 0, total: 0 },
@@ -407,7 +408,6 @@ export default function FacultyCohortsPage() {
         };
       });
 
-      // 7. Calculate Cohort Macro KPI Metrics
       const finalPassRate = evaluatedStudentsCount > 0 
         ? Math.round((passingStudentsCount / evaluatedStudentsCount) * 100) 
         : 0;
@@ -420,7 +420,6 @@ export default function FacultyCohortsPage() {
       setCohortAvgTOS(finalAvgTOS);
       setStudentReadinessList(readinessRoster);
 
-      // 8. Calculate BLEPP 4-Domain Mastery
       const qualifyingAttemptIds = qualifyingAttemptsForCohort.map(a => a.attempt_id);
       const qualifyingAnswers = answersData.filter(a => qualifyingAttemptIds.includes(a.attempt_id));
 
@@ -448,7 +447,6 @@ export default function FacultyCohortsPage() {
       });
       setDomainBreakdown(domainFinal);
 
-      // 9. Extract Cohort Weak Spots
       const attemptScoreObjects: StudentAttemptScore[] = qualifyingAttemptsForCohort.map(att => {
         const attAns = qualifyingAnswers.filter(a => a.attempt_id === att.attempt_id);
         return {
@@ -473,7 +471,7 @@ export default function FacultyCohortsPage() {
     }
   };
 
-  // --- COHORT ANALYTICS EXPORT HANDLERS ---
+  // --- EXPORT HANDLERS ---
   const handleExportCohortCSV = () => {
     if (!studentReadinessList || studentReadinessList.length === 0) {
       addToast('No cohort analytics data available to export.', 'error');
@@ -505,7 +503,6 @@ export default function FacultyCohortsPage() {
       return;
     }
 
-    // Sheet 1: Cohort Summary
     const summarySheet = [
       { Metric: 'Cohort Name', Value: selectedCohort?.cohort_name || 'N/A' },
       { Metric: 'Cohort Lifecycle Status', Value: selectedCohort?.status || 'Active' },
@@ -517,7 +514,6 @@ export default function FacultyCohortsPage() {
       { Metric: 'Generated Date', Value: new Date().toLocaleString() }
     ];
 
-    // Sheet 2: Student Readiness Roster
     const rosterSheet = studentReadinessList.map(s => ({
       'Student Name': s.name,
       'Email Address': s.email,
@@ -531,7 +527,6 @@ export default function FacultyCohortsPage() {
       'Readiness Status': s.readinessStatus
     }));
 
-    // Sheet 3: Domain Mastery
     const domainSheet = Object.entries(domainBreakdown).map(([domain, data]) => ({
       'BLEPP Regulatory Domain': domain,
       'Official TOS Weight (%)': `${data.weight}%`,
@@ -540,7 +535,6 @@ export default function FacultyCohortsPage() {
       'Mastery Classification': data.accuracy >= 75 ? 'Mastery (≥75%)' : data.accuracy >= 60 ? 'Competent' : 'Critical Deficit (<60%)'
     }));
 
-    // Sheet 4: Weak Spots
     const weakSpotsSheet = cohortWeakSpots.map((spot, idx) => ({
       'Priority Rank': `#${idx + 1}`,
       'Competency Cluster': spot.competency,
@@ -604,7 +598,6 @@ export default function FacultyCohortsPage() {
   const fetchCohortDetails = async (cohortId: string) => {
     setIsDetailLoading(true);
 
-    // 1. Fetch assigned materials
     const { data: matData } = await supabase
       .from('Cohort_Materials')
       .select(`
@@ -635,7 +628,6 @@ export default function FacultyCohortsPage() {
     });
     setAssignedMaterials(formattedMaterials);
 
-    // 2. Fetch enrolled students
     const { data: studentData } = await supabase
       .from('Users')
       .select('user_id, name, email, account_status, created_at')
@@ -644,7 +636,6 @@ export default function FacultyCohortsPage() {
 
     setStudents(studentData || []);
 
-    // 3. Fetch assigned exams
     const { data: examData } = await supabase
       .from('Exam_Cohorts')
       .select('exam_id, Exams(*)')
@@ -672,6 +663,10 @@ export default function FacultyCohortsPage() {
   const handleSelectCohort = (cohort: CohortSummary) => {
     setSelectedCohort(cohort);
     setActiveTab('materials');
+    setMaterialsPage(1);
+    setStudentsPage(1);
+    setExamsPage(1);
+    setRosterPage(1);
     fetchCohortDetails(cohort.cohort_id);
   };
 
@@ -831,6 +826,35 @@ export default function FacultyCohortsPage() {
     );
   }, [studentReadinessList, rosterSearch]);
 
+  // Slices & Page Calculations for the 4 Detail Tables
+  const totalMaterialsPages = Math.max(1, Math.ceil(assignedMaterials.length / ITEMS_PER_PAGE));
+  const paginatedMaterials = useMemo(() => {
+    const start = (materialsPage - 1) * ITEMS_PER_PAGE;
+    return assignedMaterials.slice(start, start + ITEMS_PER_PAGE);
+  }, [assignedMaterials, materialsPage]);
+
+  const totalStudentsPages = Math.max(1, Math.ceil(students.length / ITEMS_PER_PAGE));
+  const paginatedStudents = useMemo(() => {
+    const start = (studentsPage - 1) * ITEMS_PER_PAGE;
+    return students.slice(start, start + ITEMS_PER_PAGE);
+  }, [students, studentsPage]);
+
+  const totalExamsPages = Math.max(1, Math.ceil(exams.length / ITEMS_PER_PAGE));
+  const paginatedExams = useMemo(() => {
+    const start = (examsPage - 1) * ITEMS_PER_PAGE;
+    return exams.slice(start, start + ITEMS_PER_PAGE);
+  }, [exams, examsPage]);
+
+  const totalRosterPages = Math.max(1, Math.ceil(filteredRoster.length / ITEMS_PER_PAGE));
+  const paginatedRoster = useMemo(() => {
+    const start = (rosterPage - 1) * ITEMS_PER_PAGE;
+    return filteredRoster.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredRoster, rosterPage]);
+
+  useEffect(() => {
+    setRosterPage(1);
+  }, [rosterSearch]);
+
   // ==========================================
   // DETAIL VIEW
   // ==========================================
@@ -919,6 +943,7 @@ export default function FacultyCohortsPage() {
         </div>
 
         <div className="bg-white border border-slate-200 rounded-b-xl p-8 shadow-sm min-h-[500px]">
+          {/* TAB 1: REVIEW MATERIALS */}
           {activeTab === 'materials' && (
             <div className="space-y-5">
               <div className="flex justify-between items-center">
@@ -936,176 +961,275 @@ export default function FacultyCohortsPage() {
                 )}
               </div>
 
-              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs bg-white">
                 <div className="overflow-x-auto w-full">
                   <table className="w-full text-left border-collapse min-w-[720px]">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200">
+                        <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Document Title & Details</th>
+                        <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">BLEPP Subject</th>
+                        <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Uploaded By</th>
+                        <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell">Date Assigned</th>
+                        <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-sm">
+                      {isDetailLoading ? (
+                        <tr><td colSpan={5} className="p-8 text-center text-slate-500 font-bold">Loading materials...</td></tr>
+                      ) : assignedMaterials.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="p-12 text-center text-slate-500 font-bold">
+                            No review materials assigned to this cohort yet. Click &quot;+ Assign Reference Files&quot; to share textbooks.
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedMaterials.map((mat) => (
+                          <tr key={mat.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="p-4">
+                              <p className="font-bold text-slate-800 leading-snug">{mat.title}</p>
+                              <p className="text-xs text-slate-400 font-medium mt-0.5">{mat.file_size_mb} MB • {mat.file_name}</p>
+                            </td>
+                            <td className="p-4">
+                              <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md text-xs font-bold">
+                                {mat.subject}
+                              </span>
+                            </td>
+                            <td className="p-4 font-bold text-slate-600 text-xs">
+                              {mat.uploaded_by}
+                            </td>
+                            <td className="p-4 text-xs font-bold text-slate-400 hidden md:table-cell">
+                              {new Date(mat.created_at).toLocaleDateString()}
+                            </td>
+                            <td className="p-4 text-right">
+                              <div className="flex justify-end gap-2 items-center">
+                                <button 
+                                  onClick={() => handlePreviewMaterial(mat.file_path)}
+                                  title="View Document File"
+                                  className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-300 text-slate-600 hover:text-blue-600 flex items-center justify-center transition-colors shadow-xs"
+                                >
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                  </svg>
+                                </button>
+                                {selectedCohort.status === 'Active' && (
+                                  <button 
+                                    onClick={() => handleUnassignSingle(mat.id, mat.title)}
+                                    title="Remove from Cohort"
+                                    className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-rose-50 hover:border-rose-300 text-slate-400 hover:text-rose-600 flex items-center justify-center transition-colors shadow-xs"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Materials Pagination Footer */}
+                {assignedMaterials.length > 0 && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-200 bg-slate-50 gap-3 text-xs font-bold text-slate-600">
+                    <span>
+                      Showing {Math.min(assignedMaterials.length, (materialsPage - 1) * ITEMS_PER_PAGE + 1)} to{' '}
+                      {Math.min(assignedMaterials.length, materialsPage * ITEMS_PER_PAGE)} of {assignedMaterials.length} materials
+                    </span>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setMaterialsPage((prev) => Math.max(prev - 1, 1))}
+                        disabled={materialsPage === 1}
+                        className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs transition-colors"
+                      >
+                        &larr; Prev
+                      </button>
+                      <span className="px-2 font-bold text-slate-800">
+                        Page {materialsPage} of {totalMaterialsPages}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setMaterialsPage((prev) => Math.min(prev + 1, totalMaterialsPages))}
+                        disabled={materialsPage === totalMaterialsPages}
+                        className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs transition-colors"
+                      >
+                        Next &rarr;
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: ENROLLED STUDENTS */}
+          {activeTab === 'students' && (
+            <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs bg-white">
+              <div className="overflow-x-auto w-full">
+                <table className="w-full text-left border-collapse min-w-[720px]">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Document Title & Details</th>
-                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">BLEPP Subject</th>
-                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Uploaded By</th>
-                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell">Date Assigned</th>
-                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Actions</th>
+                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Student Name</th>
+                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Email Address</th>
+                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Account Status</th>
+                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right hidden md:table-cell">Enrolled Date</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
                     {isDetailLoading ? (
-                      <tr><td colSpan={5} className="p-8 text-center text-slate-500 font-bold">Loading materials...</td></tr>
-                    ) : assignedMaterials.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="p-12 text-center text-slate-500 font-bold">
-                          No review materials assigned to this cohort yet. Click &quot;+ Assign Reference Files&quot; to share textbooks.
-                        </td>
-                      </tr>
+                      <tr><td colSpan={4} className="p-8 text-center text-slate-500 font-bold">Loading students...</td></tr>
+                    ) : students.length === 0 ? (
+                      <tr><td colSpan={4} className="p-8 text-center text-slate-500 font-bold">No students currently enrolled in this cohort.</td></tr>
                     ) : (
-                      assignedMaterials.map((mat) => (
-                        <tr key={mat.id} className="hover:bg-slate-50/80 transition-colors">
+                      paginatedStudents.map((student) => (
+                        <tr key={student.user_id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="p-4 font-bold text-slate-800">{student.name}</td>
+                          <td className="p-4 text-slate-600 font-medium">{student.email}</td>
                           <td className="p-4">
-                            <p className="font-bold text-slate-800 leading-snug">{mat.title}</p>
-                            <p className="text-xs text-slate-400 font-medium mt-0.5">{mat.file_size_mb} MB • {mat.file_name}</p>
-                          </td>
-                          <td className="p-4">
-                            <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md text-xs font-bold">
-                              {mat.subject}
+                            <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-bold uppercase tracking-wider">
+                              {student.account_status || 'Active'}
                             </span>
                           </td>
-                          <td className="p-4 font-bold text-slate-600 text-xs">
-                            {mat.uploaded_by}
-                          </td>
-                          <td className="p-4 text-xs font-bold text-slate-400 hidden md:table-cell">
-                            {new Date(mat.created_at).toLocaleDateString()}
-                          </td>
-                          <td className="p-4 text-right">
-                            <div className="flex justify-end gap-2 items-center">
-                              <button 
-                                onClick={() => handlePreviewMaterial(mat.file_path)}
-                                title="View Document File"
-                                className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-300 text-slate-600 hover:text-blue-600 flex items-center justify-center transition-colors shadow-xs"
-                              >
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                </svg>
-                              </button>
-                              {selectedCohort.status === 'Active' && (
-                                <button 
-                                  onClick={() => handleUnassignSingle(mat.id, mat.title)}
-                                  title="Remove from Cohort"
-                                  className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-rose-50 hover:border-rose-300 text-slate-400 hover:text-rose-600 flex items-center justify-center transition-colors shadow-xs"
-                                >
-                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </button>
-                              )}
-                            </div>
+                          <td className="p-4 text-right text-xs font-bold text-slate-400 hidden md:table-cell">
+                            {new Date(student.created_at).toLocaleDateString()}
                           </td>
                         </tr>
                       ))
                     )}
                   </tbody>
-                  </table>
+                </table>
+              </div>
+
+              {/* Students Pagination Footer */}
+              {students.length > 0 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-200 bg-slate-50 gap-3 text-xs font-bold text-slate-600">
+                  <span>
+                    Showing {Math.min(students.length, (studentsPage - 1) * ITEMS_PER_PAGE + 1)} to{' '}
+                    {Math.min(students.length, studentsPage * ITEMS_PER_PAGE)} of {students.length} students
+                  </span>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setStudentsPage((prev) => Math.max(prev - 1, 1))}
+                      disabled={studentsPage === 1}
+                      className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs transition-colors"
+                    >
+                      &larr; Prev
+                    </button>
+                    <span className="px-2 font-bold text-slate-800">
+                      Page {studentsPage} of {totalStudentsPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setStudentsPage((prev) => Math.min(prev + 1, totalStudentsPages))}
+                      disabled={studentsPage === totalStudentsPages}
+                      className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs transition-colors"
+                    >
+                      Next &rarr;
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
-          {activeTab === 'students' && (
-            <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-              <div className="overflow-x-auto w-full">
-                <table className="w-full text-left border-collapse min-w-[720px]">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Student Name</th>
-                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Email Address</th>
-                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Account Status</th>
-                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right hidden md:table-cell">Enrolled Date</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-sm">
-                  {isDetailLoading ? (
-                    <tr><td colSpan={4} className="p-8 text-center text-slate-500 font-bold">Loading students...</td></tr>
-                  ) : students.length === 0 ? (
-                    <tr><td colSpan={4} className="p-8 text-center text-slate-500 font-bold">No students currently enrolled in this cohort.</td></tr>
-                  ) : (
-                    students.map((student) => (
-                      <tr key={student.user_id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="p-4 font-bold text-slate-800">{student.name}</td>
-                        <td className="p-4 text-slate-600 font-medium">{student.email}</td>
-                        <td className="p-4">
-                          <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-bold uppercase tracking-wider">
-                            {student.account_status || 'Active'}
-                          </span>
-                        </td>
-                        <td className="p-4 text-right text-xs font-bold text-slate-400 hidden md:table-cell">
-                          {new Date(student.created_at).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
+          {/* TAB 3: ASSIGNED EXAMS */}
           {activeTab === 'exams' && (
-            <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+            <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs bg-white">
               <div className="overflow-x-auto w-full">
                 <table className="w-full text-left border-collapse min-w-[720px]">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Exam Title</th>
-                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Subject</th>
-                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell">Schedule Window</th>
-                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Status</th>
-                    <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Manage</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-sm">
-                  {isDetailLoading ? (
-                    <tr><td colSpan={5} className="p-8 text-center text-slate-500 font-bold">Loading exams...</td></tr>
-                  ) : exams.length === 0 ? (
-                    <tr><td colSpan={5} className="p-8 text-center text-slate-500 font-bold">No exams currently assigned to this cohort.</td></tr>
-                  ) : (
-                    exams.map((exam) => (
-                      <tr key={exam.exam_id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="p-4 font-bold text-slate-800">{exam.exam_title}</td>
-                        <td className="p-4 font-bold text-slate-600">{exam.exam_subject}</td>
-                        <td className="p-4 text-xs font-medium text-slate-500 hidden md:table-cell">
-                          {exam.schedule_start ? new Date(exam.schedule_start).toLocaleDateString() : 'N/A'} - {' '}
-                          {exam.schedule_end ? new Date(exam.schedule_end).toLocaleDateString() : 'N/A'}
-                        </td>
-                        <td className="p-4">
-                          <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
-                            exam.global_status === 'Active' ? 'bg-emerald-100 text-emerald-800' :
-                            exam.global_status === 'Pending' ? 'bg-amber-100 text-amber-800' :
-                            'bg-slate-100 text-slate-600'
-                          }`}>
-                            {exam.global_status}
-                          </span>
-                        </td>
-                        <td className="p-4 text-right">
-                          <button
-                            onClick={() => router.push(`/faculty/exams?examId=${exam.exam_id}&cohortId=${selectedCohort.cohort_id}`)}
-                            title="Manage Exam & Gradebook"
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-blue-600 text-slate-700 hover:text-white rounded-lg text-xs font-bold transition-all shadow-xs group"
-                          >
-                            <span>Manage</span>
-                            <svg className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                            </svg>
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Exam Title</th>
+                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Subject</th>
+                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell">Schedule Window</th>
+                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Status</th>
+                      <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Manage</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {isDetailLoading ? (
+                      <tr><td colSpan={5} className="p-8 text-center text-slate-500 font-bold">Loading exams...</td></tr>
+                    ) : exams.length === 0 ? (
+                      <tr><td colSpan={5} className="p-8 text-center text-slate-500 font-bold">No exams currently assigned to this cohort.</td></tr>
+                    ) : (
+                      paginatedExams.map((exam) => (
+                        <tr key={exam.exam_id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="p-4 font-bold text-slate-800">{exam.exam_title}</td>
+                          <td className="p-4 font-bold text-slate-600">{exam.exam_subject}</td>
+                          <td className="p-4 text-xs font-medium text-slate-500 hidden md:table-cell">
+                            {exam.schedule_start ? new Date(exam.schedule_start).toLocaleDateString() : 'N/A'} - {' '}
+                            {exam.schedule_end ? new Date(exam.schedule_end).toLocaleDateString() : 'N/A'}
+                          </td>
+                          <td className="p-4">
+                            <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                              exam.global_status === 'Active' ? 'bg-emerald-100 text-emerald-800' :
+                              exam.global_status === 'Pending' ? 'bg-amber-100 text-amber-800' :
+                              'bg-slate-100 text-slate-600'
+                            }`}>
+                              {exam.global_status}
+                            </span>
+                          </td>
+                          <td className="p-4 text-right">
+                            <button
+                              onClick={() => router.push(`/faculty/exams?examId=${exam.exam_id}&cohortId=${selectedCohort.cohort_id}`)}
+                              title="Manage Exam & Gradebook"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-blue-600 text-slate-700 hover:text-white rounded-lg text-xs font-bold transition-all shadow-xs group"
+                            >
+                              <span>Manage</span>
+                              <svg className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                              </svg>
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
                 </table>
               </div>
+
+              {/* Exams Pagination Footer */}
+              {exams.length > 0 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-200 bg-slate-50 gap-3 text-xs font-bold text-slate-600">
+                  <span>
+                    Showing {Math.min(exams.length, (examsPage - 1) * ITEMS_PER_PAGE + 1)} to{' '}
+                    {Math.min(exams.length, examsPage * ITEMS_PER_PAGE)} of {exams.length} exams
+                  </span>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setExamsPage((prev) => Math.max(prev - 1, 1))}
+                      disabled={examsPage === 1}
+                      className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs transition-colors"
+                    >
+                      &larr; Prev
+                    </button>
+                    <span className="px-2 font-bold text-slate-800">
+                      Page {examsPage} of {totalExamsPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setExamsPage((prev) => Math.min(prev + 1, totalExamsPages))}
+                      disabled={examsPage === totalExamsPages}
+                      className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs transition-colors"
+                    >
+                      Next &rarr;
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
+          {/* TAB 4: COHORT MACRO ANALYTICS */}
           {activeTab === 'analytics' && (
             <div className="space-y-8 animate-in fade-in duration-300">
               {isAnalyticsLoading ? (
@@ -1115,7 +1239,6 @@ export default function FacultyCohortsPage() {
                 </div>
               ) : (
                 <>
-                  {/* ANALYTICS HEADER & EXPORT TOOLBAR */}
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-2 border-b border-slate-100">
                     <div>
                       <h3 className="text-lg font-bold text-slate-800">Batch Performance &amp; Readiness Overview</h3>
@@ -1124,7 +1247,6 @@ export default function FacultyCohortsPage() {
                       </p>
                     </div>
 
-                    {/* MULTI-FORMAT EXPORT BUTTON */}
                     <div className="relative">
                       <button
                         type="button"
@@ -1325,6 +1447,7 @@ export default function FacultyCohortsPage() {
                     )}
                   </div>
 
+                  {/* Student Pre-Qualification Roster with Clean Pagination */}
                   <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                       <div>
@@ -1346,10 +1469,10 @@ export default function FacultyCohortsPage() {
                       </div>
                     </div>
 
-                    <div className="overflow-x-auto max-h-[460px] overflow-y-auto">
+                    <div className="overflow-x-auto">
                       <table className="w-full text-left border-collapse min-w-[720px]">
-                        <thead className="sticky top-0 bg-slate-50 shadow-2xs z-10">
-                          <tr className="border-b border-slate-200">
+                        <thead>
+                          <tr className="border-b border-slate-200 bg-slate-50">
                             <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Student Name</th>
                             <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Completed Exams</th>
                             <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-500">Raw Average</th>
@@ -1361,7 +1484,7 @@ export default function FacultyCohortsPage() {
                           {filteredRoster.length === 0 ? (
                             <tr><td colSpan={5} className="p-8 text-center text-slate-500 font-bold">No examinee data matching search.</td></tr>
                           ) : (
-                            filteredRoster.map((st) => (
+                            paginatedRoster.map((st) => (
                               <tr key={st.userId} className="hover:bg-slate-50/80 transition-colors">
                                 <td className="p-4">
                                   <p className="font-bold text-slate-800">{st.name}</p>
@@ -1397,6 +1520,38 @@ export default function FacultyCohortsPage() {
                         </tbody>
                       </table>
                     </div>
+
+                    {/* Readiness Roster Pagination Footer */}
+                    {filteredRoster.length > 0 && (
+                      <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t border-slate-200 bg-slate-50 gap-3 text-xs font-bold text-slate-600">
+                        <span>
+                          Showing {Math.min(filteredRoster.length, (rosterPage - 1) * ITEMS_PER_PAGE + 1)} to{' '}
+                          {Math.min(filteredRoster.length, rosterPage * ITEMS_PER_PAGE)} of {filteredRoster.length} examinees
+                        </span>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setRosterPage((prev) => Math.max(prev - 1, 1))}
+                            disabled={rosterPage === 1}
+                            className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs transition-colors"
+                          >
+                            &larr; Prev
+                          </button>
+                          <span className="px-2 font-bold text-slate-800">
+                            Page {rosterPage} of {totalRosterPages}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setRosterPage((prev) => Math.min(prev + 1, totalRosterPages))}
+                            disabled={rosterPage === totalRosterPages}
+                            className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs transition-colors"
+                          >
+                            Next &rarr;
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </>
               )}
@@ -1518,7 +1673,7 @@ export default function FacultyCohortsPage() {
   }
 
   // ==========================================
-  // MAIN COHORTS DIRECTORY (WITH ACTIVE / ARCHIVED TABS)
+  // MAIN COHORTS DIRECTORY
   // ==========================================
   const accentPalettes = [
     'from-blue-500 to-indigo-600',
@@ -1529,14 +1684,12 @@ export default function FacultyCohortsPage() {
 
   return (
     <div className="space-y-6 pb-24">
-      {/* Directory Title & Search Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-black text-slate-800">My Cohorts Directory</h1>
           <p className="text-sm text-slate-500 mt-1 font-medium">Manage student groups, distributed textbooks, and licensure test performance.</p>
         </div>
 
-        {/* Cohort Search Input */}
         <div className="w-full md:w-72 relative">
           <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -1551,7 +1704,6 @@ export default function FacultyCohortsPage() {
         </div>
       </div>
 
-      {/* Cohort Navigation Tabs (Active vs Archived) */}
       <div className="border-b border-slate-200">
         <div className="flex gap-6">
           <button 
