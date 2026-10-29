@@ -238,14 +238,14 @@ export default function AdminUsersPage() {
           <button
             onClick={(e) => { e.stopPropagation(); handleInitiatePasswordReset(user.id, user.email); }}
             disabled={isProcessing}
-            className="px-3 py-1.5 bg-white border border-slate-200 text-xs font-bold text-blue-600 rounded hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white border border-blue-600 text-xs font-bold rounded transition-colors shadow-sm disabled:opacity-50"
           >
             Reset Pass
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); handleInitiateStatusChange(user.id, user.status, user.email); }}
             disabled={isProcessing}
-            className={`px-3 py-1.5 bg-white border border-slate-200 text-xs font-bold rounded hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50 ${user.status === "Active" ? "text-rose-600" : "text-emerald-600"}`}
+            className={`px-3 py-1.5 text-white border text-xs font-bold rounded transition-colors shadow-sm disabled:opacity-50 ${user.status === "Active" ? "bg-rose-600 hover:bg-rose-700 border-rose-600" : "bg-emerald-600 hover:bg-emerald-700 border-emerald-600"}`}
           >
             {user.status === "Active" ? "Deactivate" : "Activate"}
           </button>
