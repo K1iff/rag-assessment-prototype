@@ -787,7 +787,7 @@ export default function AdminCohortsPage() {
                   <p className="text-sm text-slate-500 text-center py-4">No available teachers found.</p>
                 ) : availableTeachers.map(u => (
                   <div key={u.user_id} className="flex justify-between items-center p-3 bg-slate-50 border rounded-lg">
-                    <div><p className="text-sm font-bold">{u.name}</p><p className="text-xs text-slate-500">{u.email}</p></div>
+                    <div><p className="text-sm font-bold text-slate-800">{u.name}</p><p className="text-xs text-slate-500 font-medium">{u.email}</p></div>
                     <button onClick={() => handleAssignTeacher(u.user_id)} className="px-3 py-1 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700">Assign</button>
                   </div>
                 ))}

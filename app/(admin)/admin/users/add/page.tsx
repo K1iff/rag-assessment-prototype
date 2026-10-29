@@ -296,7 +296,7 @@ export default function AddUserPage() {
     link.click();
   };
 
-  const downloadErrorsCSV = () => {
+  const downloadErrorsCSV = async () => {
     const errorUsers = parsedUsers.filter(u => !u.isValid);
     if (errorUsers.length === 0) return;
 
@@ -308,6 +308,23 @@ export default function AddUserPage() {
     link.href = url;
     link.download = 'user_import_errors.csv';
     link.click();
+
+    try {
+      const { data: sessionData } = await supabase.auth.getUser();
+      const activeAdminEmail = sessionData?.user?.email || 'Unknown Admin';
+
+      await supabase.from('AuditLogs').insert([{
+        user_email: activeAdminEmail,
+        role: 'Admin',
+        action: `Exported user import error log (${errorUsers.length} invalid record(s))`,
+        type: 'Security',
+        severity: 'Warning',
+        ip_address: 'Internal',
+        user_agent: navigator.userAgent
+      }]);
+    } catch (err) {
+      console.error("Failed to insert audit log for error CSV export:", err);
+    }
   };
 
   return (
