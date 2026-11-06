@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabaseClient';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { normalizeRole, getRoleHome } from '@/lib/authUtils';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,6 +19,32 @@ export default function LoginPage() {
   const [platformName, setPlatformName] = useState('DeepCore Prep');
 
   useEffect(() => {
+    const checkActiveSession = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          let role = normalizeRole(user.user_metadata?.role || user.app_metadata?.role);
+          if (!role) {
+            const { data: profile } = await supabase
+              .from('Users')
+              .select('role_id')
+              .eq('user_id', user.id)
+              .single();
+            if (profile?.role_id) {
+              role = normalizeRole(profile.role_id);
+            }
+          }
+          if (role) {
+            document.cookie = `user-role=${role}; path=/; max-age=31536000; SameSite=Lax; Secure`;
+            window.location.href = getRoleHome(role);
+          }
+        }
+      } catch {
+        // Fallback: stay on login page if session verification fails
+      }
+    };
+    checkActiveSession();
+
     const fetchSettings = async () => {
       const { data } = await supabase.from('Platform_Settings').select('*').eq('id', 1).single();
       if (data) {
@@ -109,6 +136,18 @@ export default function LoginPage() {
 
       const roleMap: Record<number, string> = { 1: 'Learner', 2: 'Teacher', 3: 'Admin' };
       const userRoleString = roleMap[profileData.role_id] || 'Unknown';
+      const canonicalRole = profileData.role_id === 3 ? 'admin' : profileData.role_id === 2 ? 'faculty' : 'learner';
+
+      // Set user-role cookie for edge middleware and server layouts
+      document.cookie = `user-role=${canonicalRole}; path=/; max-age=31536000; SameSite=Lax; Secure`;
+
+      try {
+        await supabase.auth.updateUser({
+          data: { role: canonicalRole, role_id: profileData.role_id }
+        });
+      } catch {
+        // Non-blocking
+      }
 
       await supabase.from('AuditLogs').insert([{
         user_email: email, 
@@ -120,11 +159,11 @@ export default function LoginPage() {
         user_agent: navigator.userAgent
       }]);
 
-      if (profileData.role_id === 3) {
+      if (canonicalRole === 'admin') {
         window.location.href = '/admin';
-      } else if (profileData.role_id === 2) {
+      } else if (canonicalRole === 'faculty') {
         window.location.href = '/faculty';
-      } else if (profileData.role_id === 1) {
+      } else {
         window.location.href = '/learner';
       }
     }
