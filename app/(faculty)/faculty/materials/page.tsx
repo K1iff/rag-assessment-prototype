@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useToast } from '@/components/ui/ToastContext';
 import { GlobalTable, GlobalPagination, ColumnDef } from '@/components/ui/GlobalTable';
+import { formatReferenceTitle } from '@/lib/referenceUtils';
 
 const BLEPP_SUBJECTS = [
   'Industrial-Organizational Psychology',
@@ -71,8 +72,8 @@ export default function FacultyMaterialsPage() {
       header: 'File Name & Details',
       cell: (file) => (
         <div>
-          <p className={`font-bold ${file.status === 'File Purged' || file.status === 'Archived' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
-            {file.title}
+          <p className={`font-bold ${file.status === 'File Purged' || file.status === 'Archived' ? 'text-slate-400 line-through' : 'text-slate-800'}`} title={formatReferenceTitle(file.title)}>
+            {formatReferenceTitle(file.title)}
           </p>
           <div className="flex items-center gap-2 mt-1">
             <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase tracking-wider border border-slate-200">
@@ -543,8 +544,8 @@ export default function FacultyMaterialsPage() {
                 paginatedFiles.map((file) => (
                   <tr key={file.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-4">
-                      <p className={`font-bold ${file.status === 'File Purged' || file.status === 'Archived' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
-                        {file.title}
+                      <p className={`font-bold ${file.status === 'File Purged' || file.status === 'Archived' ? 'text-slate-400 line-through' : 'text-slate-800'}`} title={formatReferenceTitle(file.title)}>
+                        {formatReferenceTitle(file.title)}
                       </p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase tracking-wider border border-slate-200">

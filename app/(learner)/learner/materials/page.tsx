@@ -5,6 +5,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/components/ui/ToastContext';
 import { GlobalTable, GlobalPagination, ColumnDef } from '@/components/ui/GlobalTable';
+import { formatReferenceTitle } from '@/lib/referenceUtils';
 
 interface StudentMaterial {
   id: string; // Cohort_Materials ID
@@ -193,8 +194,8 @@ export default function LearnerMaterialsPage() {
       header: 'File Name',
       className: 'pr-6',
       cell: (file) => (
-        <p className="font-bold text-slate-800 line-clamp-2 leading-relaxed" title={file.title}>
-          {file.title}
+        <p className="font-bold text-slate-800 line-clamp-2 leading-relaxed" title={formatReferenceTitle(file.title)}>
+          {formatReferenceTitle(file.title)}
         </p>
       )
     },

@@ -5,6 +5,8 @@ import React, { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { useToast } from "@/components/ui/ToastContext";
+import { formatCitations } from "@/lib/referenceUtils";
+import CitationsList from "@/components/ui/CitationsList";
 
 interface ReviewItem {
   qNum: number;
@@ -41,53 +43,6 @@ const formatAttemptDate = (isoString: string) => {
   const dateStr = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear().toString().slice(-2)}`;
   const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   return `${dateStr}, ${timeStr}`;
-};
-
-const formatCitations = (rawCitations: any): string => {
-  if (!rawCitations) return 'No citation provided';
-
-  let parsed: any = rawCitations;
-  try {
-    while (typeof parsed === 'string') {
-      parsed = JSON.parse(parsed);
-    }
-  } catch (e) {
-    return String(rawCitations).replace(/^["']|["']$/g, '').trim();
-  }
-
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    if (typeof parsed === 'string') return parsed;
-    return 'No citation provided';
-  }
-
-  const docMap: Record<string, Set<number>> = {};
-
-  parsed.forEach((item: any) => {
-    if (!item) return;
-    let src = item.source || item.document || item.doc || 'Unknown Document';
-    src = src.replace(/^\d+[-_]/, '').trim();
-
-    if (!docMap[src]) {
-      docMap[src] = new Set<number>();
-    }
-
-    if (item.page !== undefined && item.page !== null) {
-      const pageNum = Number(item.page);
-      if (!isNaN(pageNum)) {
-        docMap[src].add(pageNum);
-      }
-    }
-  });
-
-  const formattedDocs = Object.keys(docMap).map((docName) => {
-    const pages = Array.from(docMap[docName]).sort((a, b) => a - b);
-    if (pages.length > 0) {
-      return `${docName}, Pages: ${pages.join(', ')}`;
-    }
-    return docName;
-  });
-
-  return formattedDocs.join(' | ') || 'No citation provided';
 };
 
 const parseItemData = (
@@ -532,8 +487,8 @@ export default function ExamReviewPage() {
     .sort((a, b) => b.failRate - a.failRate);
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      <div className="flex items-center gap-2 text-sm mb-4">
+    <div className="space-y-6 max-w-5xl mx-auto pb-12 w-full max-w-full min-w-0 overflow-x-hidden">
+      <div className="flex items-center gap-2 text-sm mb-4 flex-wrap">
         <button onClick={() => router.push('/learner/exams')} className="text-blue-600 hover:underline font-bold">
           Scheduled Mock Exams
         </button>
@@ -542,14 +497,14 @@ export default function ExamReviewPage() {
       </div>
 
       {/* Top Header */}
-      <div className="bg-white p-4 md:p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h2 className="text-xl font-bold text-slate-800">
+      <div className="bg-white p-4 md:p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full max-w-full min-w-0 box-border overflow-hidden">
+        <div className="min-w-0 max-w-full">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h2 className="text-xl font-bold text-slate-800 break-words">
               {examTitle} Results
             </h2>
             {cohortStatus === 'Archived' && (
-              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold uppercase tracking-wider">
+              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded text-[10px] font-bold uppercase tracking-wider shrink-0">
                 {cohortName} (Archived)
               </span>
             )}
@@ -581,7 +536,7 @@ export default function ExamReviewPage() {
               </div>
             )}
           </div>
-          <div className={`w-full sm:w-auto border px-4 py-1.5 rounded-md text-center min-w-[100px] shadow-sm ${scoreBgClass}`}>
+          <div className={`w-full sm:w-auto border px-4 py-1.5 rounded-md text-center min-w-[100px] shadow-sm shrink-0 ${scoreBgClass}`}>
             <span className={`text-xl font-black leading-none block ${scoreTextClass}`}>
               {finalRawScore} / {finalMaxScore}
             </span>
@@ -594,15 +549,15 @@ export default function ExamReviewPage() {
 
       {/* Cross-Cohort Anti-Cheat Warning Banner */}
       {isAntiCheatLocked && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3 w-full min-w-0 box-border">
           <svg className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
           </svg>
-          <div>
+          <div className="min-w-0">
             <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900 mb-0.5">
               Review Rationales Temporarily Locked
             </h4>
-            <p className="text-xs text-amber-800 font-bold leading-relaxed">
+            <p className="text-xs text-amber-800 font-bold leading-relaxed break-words">
               This exam is currently active and uncompleted in your current review batch. Correct answers and AI-generated rationales are locked to maintain assessment integrity until your active cohort attempt is finalized.
             </p>
           </div>
@@ -610,11 +565,11 @@ export default function ExamReviewPage() {
       )}
 
       {/* Shared Dropdown & Tabs Control */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between mt-8 gap-4">
-        <div className="flex bg-slate-200 p-1 rounded-lg w-full sm:w-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mt-8 gap-4 w-full min-w-0">
+        <div className="flex bg-slate-200 p-1 rounded-lg w-full sm:w-auto min-w-0 max-w-full">
           <button 
             onClick={() => setActiveTab('review')}
-            className={`flex-1 sm:flex-none px-5 py-2 text-sm font-bold rounded-md transition-colors ${
+            className={`flex-1 sm:flex-none px-3 sm:px-5 py-2 text-xs sm:text-sm font-bold rounded-md transition-colors text-center truncate ${
               activeTab === 'review' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'
             }`}
           >
@@ -622,7 +577,7 @@ export default function ExamReviewPage() {
           </button>
           <button 
             onClick={() => setActiveTab('diagnostics')}
-            className={`flex-1 sm:flex-none px-5 py-2 text-sm font-bold rounded-md transition-colors ${
+            className={`flex-1 sm:flex-none px-3 sm:px-5 py-2 text-xs sm:text-sm font-bold rounded-md transition-colors text-center truncate ${
               activeTab === 'diagnostics' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'
             }`}
           >
@@ -631,17 +586,17 @@ export default function ExamReviewPage() {
         </div>
 
         {attempts.length > 0 && (
-          <div className="relative min-w-[280px] w-full sm:w-auto">
+          <div className="relative w-full sm:w-auto min-w-0">
             <button
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 bg-white flex justify-between items-center transition-colors hover:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-sm"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 bg-white flex justify-between items-center transition-colors hover:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-sm min-w-0"
             >
-              <span className="uppercase text-xs tracking-wider">
+              <span className="uppercase text-xs tracking-wider truncate">
                 {isUnattemptedClosed
                   ? "UNATTEMPTED (CLOSED EXAM REVIEW)"
                   : `ATTEMPT ${activeAttemptIndex + 1}/${maxAttempts} (SUBMITTED ${formatAttemptDate(currentAttempt.takenAt).toUpperCase()})`}
               </span>
-              <svg className={`w-4 h-4 ml-2 transition-transform duration-200 text-slate-500 ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className={`w-4 h-4 ml-2 shrink-0 transition-transform duration-200 text-slate-500 ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
@@ -683,10 +638,10 @@ export default function ExamReviewPage() {
         )}
       </div>
 
-      <div className="space-y-4 animate-in fade-in duration-500">
+      <div className="space-y-4 animate-in fade-in duration-500 w-full min-w-0">
         {/* TAB 1: QUESTION REVIEW DECK */}
         {activeTab === 'review' && (
-          <div className="grid gap-6 mt-4">
+          <div className="grid gap-6 mt-4 w-full min-w-0">
             {currentAttempt.items.map((item) => {
               const isUnanswered = item.studentAnswer === "No Answer Selected";
               const borderClass = hideAnswers
@@ -696,17 +651,17 @@ export default function ExamReviewPage() {
               return (
                 <div
                   key={item.qNum}
-                  className={`p-6 border rounded-xl bg-white shadow-sm flex flex-col gap-3 border-l-4 transition-all ${borderClass}`}
+                  className={`p-4 sm:p-6 border rounded-xl bg-white shadow-sm flex flex-col gap-3 border-l-4 transition-all w-full max-w-full box-border overflow-hidden min-w-0 ${borderClass}`}
                 >
-                  <div className="flex justify-between items-center text-xs font-bold text-slate-400 mb-1">
-                    <span className="uppercase tracking-wider">Question {item.qNum}</span>
+                  <div className="flex justify-between items-center text-xs font-bold text-slate-400 mb-1 gap-2 flex-wrap sm:flex-nowrap">
+                    <span className="uppercase tracking-wider shrink-0">Question {item.qNum}</span>
                     {hideAnswers ? (
-                      <span className="px-2 py-1 rounded-md text-[10px] uppercase tracking-wider font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                      <span className="px-2 py-1 rounded-md text-[10px] uppercase tracking-wider font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
                         {isUnanswered ? "— Unanswered" : "Answer Recorded"}
                       </span>
                     ) : (
                       <span
-                        className={`px-2 py-1 rounded-md text-[10px] uppercase tracking-wider font-bold ${
+                        className={`px-2 py-1 rounded-md text-[10px] uppercase tracking-wider font-bold shrink-0 ${
                           item.isCorrect
                             ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                             : "bg-rose-50 text-rose-700 border border-rose-200"
@@ -717,16 +672,16 @@ export default function ExamReviewPage() {
                     )}
                   </div>
 
-                  <p className="text-base font-bold text-slate-800 leading-relaxed mb-2">
+                  <p className="text-base font-bold text-slate-800 leading-relaxed mb-2 break-words">
                     {item.text}
                   </p>
 
-                  <div className="space-y-2">
+                  <div className="space-y-2 w-full min-w-0">
                     {item.options.map((opt, i) => {
                       const isSelected = !isUnanswered && normalizeForComparison(opt) === normalizeForComparison(item.studentAnswer);
                       const isCorrect = normalizeForComparison(opt) === normalizeForComparison(item.correctAnswer);
 
-                      let baseStyle = "p-3 border rounded-lg text-sm font-bold flex justify-between items-center transition-colors ";
+                      let baseStyle = "p-3 border rounded-lg text-sm font-bold flex justify-between items-center transition-colors gap-2 w-full min-w-0 box-border ";
 
                       if (hideAnswers) {
                         if (isSelected) {
@@ -748,8 +703,8 @@ export default function ExamReviewPage() {
 
                       return (
                         <div key={i} className={baseStyle}>
-                          <span>{opt}</span>
-                          <div className="flex gap-2 text-[10px] uppercase tracking-wider font-bold shrink-0">
+                          <span className="break-words min-w-0 flex-1">{opt}</span>
+                          <div className="flex gap-2 text-[10px] uppercase tracking-wider font-bold shrink-0 ml-2">
                             {isSelected && <span>(Your Answer)</span>}
                             {!hideAnswers && isCorrect && <span>(Correct Answer)</span>}
                           </div>
@@ -759,35 +714,46 @@ export default function ExamReviewPage() {
                   </div>
 
                   {isAntiCheatLocked ? (
-                    <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-lg mt-3 flex items-center gap-2.5 text-amber-900">
+                    <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-lg mt-3 flex items-center gap-2.5 text-amber-900 w-full min-w-0 box-border">
                       <svg className="w-4 h-4 shrink-0 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                       </svg>
-                      <span className="text-xs font-bold">
+                      <span className="text-xs font-bold break-words min-w-0">
                         Correct answers and rationales are locked because this assessment is currently active in your current batch. Complete your active cohort attempts to unlock review details.
                       </span>
                     </div>
                   ) : canRetake ? (
-                    <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-lg mt-3 flex items-center gap-2.5 text-amber-900">
+                    <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-lg mt-3 flex items-center gap-2.5 text-amber-900 w-full min-w-0 box-border">
                       <svg className="w-4 h-4 shrink-0 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                       </svg>
-                      <span className="text-xs font-bold">
+                      <span className="text-xs font-bold break-words min-w-0">
                         Correct answers and rationales are hidden while retakes are available. Complete all remaining attempts or wait until the closing deadline to view answers.
                       </span>
                     </div>
                   ) : (
-                    <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-lg mt-3 flex items-start gap-3">
-                      <span className="text-lg shrink-0 mt-0.5">🧠</span>
-                      <div>
-                        <span className="block text-[11px] font-bold text-blue-800 uppercase tracking-wider mb-1">
-                          AI-Generated Rationale
-                        </span>
-                        <p className="text-sm text-blue-950 font-bold leading-relaxed">
-                          {item.explanation}
-                        </p>
+                    <>
+                      <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-lg mt-3 flex items-start gap-3 w-full min-w-0 box-border overflow-hidden">
+                        <span className="text-lg shrink-0 mt-0.5">🧠</span>
+                        <div className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-bold text-blue-800 uppercase tracking-wider mb-1">
+                            AI-Generated Rationale
+                          </span>
+                          <p className="text-sm text-blue-950 font-bold leading-relaxed break-words">
+                            {item.explanation}
+                          </p>
+                        </div>
                       </div>
-                    </div>
+
+                      {item.citations && item.citations !== 'No citation provided' && (
+                        <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-lg mt-3 flex flex-col gap-2 w-full min-w-0 box-border overflow-hidden">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                            Sources
+                          </span>
+                          <CitationsList citations={item.citations} />
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               );
@@ -797,9 +763,9 @@ export default function ExamReviewPage() {
 
         {/* TAB 2: TOPIC DIAGNOSTICS */}
         {activeTab === 'diagnostics' && (
-          <div className="mt-4">
+          <div className="mt-4 w-full min-w-0">
             {isAntiCheatLocked ? (
-              <div className="p-12 text-center text-sm font-bold text-slate-500 bg-white rounded-xl border border-slate-200">
+              <div className="p-8 sm:p-12 text-center text-sm font-bold text-slate-500 bg-white rounded-xl border border-slate-200 w-full min-w-0">
                 <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-3">
                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
@@ -811,8 +777,8 @@ export default function ExamReviewPage() {
                 </p>
               </div>
             ) : (
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-6 border-b border-slate-200 bg-slate-50">
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full min-w-0">
+                <div className="p-4 sm:p-6 border-b border-slate-200 bg-slate-50">
                   <h3 className="text-xl font-bold text-slate-800">Your Competency Diagnostics</h3>
                   <p className="text-sm text-slate-500 mt-1 font-bold">Topics from this attempt ranked by difficulty. Review the recommended sources to improve your mastery.</p>
                 </div>
@@ -827,35 +793,28 @@ export default function ExamReviewPage() {
                       const statusColor = item.failRate >= 50 ? 'rose' : item.failRate >= 30 ? 'amber' : 'emerald';
 
                       return (
-                        <div key={index} className="p-6 flex flex-col md:flex-row gap-6 hover:bg-slate-50 transition-colors">
+                        <div key={index} className="p-4 sm:p-6 flex flex-col md:flex-row gap-6 hover:bg-slate-50 transition-colors w-full min-w-0 box-border overflow-hidden">
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-3 mb-2">
-                              <span className={`text-[10px] px-2.5 py-1 border rounded-md uppercase font-bold tracking-wider bg-${statusColor}-100 text-${statusColor}-700 border-${statusColor}-200`}>
+                            <div className="flex items-center gap-3 mb-2 flex-wrap">
+                              <span className={`text-[10px] px-2.5 py-1 border rounded-md uppercase font-bold tracking-wider bg-${statusColor}-100 text-${statusColor}-700 border-${statusColor}-200 shrink-0`}>
                                 {item.failRate >= 50 ? 'Critical Struggle' : item.failRate >= 30 ? 'Needs Review' : 'Mastered'}
                               </span>
-                              <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded">
+                              <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded shrink-0">
                                 {item.failed} / {item.total} Questions Missed
                               </span>
                             </div>
 
-                            <p className="text-base font-bold text-slate-800 leading-snug mb-4">{item.topic}</p>
+                            <p className="text-base font-bold text-slate-800 leading-snug mb-4 break-words">{item.topic}</p>
 
-                            <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-lg">
+                            <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-lg w-full min-w-0 box-border overflow-hidden">
                               <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                                 </svg>
                                 Recommended Study Sources
                               </span>
                               {item.sources.length > 0 ? (
-                                <ul className="text-sm font-bold text-blue-950 list-none space-y-2">
-                                  {item.sources.map((src, i) => (
-                                    <li key={i} className="flex items-start gap-2">
-                                      <span className="text-blue-400 mt-0.5">•</span>
-                                      <span>{src}</span>
-                                    </li>
-                                  ))}
-                                </ul>
+                                <CitationsList citations={item.sources.join(' | ')} emptyLabel="No specific sources tagged for this topic." />
                               ) : (
                                 <p className="text-sm font-bold text-blue-950 italic">No specific sources tagged for this topic.</p>
                               )}

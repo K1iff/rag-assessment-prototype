@@ -24,6 +24,7 @@ import FullScreenLoader from '@/components/ui/FullScreenLoader';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { formatReferenceTitle } from '@/lib/referenceUtils';
 
 export default function LearnerCalendarPage() {
   const router = useRouter();
@@ -303,7 +304,7 @@ export default function LearnerCalendarPage() {
   );
 
   return (
-    <div className="space-y-6 pb-24">
+    <div className="space-y-6 pb-24 w-full max-w-full min-w-0">
       {missedExams.length > 0 && (
         <div className="space-y-3 mb-6 animate-in fade-in slide-in-from-top-4 duration-300">
           {missedExams.map((exam) => (
@@ -365,10 +366,10 @@ export default function LearnerCalendarPage() {
             </div>
           ) : (
             activeUpcomingSchedule.map((schedule, idx) => (
-              <div key={idx} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between gap-4">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                  <div>
-                    <h3 className="font-bold text-lg text-slate-800">{schedule.task}</h3>
+              <div key={idx} className="bg-white p-4 sm:p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between gap-4 min-w-0 max-w-full overflow-hidden box-border">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 min-w-0">
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-lg text-slate-800 break-words">{schedule.task}</h3>
                     <p className="text-sm text-slate-500 mt-1">Scheduled for {schedule.day}, {schedule.date} at {schedule.time}</p>
                   </div>
                   <span className={`px-3 py-1.5 rounded-full text-xs font-bold shrink-0 ${
@@ -383,14 +384,21 @@ export default function LearnerCalendarPage() {
                   </span>
                 </div>
 
-                <div className="border-t border-slate-100 pt-3">
+                <div className="border-t border-slate-100 pt-3 min-w-0 w-full">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">Required Review References:</span>
-                  <div className="flex flex-wrap gap-2">
-                    {schedule.references.map((ref, rIdx) => (
-                      <span key={rIdx} className="px-2.5 py-1 bg-slate-100 text-slate-700 text-xs font-bold rounded border border-slate-200">
-                        {ref}
-                      </span>
-                    ))}
+                  <div className="flex flex-wrap gap-2 min-w-0 max-w-full">
+                    {schedule.references.map((ref, rIdx) => {
+                      const sanitized = formatReferenceTitle(ref);
+                      return (
+                        <span 
+                          key={rIdx} 
+                          className="px-2.5 py-1 bg-slate-100 text-slate-700 text-xs font-bold rounded border border-slate-200 max-w-full truncate inline-block"
+                          title={sanitized}
+                        >
+                          {sanitized}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
 

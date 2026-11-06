@@ -20,6 +20,8 @@ import {
   exportToXLSX,
   exportItemAnalysisPDF
 } from '@/lib/exportUtils';
+import { formatCitations } from '@/lib/referenceUtils';
+import CitationsList from '@/components/ui/CitationsList';
 
 // --- Types ---
 interface FacultyExam {
@@ -95,53 +97,6 @@ interface TeacherCohort {
 const STUDENTS_PER_PAGE = 10;
 
 // --- Helpers ---
-const formatCitations = (rawCitations: any): string => {
-  if (!rawCitations) return 'No citation provided';
-
-  let parsed: any = rawCitations;
-  try {
-    while (typeof parsed === 'string') {
-      parsed = JSON.parse(parsed);
-    }
-  } catch (e) {
-    return String(rawCitations).replace(/^["']|["']$/g, '').trim();
-  }
-
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    if (typeof parsed === 'string') return parsed;
-    return 'No citation provided';
-  }
-
-  const docMap: Record<string, Set<number>> = {};
-
-  parsed.forEach((item: any) => {
-    if (!item) return;
-    let src = item.source || item.document || item.doc || 'Unknown Document';
-    src = src.replace(/^\d+[-_]/, '').trim();
-
-    if (!docMap[src]) {
-      docMap[src] = new Set<number>();
-    }
-
-    if (item.page !== undefined && item.page !== null) {
-      const pageNum = Number(item.page);
-      if (!isNaN(pageNum)) {
-        docMap[src].add(pageNum);
-      }
-    }
-  });
-
-  const formattedDocs = Object.keys(docMap).map((docName) => {
-    const pages = Array.from(docMap[docName]).sort((a, b) => a - b);
-    if (pages.length > 0) {
-      return `${docName}, Pages: ${pages.join(', ')}`;
-    }
-    return docName;
-  });
-
-  return formattedDocs.join(' | ') || 'No citation provided';
-};
-
 const normalizeForComparison = (str: string) => {
   return String(str || '')
     .replace(/^[\\"'“”\[\]]+|[\\"'“”\[\]]+$/g, '')
@@ -1924,7 +1879,7 @@ function FacultyExamsContent() {
                     const isExpanded = !!expandedQuestionDetails[q.id];
 
                     return (
-                      <div key={q.id} className={`relative p-6 border rounded-xl transition-colors ${selectedQuestions.includes(q.id) ? 'border-blue-400 bg-blue-50/50' : 'border-slate-200 bg-white'}`}>
+                      <div key={q.id} className={`relative p-4 sm:p-6 border rounded-xl transition-colors w-full max-w-full overflow-hidden box-border min-w-0 ${selectedQuestions.includes(q.id) ? 'border-blue-400 bg-blue-50/50' : 'border-slate-200 bg-white'}`}>
 
                         {isProcessing && (
                           <div className="absolute inset-0 z-10 bg-white/80 backdrop-blur-[1px] flex flex-col items-center justify-center rounded-xl border border-blue-200">
@@ -1948,7 +1903,7 @@ function FacultyExamsContent() {
                             <span className="w-8 h-8 shrink-0 mt-0.5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-sm font-bold border border-slate-200">
                               {index + 1}
                             </span>
-                            <p className="text-base font-bold text-slate-900 leading-relaxed pt-1 w-full pr-4">{q.question}</p>
+                            <p className="text-base font-bold text-slate-900 leading-relaxed pt-1 w-full pr-4 break-words">{q.question}</p>
                           </div>
                           {isValidationMode && (
                             <span className={`shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${getAIStatusStyle(q.status)} border-current`}>
@@ -1960,7 +1915,7 @@ function FacultyExamsContent() {
                         <div className="mb-4 md:ml-11">
                           <div className="space-y-3 mb-4">
                             {(Array.isArray(q.options) ? q.options : parseOptionsArray(q.options)).map((opt, idx) => (
-                              <div key={idx} className={`p-4 border rounded-lg text-sm font-bold ${normalizeForComparison(opt) === normalizeForComparison(q.answer) ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-white border-slate-200 text-slate-600'}`}>
+                              <div key={idx} className={`p-4 border rounded-lg text-sm font-bold break-words ${normalizeForComparison(opt) === normalizeForComparison(q.answer) ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-white border-slate-200 text-slate-600'}`}>
                                 <span className="mr-3 text-slate-400">{String.fromCharCode(65 + idx)}.</span>
                                 {opt}
                                 {normalizeForComparison(opt) === normalizeForComparison(q.answer) && <span className="ml-2 text-xs font-bold text-emerald-600 uppercase tracking-wider">(Correct)</span>}
@@ -1981,18 +1936,18 @@ function FacultyExamsContent() {
                             </button>
 
                             {isExpanded && (
-                              <div className="grid grid-cols-1 gap-3 mt-4 animate-in fade-in duration-200">
-                                <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-lg flex flex-col gap-1">
+                              <div className="grid grid-cols-1 gap-3 mt-4 animate-in fade-in duration-200 w-full min-w-0">
+                                <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-lg flex flex-col gap-1 w-full max-w-full overflow-hidden">
                                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Target Competency / Topic</span>
-                                  <p className="text-sm font-bold text-slate-900">{q.topic}</p>
+                                  <p className="text-sm font-bold text-slate-900 break-words">{q.topic}</p>
                                 </div>
-                                <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-lg flex flex-col gap-1">
+                                <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-lg flex flex-col gap-1 w-full max-w-full overflow-hidden">
                                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Rationale</span>
-                                  <p className="text-sm font-bold text-slate-900 leading-relaxed">{q.rationale}</p>
+                                  <p className="text-sm font-bold text-slate-900 leading-relaxed break-words">{q.rationale}</p>
                                 </div>
-                                <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-lg flex flex-col gap-1">
+                                <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-lg flex flex-col gap-2 w-full max-w-full overflow-hidden">
                                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sources</span>
-                                  <p className="text-sm font-bold text-slate-900 leading-relaxed">{q.citation}</p>
+                                  <CitationsList citations={q.citation} />
                                 </div>
                               </div>
                             )}
@@ -2604,28 +2559,26 @@ function FacultyExamsContent() {
                           </button>
 
                           {isExpanded && matchingQuestion && (
-                            <div className="grid grid-cols-1 gap-3 mt-4 animate-in fade-in duration-200">
-                              <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-lg flex flex-col gap-1">
+                            <div className="grid grid-cols-1 gap-3 mt-4 animate-in fade-in duration-200 w-full min-w-0">
+                              <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-lg flex flex-col gap-1 w-full max-w-full overflow-hidden">
                                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                                   Target Competency / Topic
                                 </span>
-                                <p className="text-sm font-bold text-slate-900">{matchingQuestion.topic}</p>
+                                <p className="text-sm font-bold text-slate-900 break-words">{matchingQuestion.topic}</p>
                               </div>
-                              <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-lg flex flex-col gap-1">
+                              <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-lg flex flex-col gap-1 w-full max-w-full overflow-hidden">
                                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                                   Rationale
                                 </span>
-                                <p className="text-sm font-bold text-slate-900 leading-relaxed">
+                                <p className="text-sm font-bold text-slate-900 leading-relaxed break-words">
                                   {matchingQuestion.rationale}
                                 </p>
                               </div>
-                              <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-lg flex flex-col gap-1">
+                              <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-lg flex flex-col gap-2 w-full max-w-full overflow-hidden">
                                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                                   Sources
                                 </span>
-                                <p className="text-sm font-bold text-slate-900 leading-relaxed">
-                                  {matchingQuestion.citation}
-                                </p>
+                                <CitationsList citations={matchingQuestion.citation} />
                               </div>
                             </div>
                           )}

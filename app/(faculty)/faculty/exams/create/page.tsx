@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/components/ui/ToastContext';
 import { useExamGeneration } from '@/hooks/useExamGeneration';
+import { formatReferenceTitle } from '@/lib/referenceUtils';
 
 const TOS_TOPICS: Record<string, string[]> = {
   "Abnormal Psychology": [
@@ -224,7 +225,9 @@ export default function CreateExamPage() {
     const uploaderName = m.faculty?.name || 'Admin Upload';
     return (
       m.title.toLowerCase().includes(query) || 
+      formatReferenceTitle(m.title).toLowerCase().includes(query) ||
       m.file_name.toLowerCase().includes(query) ||
+      formatReferenceTitle(m.file_name).toLowerCase().includes(query) ||
       uploaderName.toLowerCase().includes(query)
     );
   });
@@ -852,13 +855,14 @@ export default function CreateExamPage() {
                 <div className="p-4 border-b border-slate-200 bg-white flex flex-wrap gap-2">
                   {selectedMaterials.map(sourceName => {
                     const mat = availableMaterials.find(m => getSourceFromPath(m.file_path) === sourceName);
+                    const cleanTitle = formatReferenceTitle(mat?.title || sourceName);
                     return (
-                      <div key={sourceName} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 border border-blue-200 rounded-md">
-                        <span className="text-xs font-bold text-blue-800 max-w-[200px] truncate" title={mat?.title}>{mat?.title}</span>
+                      <div key={sourceName} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 border border-blue-200 rounded-md max-w-full min-w-0">
+                        <span className="text-xs font-bold text-blue-800 max-w-[200px] truncate" title={cleanTitle}>{cleanTitle}</span>
                         <button 
                           type="button" 
                           onClick={() => toggleMaterialSelection(mat?.file_path || sourceName)}
-                          className="text-blue-400 hover:text-blue-700 bg-white rounded-full p-0.5"
+                          className="text-blue-400 hover:text-blue-700 bg-white rounded-full p-0.5 shrink-0"
                         >
                           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                         </button>
@@ -899,7 +903,9 @@ export default function CreateExamPage() {
                           {isSelected && <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-slate-800 truncate">{mat.title}</p>
+                          <p className="text-sm font-bold text-slate-800 truncate" title={formatReferenceTitle(mat.title || sourceName)}>
+                            {formatReferenceTitle(mat.title || sourceName)}
+                          </p>
                           <div className="flex items-center gap-2 mt-1">
                             <span className="text-xs font-bold text-slate-500">{mat.file_size_mb} MB</span>
                             <span className="text-slate-300">•</span>
