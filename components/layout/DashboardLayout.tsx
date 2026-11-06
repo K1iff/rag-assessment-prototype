@@ -167,7 +167,17 @@ export default function DashboardLayout({ children, role, hideSidebar = false }:
       
       <div className="shrink-0 mt-auto border-t border-slate-800 p-4">
         <button 
-          onClick={() => router.push('/login')}
+          onClick={async () => {
+            try {
+              await supabase.auth.signOut();
+            } catch {
+              // Ignore error on sign out
+            }
+            if (typeof document !== 'undefined') {
+              document.cookie = 'user-role=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+            }
+            window.location.href = '/login';
+          }}
           className="w-full text-center bg-slate-800 hover:bg-slate-700 text-xs py-3 rounded-md font-bold transition-colors text-slate-300"
         >
           Sign Out
