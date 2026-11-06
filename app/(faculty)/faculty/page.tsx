@@ -25,27 +25,98 @@ export default function FacultyDashboardPage() {
     totalExams: 0,
     activeExams: 0,
     pendingReviews: 0,
-    overallCompletion: '92%' // Placeholder 
+    overallCompletion: '0%'
   });
 
   useEffect(() => {
     const fetchDashboardData = async () => {
-      // 1. Get the active authenticated session
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      
-      if (authError || !user) {
-        setIsLoading(false);
-        return;
-      }
+      try {
+        // 1. Get the active authenticated session
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        
+        if (authError || !user) {
+          setIsLoading(false);
+          return;
+        }
 
-      // 2. Fetch Profile, Exams (with items count), and Assigned Cohort Students
-      const [profileResponse, examsResponse, cohortsResponse] = await Promise.all([
-        supabase
-          .from('Users')
-          .select('name')
-          .eq('user_id', user.id)
-          .single(),
-        supabase
+        // 2. Fetch Profile and Assigned Cohorts (with Students & Attempts)
+        const [profileResponse, cohortsResponse] = await Promise.all([
+          supabase
+            .from('Users')
+            .select('name')
+            .eq('user_id', user.id)
+            .single(),
+          supabase
+            .from('Cohort Teachers')
+            .select(`
+              cohort_id,
+              Cohorts (
+                cohort_id,
+                cohort_name,
+                status,
+                Users (
+                  user_id,
+                  role_id,
+                  "Student Attempts" (
+                    exam_id
+                  )
+                )
+              )
+            `)
+            .eq('teacher_id', user.id)
+        ]);
+
+        if (cohortsResponse.error) {
+          console.error("COHORTS QUERY FAILED:", cohortsResponse.error);
+        }
+
+        if (profileResponse.data?.name) {
+          setFacultyName(profileResponse.data.name.split(' ')[0]);
+        }
+
+        const userCohorts = cohortsResponse.data || [];
+        const cohortIds = userCohorts.map((c: any) => c.cohort_id).filter(Boolean);
+
+        // If faculty has no assigned cohorts, reset and return early
+        if (cohortIds.length === 0) {
+          setExamsList([]);
+          setDashboardStats({
+            totalExams: 0,
+            activeExams: 0,
+            pendingReviews: 0,
+            overallCompletion: '0%'
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        // 3. Fetch Exam IDs assigned to this teacher's cohorts (mirroring Exam Management scoping)
+        const { data: examLinks, error: examLinksError } = await supabase
+          .from('Exam_Cohorts')
+          .select('exam_id, cohort_id')
+          .in('cohort_id', cohortIds);
+
+        if (examLinksError) {
+          console.error("EXAM_COHORTS QUERY FAILED:", examLinksError);
+        }
+
+        const examIds = [...new Set(examLinks?.map((link: any) => link.exam_id).filter(Boolean) || [])];
+
+        // If no exams linked to these cohorts, reset and return early
+        if (examIds.length === 0) {
+          setExamsList([]);
+          setDashboardStats({
+            totalExams: 0,
+            activeExams: 0,
+            pendingReviews: 0,
+            overallCompletion: '0%'
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        // 4. Fetch scoped Exams matching the Exam Management query
+        const { data: dbExams, error: examsError } = await supabase
           .from('Exams')
           .select(`
             exam_id, 
@@ -54,106 +125,119 @@ export default function FacultyDashboardPage() {
             schedule_start, 
             global_status, 
             references,
-            "Mock Exam Items" ( exam_session_id )
+            Exam_Cohorts ( cohort_id, Cohorts ( cohort_id, cohort_name, status ) ),
+            "Mock Exam Items" ( id )
           `)
-          //.eq('created_by', user.id)
-          .order('schedule_start', { ascending: false }),
-        supabase
-          .from('Cohort Teachers')
-          .select(`
-            Cohorts (
-              Users (
-                role_id,
-                "Student Attempts" (
-                  exam_id
-                )
-              )
-            )
-          `)
-          .eq('teacher_id', user.id)
-      ]);
+          .in('exam_id', examIds)
+          .order('schedule_start', { ascending: false });
 
-      if (cohortsResponse.error) {
-        console.error("COHORTS QUERY FAILED:", cohortsResponse.error);
-      }
+        if (examsError) {
+          console.error("EXAMS QUERY FAILED:", examsError);
+        }
 
-      if (profileResponse.data?.name) {
-        setFacultyName(profileResponse.data.name.split(' ')[0]);
-      }
+        let activeCount = 0;
+        let pendingCount = 0;
+        const activeExamIds: string[] = [];
+        let formattedExams: DashboardExam[] = [];
 
-      let activeCount = 0;
-      let pendingCount = 0;
-      let activeExamIds: string[] = [];
-      let formattedExams: DashboardExam[] = [];
+        if (dbExams) {
+          formattedExams = dbExams.map((exam: any) => {
+            const dueDateObj = exam.schedule_start ? new Date(exam.schedule_start) : null;
+            const formattedDueDate = dueDateObj && !isNaN(dueDateObj.getTime())
+              ? dueDateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+              : 'No Date';
 
-      if (examsResponse.data) {
-        formattedExams = examsResponse.data.map((exam: any) => {
-          const dueDateObj = new Date(exam.schedule_start);
-          
-          // Count items dynamically from the Mock Exam Items table
-          const totalItems = exam['Mock Exam Items']?.length || 0;
-          const status = exam.global_status || 'Pending';
+            const totalItems = exam['Mock Exam Items']?.length || 0;
+            const status = exam.global_status || 'Pending';
+            const normalizedStatus = status.trim().toUpperCase();
 
-          if (status === 'Active') {
-            activeCount++;
-            activeExamIds.push(exam.exam_id); // Store ID for the completion calculation
-          }
-          if (status === 'Pending') pendingCount++;
+            if (normalizedStatus === 'ACTIVE') {
+              activeCount++;
+              activeExamIds.push(exam.exam_id);
+            } else if (normalizedStatus === 'PENDING') {
+              pendingCount++;
+            }
 
-          return {
-            id: exam.exam_id,
-            title: exam.exam_title,
-            target: exam.exam_subject || 'Comprehensive',
-            items: totalItems,
-            status: status,
-            dueDate: dueDateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-          };
-        });
+            const primaryLink = Array.isArray(exam.Exam_Cohorts) ? exam.Exam_Cohorts[0] : exam.Exam_Cohorts;
+            const cohortName = primaryLink?.Cohorts?.cohort_name;
 
-        setExamsList(formattedExams);
-      }
-
-      // Calculate Overall Completion % dynamically
-      let completionText = 'N/A';
-      
-      if (cohortsResponse.data && activeExamIds.length > 0) {
-        // Flatten all students across all assigned cohorts
-        const allStudents = cohortsResponse.data.flatMap(record => {
-          const cohortData = (record as any).Cohorts;
-          return (cohortData?.Users || []).filter((u: any) => u.role_id === 1);
-        });
-
-        if (allStudents.length > 0) {
-          let completedAllCount = 0;
-
-          // Check if each student has an attempt logged for every active exam
-          allStudents.forEach(student => {
-            const attempts = student['Student Attempts'] || [];
-            const studentExamIds = attempts.map((a: any) => a.exam_id);
-            
-            const hasCompletedAll = activeExamIds.every(id => studentExamIds.includes(id));
-            if (hasCompletedAll) completedAllCount++;
+            return {
+              id: exam.exam_id,
+              title: exam.exam_title || 'Untitled Exam',
+              target: exam.exam_subject || cohortName || 'Comprehensive',
+              items: totalItems,
+              status: status,
+              dueDate: formattedDueDate
+            };
           });
 
-          completionText = Math.round((completedAllCount / allStudents.length) * 100) + '%';
-        } else {
-          completionText = '0%'; // Teacher has cohorts, but no students are enrolled yet
+          setExamsList(formattedExams);
         }
-      } else if (activeExamIds.length === 0) {
-        completionText = '100%'; // If there are 0 active exams, they are 100% caught up
+
+        // 5. Calculate Overall Completion % dynamically across enrolled students in scoped cohorts
+        let completionText = '0%';
+
+        if (userCohorts.length > 0 && activeExamIds.length > 0) {
+          const cohortActiveExamsMap = new Map<string, string[]>();
+
+          examLinks?.forEach((link: any) => {
+            if (activeExamIds.includes(link.exam_id)) {
+              const currentList = cohortActiveExamsMap.get(link.cohort_id) || [];
+              if (!currentList.includes(link.exam_id)) {
+                currentList.push(link.exam_id);
+              }
+              cohortActiveExamsMap.set(link.cohort_id, currentList);
+            }
+          });
+
+          let totalStudentsCount = 0;
+          let completedAllCount = 0;
+
+          userCohorts.forEach((record: any) => {
+            const cohortData = Array.isArray(record.Cohorts) ? record.Cohorts[0] : record.Cohorts;
+            const cohortId = record.cohort_id;
+            const students = (cohortData?.Users || []).filter((u: any) => u.role_id === 1);
+            const cohortActiveExams = cohortActiveExamsMap.get(cohortId) || activeExamIds;
+
+            if (cohortActiveExams.length > 0) {
+              students.forEach((student: any) => {
+                totalStudentsCount++;
+                const attempts = student['Student Attempts'] || [];
+                const studentExamIds = attempts.map((a: any) => a.exam_id);
+
+                const hasCompletedAll = cohortActiveExams.every((id: string) => studentExamIds.includes(id));
+                if (hasCompletedAll) {
+                  completedAllCount++;
+                }
+              });
+            }
+          });
+
+          if (totalStudentsCount > 0) {
+            completionText = `${Math.round((completedAllCount / totalStudentsCount) * 100)}%`;
+          } else {
+            completionText = '0%';
+          }
+        }
+
+        setDashboardStats({
+          totalExams: formattedExams.length,
+          activeExams: activeCount,
+          pendingReviews: pendingCount,
+          overallCompletion: completionText
+        });
+      } catch (err) {
+        console.error("DASHBOARD DATA FETCH ERROR:", err);
+      } finally {
+        setIsLoading(false);
       }
-
-      setDashboardStats({
-        totalExams: formattedExams.length,
-        activeExams: activeCount,
-        pendingReviews: pendingCount,
-        overallCompletion: completionText
-      });
-
-      setIsLoading(false);
     };
 
     fetchDashboardData();
+    const interval = setInterval(() => {
+      fetchDashboardData();
+    }, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   const getStatusBadge = (status: string) => {
@@ -259,8 +343,8 @@ export default function FacultyDashboardPage() {
             <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
               {examsList.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-slate-500 font-bold">
-                    You haven't created any exams yet.
+                  <td colSpan={6} className="p-12 text-center text-slate-500 font-medium">
+                    No exams found. Click &apos;Create New Exam&apos; to get started.
                   </td>
                 </tr>
               ) : (
