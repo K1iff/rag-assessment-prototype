@@ -111,30 +111,7 @@ Follow these steps to set up and run the application locally.
 
 ---
 
-## 5. Environment Variables
-
-Create a `.env.local` file in the root directory with the following variables:
-
-```bash
-# Supabase Configuration
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy-anon-key
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy-service-role-key
-
-# AI / RAG Ingestion Backend
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
-
-> **Note:**
-> - `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are required for client and server Supabase operations.
-> - `SUPABASE_SERVICE_ROLE_KEY` is required for administrative backend routes (`/api/reset-password`, `/api/telemetry`). Never expose this key in client-side code.
-> - `NEXT_PUBLIC_API_BASE_URL` routes AI exam generation and knowledge base ingestion requests to the dedicated FastAPI backend.
-
----
-
-## 6. Project Structure
+## 5. Project Structure
 
 ```text
 rag-assessment-prototype/
@@ -209,7 +186,7 @@ rag-assessment-prototype/
 
 ---
 
-## 7. Scripts & Testing
+## 6. Scripts & Testing
 
 The following scripts are defined in `package.json` for development, build, and quality assurance:
 
