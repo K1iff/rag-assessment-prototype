@@ -9,22 +9,6 @@
 
 > An automated, psychometrics-driven assessment engine powered by Retrieval-Augmented Generation (RAG) for board licensure examination preparation across Learner, Faculty, and Administrator workflows.
 
-```
-+-----------------------------------------------------------------------------------+
-|                                                                                   |
-|                           [ Dashboard & Exam Preview ]                            |
-|                                                                                   |
-|   +-----------------------+  +------------------------------------------------+   |
-|   |   Navigation Sidebar  |  | Active Assessment Session                      |   |
-|   |   - Dashboard         |  | Timer: 01:29:45 | Question 14 of 100           |   |
-|   |   - Question Blueprints| |                                                |   |
-|   |   - Psychometrics     |  | [BLEPP TOS Domain: Psychological Assessment]   |   |
-|   |   - Knowledge Base    |  | AI Rationale & Source Citations Integrated     |   |
-|   +-----------------------+  +------------------------------------------------+   |
-|                                                                                   |
-+-----------------------------------------------------------------------------------+
-```
-
 ---
 
 ## 1. Header & Tagline
@@ -248,12 +232,7 @@ The following scripts are defined in `package.json` for development, build, and 
 
 ---
 
-## 8. License & Contact
-
-### License
-This project is licensed under the [MIT License](LICENSE) — see the LICENSE file for details.
-
 ### Maintainer & Contact
-- **Project Maintainer:** RAG Assessment Engine Team
+- **Project Maintainer:** Ryzel Realon, Carl Abel, Mark Dabandan
 - **Issue Tracker:** Submit bug reports, feedback, or feature requests via GitHub Issues.
 - **Repository:** [https://github.com/your-org/rag-assessment-prototype](https://github.com/your-org/rag-assessment-prototype)
